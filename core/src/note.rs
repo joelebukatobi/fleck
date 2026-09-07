@@ -37,12 +37,42 @@ pub fn parse(text: &str) -> Result<Note, ParseError> {
 }
 /// A body line of exactly `+++` would otherwise read back as the frontmatter
 /// fence, truncating the note. Escape it on write, undo it on read.
+///
+/// Line-wise and backslash-counting (not `str::replace` on a literal), so the
+/// mapping is injective: a line of zero-or-more backslashes followed by
+/// `+++` gains one leading backslash. This is invertible by `unescape_fences`
+/// even when the user's own body already contains a line like `\+++`.
 fn escape_fences(body: &str) -> String {
-    body.replace("\n+++\n", "\n\\+++\n")
+    transform_fence_lines(
+        body,
+        |line| line.ends_with("+++") && line[..line.len() - 3].bytes().all(|b| b == b'\\'),
+        |line| format!("\\{line}"),
+    )
 }
 
+/// Inverse of `escape_fences`: a line of one-or-more backslashes followed by
+/// `+++` loses exactly one leading backslash.
 fn unescape_fences(body: &str) -> String {
-    body.replace("\n\\+++\n", "\n+++\n")
+    transform_fence_lines(
+        body,
+        |line| {
+            line.starts_with('\\')
+                && line.ends_with("+++")
+                && line[..line.len() - 3].bytes().all(|b| b == b'\\')
+        },
+        |line| line[1..].to_string(),
+    )
+}
+
+fn transform_fence_lines(
+    body: &str,
+    matches: impl Fn(&str) -> bool,
+    transform: impl Fn(&str) -> String,
+) -> String {
+    body.split('\n')
+        .map(|line| if matches(line) { transform(line) } else { line.to_string() })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn serialize(note: &Note) -> String {
@@ -107,6 +137,36 @@ mod tests {
     fn title_is_first_non_empty_line() {
         assert_eq!(title(&sample_note("\n\nGroceries\nmilk\n")), "Groceries");
         assert_eq!(title(&sample_note("")), "");
+    }
+
+    #[test]
+    fn round_trips_a_lone_fence_line() {
+        let note = sample_note("+++\n");
+        assert_eq!(parse(&serialize(&note)).expect("parses").body, note.body);
+    }
+
+    #[test]
+    fn round_trips_a_body_with_a_bare_fence_line() {
+        let note = sample_note("a\n+++\nb\n");
+        assert_eq!(parse(&serialize(&note)).expect("parses").body, note.body);
+    }
+
+    #[test]
+    fn round_trips_a_user_typed_escaped_fence_line() {
+        let note = sample_note("a\n\\+++\nb\n");
+        assert_eq!(parse(&serialize(&note)).expect("parses").body, note.body);
+    }
+
+    #[test]
+    fn round_trips_a_user_typed_double_escaped_fence_line() {
+        let note = sample_note("a\n\\\\+++\nb\n");
+        assert_eq!(parse(&serialize(&note)).expect("parses").body, note.body);
+    }
+
+    #[test]
+    fn round_trips_consecutive_fence_lines() {
+        let note = sample_note("+++\n+++\n");
+        assert_eq!(parse(&serialize(&note)).expect("parses").body, note.body);
     }
 
     proptest::proptest! {
