@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutputId {
@@ -63,6 +66,37 @@ pub fn resolve(placement: &Placement, outputs: &[OutputInfo]) -> Option<Resolved
     let y = (placement.y * oh).round().clamp(0.0, oh - h as f32) as i32;
 
     Some(Resolved { x, y, w, h })
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct WindowState {
+    #[serde(default)]
+    pub placements: BTreeMap<Uuid, Placement>,
+    #[serde(default)]
+    pub minimized: BTreeSet<Uuid>,
+}
+
+impl WindowState {
+    /// A missing or unreadable state file yields empty state. Window positions
+    /// are worth losing; startup is not.
+    pub fn load(path: &Path) -> std::io::Result<Self> {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(e),
+        };
+        Ok(toml::from_str(&text).unwrap_or_default())
+    }
+
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let text = toml::to_string(self).expect("window state is serializable");
+        let temp = path.with_extension("toml.tmp");
+        std::fs::write(&temp, text)?;
+        std::fs::rename(&temp, path)
+    }
 }
 
 #[cfg(test)]
@@ -149,5 +183,34 @@ mod tests {
     fn without_a_primary_the_first_output_is_used() {
         let outputs = vec![info("eDP-1", Some("LAP001"), 1920, 1080, false)];
         assert!(resolve(&placement(output("DP-9", Some("GONE"))), &outputs).is_some());
+    }
+
+    #[test]
+    fn round_trips_window_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("windows.toml");
+        let id = uuid::Uuid::from_u128(3);
+
+        let mut state = WindowState::default();
+        state.placements.insert(id, placement(output("DP-1", Some("ABC123"))));
+        state.minimized.insert(id);
+        state.save(&path).unwrap();
+
+        assert_eq!(WindowState::load(&path).unwrap(), state);
+    }
+
+    #[test]
+    fn missing_state_file_loads_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = WindowState::load(&dir.path().join("nope.toml")).unwrap();
+        assert!(state.placements.is_empty());
+    }
+
+    #[test]
+    fn corrupt_state_file_loads_empty_rather_than_failing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("windows.toml");
+        std::fs::write(&path, "this is not toml =").unwrap();
+        assert!(WindowState::load(&path).unwrap().placements.is_empty());
     }
 }
