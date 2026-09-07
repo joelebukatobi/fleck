@@ -37,12 +37,102 @@ impl Store {
         }
         Ok(out)
     }
+
+    pub fn backup_path(&self, id: Uuid) -> PathBuf {
+        self.dir.join(format!("{id}.md.bak"))
+    }
+
+    /// Write a note atomically, preserving the previous version as `.bak`.
+    pub fn save(&self, note: &Note) -> std::io::Result<()> {
+        std::fs::create_dir_all(&self.dir)?;
+
+        let id = note.frontmatter.uuid;
+        let target = self.path(id);
+
+        // Copy rather than rename: a rename would leave a window in which the
+        // note file does not exist.
+        if target.exists() {
+            std::fs::copy(&target, self.backup_path(id))?;
+        }
+
+        let temp = self.dir.join(format!(".{id}.md.tmp"));
+        std::fs::write(&temp, crate::note::serialize(note))?;
+        std::fs::rename(&temp, &target)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::note::{serialize, Frontmatter, Note};
+
+    fn note_with(id: Uuid, body: &str) -> Note {
+        Note {
+            frontmatter: Frontmatter {
+                version: 1,
+                uuid: id,
+                created: "2026-09-04T10:15:00Z".into(),
+                color: "yellow".into(),
+            },
+            body: body.into(),
+        }
+    }
+
+    #[test]
+    fn first_save_writes_no_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let id = Uuid::from_u128(7);
+        store.save(&note_with(id, "first\n")).unwrap();
+        assert!(store.path(id).exists());
+        assert!(!store.backup_path(id).exists());
+    }
+
+    #[test]
+    fn second_save_keeps_previous_version_as_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let id = Uuid::from_u128(7);
+        store.save(&note_with(id, "first\n")).unwrap();
+        store.save(&note_with(id, "second\n")).unwrap();
+
+        let current = std::fs::read_to_string(store.path(id)).unwrap();
+        let backup = std::fs::read_to_string(store.backup_path(id)).unwrap();
+        assert!(current.contains("second"));
+        assert!(backup.contains("first"));
+    }
+
+    #[test]
+    fn only_one_generation_is_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let id = Uuid::from_u128(7);
+        for body in ["one\n", "two\n", "three\n"] {
+            store.save(&note_with(id, body)).unwrap();
+        }
+        let backup = std::fs::read_to_string(store.backup_path(id)).unwrap();
+        assert!(backup.contains("two"));
+        assert!(!backup.contains("one"));
+    }
+
+    #[test]
+    fn save_creates_the_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().join("nested/notes"));
+        let id = Uuid::from_u128(7);
+        store.save(&note_with(id, "hello\n")).unwrap();
+        assert!(store.path(id).exists());
+    }
+
+    #[test]
+    fn saved_note_reads_back_identically() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let note = note_with(Uuid::from_u128(7), "round\ntrip\n");
+        store.save(&note).unwrap();
+        let listed = store.list().unwrap();
+        assert_eq!(listed[0].as_ref().unwrap(), &note);
+    }
 
     fn write_note(dir: &std::path::Path, id: Uuid, body: &str) {
         let note = Note {
