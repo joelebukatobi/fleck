@@ -59,6 +59,31 @@ impl Store {
         std::fs::write(&temp, crate::note::serialize(note))?;
         std::fs::rename(&temp, &target)
     }
+
+    pub fn create(&self, now: &str, color: &str) -> std::io::Result<Note> {
+        let note = Note {
+            frontmatter: crate::note::Frontmatter {
+                version: crate::note::FORMAT_VERSION,
+                uuid: Uuid::new_v4(),
+                created: now.to_string(),
+                color: color.to_string(),
+            },
+            body: String::new(),
+        };
+        self.save(&note)?;
+        Ok(note)
+    }
+
+    pub fn delete(&self, id: Uuid) -> std::io::Result<()> {
+        for path in [self.path(id), self.backup_path(id)] {
+            match std::fs::remove_file(path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -132,6 +157,45 @@ mod tests {
         store.save(&note).unwrap();
         let listed = store.list().unwrap();
         assert_eq!(listed[0].as_ref().unwrap(), &note);
+    }
+
+    #[test]
+    fn create_writes_a_note_with_current_format_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let note = store.create("2026-09-07T09:00:00Z", "yellow").unwrap();
+        assert_eq!(note.frontmatter.version, crate::note::FORMAT_VERSION);
+        assert_eq!(note.frontmatter.created, "2026-09-07T09:00:00Z");
+        assert_eq!(note.body, "");
+        assert!(store.path(note.frontmatter.uuid).exists());
+    }
+
+    #[test]
+    fn create_gives_each_note_a_distinct_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let a = store.create("2026-09-07T09:00:00Z", "yellow").unwrap();
+        let b = store.create("2026-09-07T09:00:01Z", "yellow").unwrap();
+        assert_ne!(a.frontmatter.uuid, b.frontmatter.uuid);
+    }
+
+    #[test]
+    fn delete_removes_note_and_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let id = Uuid::from_u128(7);
+        store.save(&note_with(id, "one\n")).unwrap();
+        store.save(&note_with(id, "two\n")).unwrap();
+        store.delete(id).unwrap();
+        assert!(!store.path(id).exists());
+        assert!(!store.backup_path(id).exists());
+        assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn deleting_a_missing_note_is_not_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        Store::new(dir.path()).delete(Uuid::from_u128(99)).unwrap();
     }
 
     fn write_note(dir: &std::path::Path, id: Uuid, body: &str) {
