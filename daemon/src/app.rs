@@ -1,8 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use cosmic::app::{Core, Task};
 use cosmic::iced::core::id;
+use cosmic::iced::futures::channel::mpsc;
+use cosmic::iced::futures::{SinkExt, Stream, StreamExt};
 use cosmic::iced::{event, window, Length, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget;
@@ -10,6 +12,7 @@ use cosmic::widget::text_editor;
 use sticky_notes_core::{is_disposable, Note, Store};
 use uuid::Uuid;
 
+use crate::dbus;
 use crate::palette::Colour;
 
 /// How long to wait after the last keystroke before writing a note to disk.
@@ -31,6 +34,13 @@ fn title_needs_update(current: &str, last_set: &str) -> bool {
     current != last_set
 }
 
+/// Toggling hides everything if anything is visible, and shows everything
+/// only when nothing is. With no notes at all, "show" is the sensible
+/// direction so the next created note appears.
+fn next_all_visible(visible: &[bool]) -> bool {
+    !visible.iter().any(|v| *v)
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     NewNote,
@@ -40,6 +50,42 @@ pub enum Message {
     BodyAction(window::Id, text_editor::Action),
     NameChanged(window::Id, String),
     AutosaveTick,
+    /// A D-Bus call came in and is waiting on `self` to act on it.
+    Dbus(DbusRequest),
+    /// The D-Bus name is already owned by another running instance - this
+    /// process loses the race and quits rather than fight over it.
+    DbusUnavailable,
+}
+
+/// Wraps a `dbus::Request` so it can ride through `Message`, which
+/// `cosmic::Application` requires to be `Clone`, even though the request
+/// itself carries one-shot reply channels that cannot be cloned. `update`
+/// always takes the request out with `take()`; nothing else touches this
+/// type, and it is never actually cloned in practice - this message is
+/// dispatched once, straight from the D-Bus subscription to `update`, never
+/// broadcast to more than one place.
+pub struct DbusRequest(std::sync::Arc<std::sync::Mutex<Option<dbus::Request>>>);
+
+impl DbusRequest {
+    fn new(request: dbus::Request) -> Self {
+        Self(std::sync::Arc::new(std::sync::Mutex::new(Some(request))))
+    }
+
+    fn take(&self) -> Option<dbus::Request> {
+        self.0.lock().unwrap().take()
+    }
+}
+
+impl Clone for DbusRequest {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl std::fmt::Debug for DbusRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DbusRequest(..)")
+    }
 }
 
 /// A window showing a note: which note it is, the stable id its text
@@ -78,6 +124,12 @@ pub struct Tack {
     fallback_input_id: id::Id,
     /// Stable id for the fallback name field, for the same reason.
     fallback_name_input_id: id::Id,
+    /// Windows currently being closed by `hide_note`/`delete_note` rather
+    /// than by the user. `NoteClosed` consults this to tell "the last note
+    /// window just got hidden" apart from "the user just closed the last
+    /// note window" - only the latter should exit the process (see
+    /// `Message::NoteClosed`).
+    closing_for_hide: HashSet<window::Id>,
 }
 
 impl Tack {
@@ -201,6 +253,190 @@ impl Tack {
 
         Task::batch([opened, registered])
     }
+
+    /// Whether `uuid` currently has an open window. This *is* the
+    /// visibility model - a hidden note is simply one with no window, still
+    /// sitting in `self.notes` exactly as it was.
+    fn is_visible(&self, uuid: Uuid) -> bool {
+        self.windows.values().any(|w| w.uuid == uuid)
+    }
+
+    /// Closes the window showing `uuid`, if it has one open, without
+    /// touching the note itself: any pending edit is flushed first, then
+    /// the window is closed directly through `window::close` rather than
+    /// going via `Message::CloseRequested` - so the delete-on-close rule for
+    /// empty notes never runs. The window id is recorded in
+    /// `closing_for_hide` so the `NoteClosed` that follows knows this
+    /// closure isn't the user quitting.
+    fn hide_note(&mut self, uuid: Uuid) -> Task<Message> {
+        let Some(id) = self.windows.iter().find(|(_, w)| w.uuid == uuid).map(|(id, _)| *id)
+        else {
+            return Task::none();
+        };
+        let flush = if self.dirty.contains_key(&uuid) { self.flush(&[uuid]) } else { Task::none() };
+        self.closing_for_hide.insert(id);
+        Task::batch([flush, window::close(id)])
+    }
+
+    /// Opens a window for `uuid` from its stored content, unless it already
+    /// has one. A no-op for a uuid that isn't a known note at all.
+    fn show_note(&mut self, uuid: Uuid) -> Task<Message> {
+        if self.is_visible(uuid) || !self.notes.contains_key(&uuid) {
+            return Task::none();
+        }
+        self.open_window_for(uuid)
+    }
+
+    /// Hides every visible note, or shows every note if none are visible
+    /// (the rule from `next_all_visible`). Returns whether notes are now
+    /// visible, for `ToggleAll`'s D-Bus reply.
+    fn toggle_all(&mut self) -> (bool, Task<Message>) {
+        let uuids: Vec<Uuid> = self.notes.keys().copied().collect();
+        let visible: Vec<bool> = uuids.iter().map(|&id| self.is_visible(id)).collect();
+        let show = next_all_visible(&visible);
+        let tasks = uuids
+            .into_iter()
+            .map(|id| if show { self.show_note(id) } else { self.hide_note(id) })
+            .collect::<Vec<_>>();
+        (show, Task::batch(tasks))
+    }
+
+    /// Creates a new note the same way `Message::NewNote` always has, and
+    /// opens a window for it. Returns the new note's uuid on success, so
+    /// D-Bus's `NewNote` can hand it back to the caller.
+    fn create_note(&mut self) -> (Option<Uuid>, Task<Message>) {
+        let now = crate::now_rfc3339();
+        match self.store.create(&now, Colour::Yellow.name()) {
+            Ok(note) => {
+                let uuid = note.frontmatter.uuid;
+                self.notes.insert(uuid, note);
+                (Some(uuid), self.open_window_for(uuid))
+            }
+            Err(e) => {
+                eprintln!("tack: failed to create note: {e}");
+                (None, Task::none())
+            }
+        }
+    }
+
+    /// Deletes `uuid` through `Store::delete`, closing its window first (if
+    /// it has one) exactly like `hide_note` - directly, bypassing the
+    /// delete-on-close check, since this delete is already unconditional.
+    /// Returns whether the note existed.
+    fn delete_note(&mut self, uuid: Uuid) -> (bool, Task<Message>) {
+        if !self.notes.contains_key(&uuid) {
+            return (false, Task::none());
+        }
+        self.dirty.remove(&uuid);
+        let close_task =
+            match self.windows.iter().find(|(_, w)| w.uuid == uuid).map(|(id, _)| *id) {
+                Some(id) => {
+                    self.closing_for_hide.insert(id);
+                    window::close(id)
+                }
+                None => Task::none(),
+            };
+        if let Err(e) = self.store.delete(uuid) {
+            eprintln!("tack: failed to delete note {uuid}: {e}");
+        }
+        self.notes.remove(&uuid);
+        (true, close_task)
+    }
+
+    /// Applies one D-Bus request and answers its reply channel (where it
+    /// has one) with whatever actually happened.
+    fn handle_dbus_request(&mut self, request: dbus::Request) -> Task<Message> {
+        match request {
+            dbus::Request::ListNotes(reply) => {
+                let list = self
+                    .notes
+                    .iter()
+                    .map(|(uuid, note)| {
+                        (
+                            uuid.to_string(),
+                            sticky_notes_core::display_name(note).to_string(),
+                            self.is_visible(*uuid),
+                        )
+                    })
+                    .collect();
+                let _ = reply.send(list);
+                Task::none()
+            }
+            dbus::Request::ShowNote(uuid, reply) => {
+                let existed = self.notes.contains_key(&uuid);
+                let task = self.show_note(uuid);
+                let _ = reply.send(existed);
+                task
+            }
+            dbus::Request::HideNote(uuid, reply) => {
+                let existed = self.notes.contains_key(&uuid);
+                let task = self.hide_note(uuid);
+                let _ = reply.send(existed);
+                task
+            }
+            dbus::Request::NewNote(reply) => {
+                let (uuid, task) = self.create_note();
+                let _ = reply.send(uuid);
+                task
+            }
+            dbus::Request::DeleteNote(uuid, reply) => {
+                let (existed, task) = self.delete_note(uuid);
+                let _ = reply.send(existed);
+                task
+            }
+            dbus::Request::ToggleAll(reply) => {
+                let (visible, task) = self.toggle_all();
+                let _ = reply.send(visible);
+                task
+            }
+            dbus::Request::Quit => cosmic::iced::exit(),
+        }
+    }
+}
+
+/// Runs the `io.github.joelebukatobi.Tack` D-Bus service and forwards each
+/// incoming call into the application as a `Message::Dbus`. Built with
+/// `Subscription::run` (a plain `fn`, per its signature) rather than a
+/// closure, so it identifies the same recipe across every `subscription()`
+/// call instead of being torn down and restarted each frame.
+fn dbus_subscription() -> Subscription<Message> {
+    Subscription::run(dbus_worker)
+}
+
+fn dbus_worker() -> impl Stream<Item = Message> {
+    cosmic::iced::stream::channel(16, async move |mut output| {
+        let (tx, mut rx) = mpsc::channel::<dbus::Request>(16);
+
+        let connection = zbus::connection::Builder::session()
+            .and_then(|b| b.serve_at(dbus::OBJECT_PATH, dbus::TackInterface::new(tx)))
+            .and_then(|b| b.name(dbus::SERVICE_NAME));
+        let connection = match connection {
+            Ok(builder) => builder.build().await,
+            Err(e) => Err(e),
+        };
+
+        // Kept alive for as long as this subscription runs: dropping it
+        // would release the well-known name and tear the service down.
+        let _connection = match connection {
+            Ok(conn) => conn,
+            Err(e) => {
+                // Either another `tack` instance already owns the name, or
+                // the session bus itself isn't reachable. Either way, this
+                // process has no D-Bus service to offer - say so once, and
+                // let the application decide whether that's fatal.
+                eprintln!("tack: not starting the D-Bus service: {e}");
+                let _ = output.send(Message::DbusUnavailable).await;
+                std::future::pending::<()>().await;
+                unreachable!("pending future never resolves");
+            }
+        };
+
+        while let Some(request) = rx.next().await {
+            if output.send(Message::Dbus(DbusRequest::new(request))).await.is_err() {
+                break;
+            }
+        }
+    })
 }
 
 impl cosmic::Application for Tack {
@@ -265,6 +501,7 @@ impl cosmic::Application for Tack {
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
             fallback_name_input_id: id::Id::unique(),
+            closing_for_hide: HashSet::new(),
         };
 
         // The seeded (or loaded) notes above must exist before this: the
@@ -296,33 +533,19 @@ impl cosmic::Application for Tack {
             _ => None,
         });
 
-        if self.dirty.is_empty() {
-            events
-        } else {
-            Subscription::batch([
-                events,
+        let mut subscriptions = vec![events, dbus_subscription()];
+        if !self.dirty.is_empty() {
+            subscriptions.push(
                 cosmic::iced::time::every(Duration::from_millis(500))
                     .map(|_| Message::AutosaveTick),
-            ])
+            );
         }
+        Subscription::batch(subscriptions)
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::NewNote => {
-                let now = crate::now_rfc3339();
-                match self.store.create(&now, Colour::Yellow.name()) {
-                    Ok(note) => {
-                        let uuid = note.frontmatter.uuid;
-                        self.notes.insert(uuid, note);
-                        self.open_window_for(uuid)
-                    }
-                    Err(e) => {
-                        eprintln!("tack: failed to create note: {e}");
-                        Task::none()
-                    }
-                }
-            }
+            Message::NewNote => self.create_note().1,
             Message::NoteOpened(id) => {
                 if let Some(window) = self.windows.get(&id) {
                     widget::text_input::focus(window.input_id.clone())
@@ -331,8 +554,18 @@ impl cosmic::Application for Tack {
                 }
             }
             Message::NoteClosed(id) => {
+                // A window closed *because it was hidden* (or deleted) is
+                // not the user quitting: `hide_all` deliberately drives
+                // `self.windows` to empty and the process must stay alive
+                // for a later `show`/`toggle-all` to reopen it (spec's
+                // hide-all requirement wins here over Task 11's
+                // exit-when-last-window-closes rule - see the task report
+                // for why). Only a window that closed on its own account -
+                // the user's X button, via `CloseRequested` - counts toward
+                // "the last note window is gone, exit".
+                let was_hide = self.closing_for_hide.remove(&id);
                 self.windows.remove(&id);
-                if self.windows.is_empty() {
+                if self.windows.is_empty() && !was_hide {
                     // The main window is just the first note now, not
                     // special - exit once the *last* note window (main or
                     // secondary) is gone, not tied to which one it was.
@@ -392,6 +625,17 @@ impl cosmic::Application for Tack {
                 Task::none()
             }
             Message::AutosaveTick => self.flush_due(Instant::now()),
+            Message::Dbus(request) => match request.take() {
+                Some(request) => self.handle_dbus_request(request),
+                None => Task::none(),
+            },
+            Message::DbusUnavailable => {
+                eprintln!(
+                    "tack: another instance already owns {}; exiting",
+                    dbus::SERVICE_NAME
+                );
+                cosmic::iced::exit()
+            }
         }
     }
 
@@ -475,6 +719,7 @@ mod tests {
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
             fallback_name_input_id: id::Id::unique(),
+            closing_for_hide: HashSet::new(),
         }
     }
 
@@ -544,5 +789,26 @@ mod tests {
     #[test]
     fn title_no_update_when_current_matches_last_set() {
         assert!(!title_needs_update("Same name", "Same name"));
+    }
+}
+
+#[cfg(test)]
+mod visibility_tests {
+    use super::*;
+
+    #[test]
+    fn toggle_all_hides_when_anything_is_visible() {
+        assert!(!next_all_visible(&[true, true]));
+        assert!(!next_all_visible(&[true, false]));
+    }
+
+    #[test]
+    fn toggle_all_shows_when_everything_is_hidden() {
+        assert!(next_all_visible(&[false, false]));
+    }
+
+    #[test]
+    fn toggle_all_shows_when_there_are_no_notes() {
+        assert!(next_all_visible(&[]));
     }
 }

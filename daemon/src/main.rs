@@ -1,4 +1,5 @@
 mod app;
+mod dbus;
 // Retained for upcoming design work (the WCAG contrast checker will be
 // wanted then); nothing renders from it right now, which leaves several of
 // its pub items unused.
@@ -6,6 +7,204 @@ mod app;
 mod palette;
 
 use sticky_notes_core::Store;
+
+/// Client-side view of the `io.github.joelebukatobi.Tack` service that
+/// `dbus.rs` implements - one trait method per D-Bus method, generated into
+/// an async `TackProxy` by the `#[zbus::proxy]` macro.
+#[zbus::proxy(
+    default_service = "io.github.joelebukatobi.Tack",
+    default_path = "/io/github/joelebukatobi/Tack",
+    interface = "io.github.joelebukatobi.Tack"
+)]
+trait Tack {
+    fn list_notes(&self) -> zbus::Result<Vec<(String, String, bool)>>;
+    fn show_note(&self, uuid: &str) -> zbus::Result<()>;
+    fn hide_note(&self, uuid: &str) -> zbus::Result<()>;
+    fn new_note(&self) -> zbus::Result<String>;
+    fn delete_note(&self, uuid: &str) -> zbus::Result<()>;
+    fn toggle_all(&self) -> zbus::Result<bool>;
+    fn quit(&self) -> zbus::Result<()>;
+}
+
+/// Connects to the session bus and builds a proxy for a running `tack`
+/// instance. Errors here (no session bus, or nothing owns the well-known
+/// name yet) all mean the same thing to a caller: there's no daemon to talk
+/// to right now.
+async fn connect() -> zbus::Result<TackProxy<'static>> {
+    let connection = zbus::Connection::session().await?;
+    TackProxy::new(&connection).await
+}
+
+/// Every CLI flag prints its own diagnostics and reports success/failure
+/// only through this exit code - `main` never prints on their behalf.
+const OK: i32 = 0;
+const FAILED: i32 = 1;
+
+async fn cli_list() -> i32 {
+    match connect().await {
+        Ok(proxy) => match proxy.list_notes().await {
+            Ok(notes) => {
+                for (uuid, name, visible) in notes {
+                    println!("{uuid}\t{name}\t{}", if visible { "visible" } else { "hidden" });
+                }
+                OK
+            }
+            Err(e) => {
+                eprintln!("tack: --list failed: {e}");
+                FAILED
+            }
+        },
+        Err(e) => {
+            eprintln!("tack: no running daemon to list notes from: {e}");
+            FAILED
+        }
+    }
+}
+
+/// `--new-note` predates the daemon's D-Bus service (Task 11): it used to
+/// create a note file directly. Now it prefers asking a running daemon (so
+/// the new note actually gets a window), and only falls back to the old
+/// direct-file-creation path when nothing is listening.
+async fn cli_new_note(store: &Store) -> i32 {
+    match connect().await {
+        Ok(proxy) => match proxy.new_note().await {
+            Ok(uuid) => {
+                println!("{uuid}");
+                OK
+            }
+            Err(e) => {
+                eprintln!("tack: --new-note failed: {e}");
+                FAILED
+            }
+        },
+        Err(_) => match store.create(&now_rfc3339(), palette::Colour::Yellow.name()) {
+            Ok(note) => {
+                println!("{}", note.frontmatter.uuid);
+                OK
+            }
+            Err(e) => {
+                eprintln!("tack: failed to create note: {e}");
+                FAILED
+            }
+        },
+    }
+}
+
+async fn cli_show(uuid: &str) -> i32 {
+    match connect().await {
+        Ok(proxy) => match proxy.show_note(uuid).await {
+            Ok(()) => OK,
+            Err(e) => {
+                eprintln!("tack: --show failed: {e}");
+                FAILED
+            }
+        },
+        Err(e) => {
+            eprintln!("tack: no running daemon: {e}");
+            FAILED
+        }
+    }
+}
+
+async fn cli_hide(uuid: &str) -> i32 {
+    match connect().await {
+        Ok(proxy) => match proxy.hide_note(uuid).await {
+            Ok(()) => OK,
+            Err(e) => {
+                eprintln!("tack: --hide failed: {e}");
+                FAILED
+            }
+        },
+        Err(e) => {
+            eprintln!("tack: no running daemon: {e}");
+            FAILED
+        }
+    }
+}
+
+async fn cli_delete(uuid: &str) -> i32 {
+    match connect().await {
+        Ok(proxy) => match proxy.delete_note(uuid).await {
+            Ok(()) => OK,
+            Err(e) => {
+                eprintln!("tack: --delete failed: {e}");
+                FAILED
+            }
+        },
+        Err(e) => {
+            eprintln!("tack: no running daemon: {e}");
+            FAILED
+        }
+    }
+}
+
+async fn cli_toggle_all() -> i32 {
+    match connect().await {
+        Ok(proxy) => match proxy.toggle_all().await {
+            Ok(visible) => {
+                println!("{}", if visible { "visible" } else { "hidden" });
+                OK
+            }
+            Err(e) => {
+                eprintln!("tack: --toggle-all failed: {e}");
+                FAILED
+            }
+        },
+        Err(e) => {
+            eprintln!("tack: no running daemon: {e}");
+            FAILED
+        }
+    }
+}
+
+async fn cli_quit() -> i32 {
+    match connect().await {
+        Ok(proxy) => match proxy.quit().await {
+            // The daemon exits as soon as it reads this call, so the
+            // connection can drop out from under the reply - treat that
+            // the same as success rather than reporting a spurious error.
+            Ok(()) | Err(zbus::Error::InputOutput(_)) => OK,
+            Err(e) => {
+                eprintln!("tack: --quit failed: {e}");
+                FAILED
+            }
+        },
+        Err(e) => {
+            eprintln!("tack: no running daemon: {e}");
+            FAILED
+        }
+    }
+}
+
+/// Handles a recognised CLI flag and returns the process exit code, or
+/// `None` if `args` names no CLI flag at all (the normal GUI startup path).
+fn run_cli(args: &[String], store: &Store) -> Option<i32> {
+    let flag = args.first()?.as_str();
+    if !matches!(
+        flag,
+        "--list" | "--new-note" | "--show" | "--hide" | "--delete" | "--toggle-all" | "--quit"
+    ) {
+        return None;
+    }
+    let arg = |name: &str| {
+        args.get(1).cloned().unwrap_or_else(|| {
+            eprintln!("tack: {name} requires a uuid");
+            std::process::exit(FAILED);
+        })
+    };
+    Some(zbus::block_on(async {
+        match flag {
+            "--list" => cli_list().await,
+            "--new-note" => cli_new_note(store).await,
+            "--show" => cli_show(&arg("--show")).await,
+            "--hide" => cli_hide(&arg("--hide")).await,
+            "--delete" => cli_delete(&arg("--delete")).await,
+            "--toggle-all" => cli_toggle_all().await,
+            "--quit" => cli_quit().await,
+            _ => unreachable!("checked above"),
+        }
+    }))
+}
 
 /// The current UTC time as an RFC 3339 timestamp, e.g.
 /// `2026-09-04T10:15:00Z`. `core` has no clock of its own — the daemon is
@@ -89,20 +288,13 @@ fn notes_dir() -> std::path::PathBuf {
 fn main() -> cosmic::iced::Result {
     let store = Store::new(notes_dir());
 
-    // Deliberately temporary: the simplest thing that gets a note file on
-    // disk so the GUI has something to open. Task 13 replaces this with a
-    // D-Bus call to a running instance; this is a one-shot, no-GUI path.
-    if std::env::args().any(|arg| arg == "--new-note") {
-        return match store.create(&now_rfc3339(), palette::Colour::Yellow.name()) {
-            Ok(note) => {
-                println!("{}", note.frontmatter.uuid);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("tack: failed to create note: {e}");
-                std::process::exit(1);
-            }
-        };
+    // `--list`/`--show`/etc: connect to a running daemon, make the one
+    // call, print its result, and exit - no GUI involved. This runs before
+    // `cosmic::app::run` so there is no ambient async executor yet; each
+    // call gets its own short-lived one via `zbus::block_on`.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(code) = run_cli(&args, &store) {
+        std::process::exit(code);
     }
 
     // `exit_on_close(false)`: without it, libcosmic force-exits the whole

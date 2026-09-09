@@ -13,3 +13,4 @@ sticky-notes-core = { path = "../core" }
 libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "d4d71fd", features = ["winit", "wayland", "tokio"] }
 serde.workspace = true
 uuid.workspace = true
+zbus.workspace = true
