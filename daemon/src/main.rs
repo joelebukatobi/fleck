@@ -14,7 +14,16 @@ pub fn now_rfc3339() -> String {
     let since_epoch = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    let secs = since_epoch.as_secs();
+    rfc3339_from_unix_secs(since_epoch.as_secs())
+}
+
+/// Pure conversion of a Unix timestamp (seconds since 1970-01-01T00:00:00Z)
+/// to an RFC 3339 UTC string, e.g. `2026-09-04T10:15:00Z`.
+///
+/// Implemented against plain integer arithmetic (no `chrono`/`time`
+/// dependency) using the days-since-epoch civil calendar conversion from
+/// Howard Hinnant's `chrono-Compatible Low-Level Date Algorithms`.
+fn rfc3339_from_unix_secs(secs: u64) -> String {
     let days = (secs / 86_400) as i64;
     let time_of_day = secs % 86_400;
     let (hour, minute, second) = (time_of_day / 3600, (time_of_day / 60) % 60, time_of_day % 60);
@@ -36,6 +45,33 @@ pub fn now_rfc3339() -> String {
     )
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Expected values verified with `date -u -d @<secs> +%Y-%m-%dT%H:%M:%SZ`.
+    #[test]
+    fn rfc3339_from_unix_secs_matches_known_dates() {
+        assert_eq!(rfc3339_from_unix_secs(0), "1970-01-01T00:00:00Z");
+        assert_eq!(
+            rfc3339_from_unix_secs(951_782_400),
+            "2000-02-29T00:00:00Z",
+            "leap year, century divisible by 400"
+        );
+        assert_eq!(
+            rfc3339_from_unix_secs(4_107_542_400),
+            "2100-03-01T00:00:00Z",
+            "century NOT a leap year"
+        );
+        assert_eq!(
+            rfc3339_from_unix_secs(1_704_067_199),
+            "2023-12-31T23:59:59Z",
+            "year boundary"
+        );
+        assert_eq!(rfc3339_from_unix_secs(1_709_164_800), "2024-02-29T00:00:00Z");
+    }
+}
+
 fn notes_dir() -> std::path::PathBuf {
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(std::path::PathBuf::from)
@@ -48,6 +84,23 @@ fn notes_dir() -> std::path::PathBuf {
 
 fn main() -> cosmic::iced::Result {
     let store = Store::new(notes_dir());
+
+    // Deliberately temporary: the simplest thing that gets a note file on
+    // disk so the GUI has something to open. Task 13 replaces this with a
+    // D-Bus call to a running instance; this is a one-shot, no-GUI path.
+    if std::env::args().any(|arg| arg == "--new-note") {
+        return match store.create(&now_rfc3339(), palette::Colour::Yellow.name()) {
+            Ok(note) => {
+                println!("{}", note.frontmatter.uuid);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("tack: failed to create note: {e}");
+                std::process::exit(1);
+            }
+        };
+    }
+
     cosmic::app::run::<app::Tack>(
         cosmic::app::Settings::default().no_main_window(true),
         store,

@@ -14,6 +14,17 @@ use crate::palette::Colour;
 /// How long to wait after the last keystroke before writing a note to disk.
 const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 
+/// The window title for a note: its first non-empty body line, or a
+/// sensible fallback for a note with no body yet.
+fn window_title(note: &Note) -> String {
+    let title = sticky_notes_core::title(note);
+    if title.is_empty() {
+        "New note".to_string()
+    } else {
+        title.to_string()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     NewNote,
@@ -52,12 +63,21 @@ impl Tack {
     /// debounce, and clears their dirty flag.
     fn flush(&mut self, ids: &[Uuid]) {
         for id in ids {
-            if let Some(note) = self.notes.get(id) {
-                if let Err(e) = self.store.save(note) {
-                    eprintln!("tack: failed to save note {id}: {e}");
-                }
+            let saved = match self.notes.get(id) {
+                Some(note) => match self.store.save(note) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        eprintln!("tack: failed to save note {id}: {e}");
+                        false
+                    }
+                },
+                // Nothing in memory to save under this id: don't leave a
+                // phantom dirty entry behind.
+                None => true,
+            };
+            if saved {
+                self.dirty.remove(id);
             }
-            self.dirty.remove(id);
         }
     }
 
@@ -69,7 +89,16 @@ impl Tack {
     fn open_window_for(&mut self, uuid: Uuid) -> Task<Message> {
         let (id, spawn) = window::open(window::Settings::default());
         self.windows.insert(id, uuid);
-        spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)))
+        let opened = spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)));
+
+        let title = self
+            .notes
+            .get(&uuid)
+            .map(window_title)
+            .unwrap_or_else(|| "New note".to_string());
+        let titled = self.set_window_title(title, id);
+
+        Task::batch([opened, titled])
     }
 }
 
@@ -90,12 +119,22 @@ impl cosmic::Application for Tack {
 
     fn init(core: Core, store: Store) -> (Self, Task<Message>) {
         let mut notes = HashMap::new();
-        for loaded in store.list().unwrap_or_default() {
-            match loaded {
-                Ok(note) => {
-                    notes.insert(note.frontmatter.uuid, note);
+        match store.list() {
+            Ok(loaded) => {
+                for item in loaded {
+                    match item {
+                        Ok(note) => {
+                            notes.insert(note.frontmatter.uuid, note);
+                        }
+                        Err(e) => eprintln!("tack: skipping unreadable note: {e}"),
+                    }
                 }
-                Err(e) => eprintln!("tack: skipping unreadable note: {e}"),
+            }
+            Err(e) => {
+                eprintln!(
+                    "tack: failed to read notes directory {}: {e}",
+                    store.dir().display()
+                );
             }
         }
 
@@ -160,7 +199,9 @@ impl cosmic::Application for Tack {
             }
             Message::CloseRequested(id) => {
                 if let Some(uuid) = self.windows.get(&id).copied() {
-                    self.flush(&[uuid]);
+                    if self.dirty.contains_key(&uuid) {
+                        self.flush(&[uuid]);
+                    }
                 }
                 self.windows.remove(&id);
                 window::close(id)
@@ -215,5 +256,78 @@ impl cosmic::Application for Tack {
             }
         }))
         .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sticky_notes_core::{Frontmatter, FORMAT_VERSION};
+
+    fn make_tack(store: Store) -> Tack {
+        Tack {
+            core: Core::default(),
+            store,
+            windows: HashMap::new(),
+            notes: HashMap::new(),
+            dirty: HashMap::new(),
+        }
+    }
+
+    fn sample_note() -> Note {
+        Note {
+            frontmatter: Frontmatter {
+                version: FORMAT_VERSION,
+                uuid: Uuid::new_v4(),
+                created: "2026-09-04T10:15:00Z".to_string(),
+                color: "yellow".to_string(),
+            },
+            body: "test".to_string(),
+        }
+    }
+
+    /// A failed save must leave the note dirty so the next autosave tick
+    /// retries it, instead of silently discarding the in-memory edit.
+    #[test]
+    fn flush_keeps_dirty_flag_when_save_fails() {
+        // Point the store at a path that can't become a directory: a plain
+        // file already occupies it, so `Store::save`'s `create_dir_all`
+        // fails and the write never happens.
+        let tmp = std::env::temp_dir().join(format!("tack-test-fail-{}", Uuid::new_v4()));
+        std::fs::write(&tmp, b"not a directory").unwrap();
+        let store = Store::new(&tmp);
+
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let id = note.frontmatter.uuid;
+        app.notes.insert(id, note);
+        app.dirty.insert(id, Instant::now());
+
+        app.flush(&[id]);
+
+        assert!(
+            app.dirty.contains_key(&id),
+            "a note whose save failed must stay dirty so it is retried"
+        );
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn flush_clears_dirty_flag_when_save_succeeds() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-ok-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let id = note.frontmatter.uuid;
+        app.notes.insert(id, note);
+        app.dirty.insert(id, Instant::now());
+
+        app.flush(&[id]);
+
+        assert!(!app.dirty.contains_key(&id));
+
+        std::fs::remove_dir_all(&tmp).ok();
     }
 }
