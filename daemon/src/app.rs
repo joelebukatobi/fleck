@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use cosmic::app::{Core, Task};
@@ -21,6 +21,38 @@ fn window_title(note: &Note) -> String {
     sticky_notes_core::display_name(note).to_string()
 }
 
+/// Whether a window's title needs to be re-sent to the compositor: only
+/// when the computed display name differs from the title last actually set.
+/// Keeping this as a pure comparison (rather than inline in `update`) is
+/// what let a per-keystroke compositor round-trip become a once-per-flush
+/// one: the title is recomputed on every edit, but only pushed out when it
+/// has actually changed since the last push.
+fn title_needs_update(current: &str, last_set: &str) -> bool {
+    current != last_set
+}
+
+/// Borderless, transparent style for the body editor, matching
+/// `cosmic::theme::TextInput::EditableText` used on the name field: the
+/// user asked for no chrome before they start designing. Text colour still
+/// comes from the theme so it stays readable in light and dark.
+fn borderless_editor_style(
+    theme: &cosmic::Theme,
+    _status: text_editor::Status,
+) -> text_editor::Style {
+    let text_color = theme.cosmic().on_bg_color().into();
+    text_editor::Style {
+        background: cosmic::iced::Background::Color(cosmic::iced::Color::TRANSPARENT),
+        border: cosmic::iced::Border {
+            radius: 0.0.into(),
+            width: 0.0,
+            color: cosmic::iced::Color::TRANSPARENT,
+        },
+        placeholder: text_color,
+        value: text_color,
+        selection: theme.cosmic().accent_color().into(),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     NewNote,
@@ -34,13 +66,15 @@ pub enum Message {
 
 /// A window showing a note: which note it is, the stable id its text
 /// editor is registered under (needed to focus it on open), the stable id
-/// of its name field, and the editor's own buffer (view state, synced
-/// from/to `Note.body`).
+/// of its name field, the editor's own buffer (view state, synced from/to
+/// `Note.body`), and the title last actually sent to the compositor (so it
+/// is only re-sent when the display name has changed).
 struct WindowNote {
     uuid: Uuid,
     input_id: id::Id,
     name_input_id: id::Id,
     content: text_editor::Content,
+    last_title: String,
 }
 
 pub struct Tack {
@@ -70,21 +104,26 @@ pub struct Tack {
 
 impl Tack {
     /// Writes every note that has been dirty for at least the debounce
-    /// window through `Store::save`. Returns the ids that were flushed.
-    fn flush_due(&mut self, now: Instant) -> HashSet<Uuid> {
+    /// window through `Store::save`, and re-syncs the window title of any
+    /// note whose display name changed while it was dirty.
+    fn flush_due(&mut self, now: Instant) -> Task<Message> {
         let due: Vec<Uuid> = self
             .dirty
             .iter()
             .filter(|(_, &last_edit)| now.duration_since(last_edit) >= AUTOSAVE_DEBOUNCE)
             .map(|(id, _)| *id)
             .collect();
-        self.flush(&due);
-        due.into_iter().collect()
+        self.flush(&due)
     }
 
     /// Force-writes the given notes through `Store::save`, regardless of the
-    /// debounce, and clears their dirty flag.
-    fn flush(&mut self, ids: &[Uuid]) {
+    /// debounce, clears their dirty flag, and re-syncs window titles. This
+    /// is the only place a note's window title is pushed to the compositor:
+    /// doing it here rather than on every keystroke means at most one
+    /// compositor round-trip per debounce interval instead of one per
+    /// character typed into the name field.
+    fn flush(&mut self, ids: &[Uuid]) -> Task<Message> {
+        let mut tasks = Vec::new();
         for id in ids {
             let saved = match self.notes.get(id) {
                 Some(note) => match self.store.save(note) {
@@ -100,13 +139,45 @@ impl Tack {
             };
             if saved {
                 self.dirty.remove(id);
+                let window_ids: Vec<window::Id> = self
+                    .windows
+                    .iter()
+                    .filter(|(_, w)| w.uuid == *id)
+                    .map(|(wid, _)| *wid)
+                    .collect();
+                for wid in window_ids {
+                    tasks.push(self.sync_title(wid));
+                }
             }
         }
+        Task::batch(tasks)
+    }
+
+    /// Re-sends a window's title to the compositor only if its computed
+    /// display name has changed since the title last actually set.
+    fn sync_title(&mut self, id: window::Id) -> Task<Message> {
+        let Some(window) = self.windows.get(&id) else {
+            return Task::none();
+        };
+        let uuid = window.uuid;
+        let title = self
+            .notes
+            .get(&uuid)
+            .map(window_title)
+            .unwrap_or_else(|| sticky_notes_core::UNNAMED.to_string());
+        if !title_needs_update(&title, &window.last_title) {
+            return Task::none();
+        }
+        let task = self.set_window_title(title.clone(), id);
+        if let Some(window) = self.windows.get_mut(&id) {
+            window.last_title = title;
+        }
+        task
     }
 
     fn flush_all(&mut self) {
         let ids: Vec<Uuid> = self.dirty.keys().copied().collect();
-        self.flush(&ids);
+        let _ = self.flush(&ids);
     }
 
     fn open_window_for(&mut self, uuid: Uuid) -> Task<Message> {
@@ -127,14 +198,16 @@ impl Tack {
         let name_input_id = id::Id::unique();
         let body = self.notes.get(&uuid).map(|note| note.body.as_str()).unwrap_or("");
         let content = text_editor::Content::with_text(body);
-        self.windows.insert(id, WindowNote { uuid, input_id, name_input_id, content });
-        let opened = spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)));
-
         let title = self
             .notes
             .get(&uuid)
             .map(window_title)
             .unwrap_or_else(|| sticky_notes_core::UNNAMED.to_string());
+        self.windows.insert(
+            id,
+            WindowNote { uuid, input_id, name_input_id, content, last_title: title.clone() },
+        );
+        let opened = spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)));
         let titled = self.set_window_title(title, id);
 
         Task::batch([opened, titled])
@@ -272,7 +345,7 @@ impl cosmic::Application for Tack {
                         self.notes.remove(&uuid);
                         self.dirty.remove(&uuid);
                     } else if self.dirty.contains_key(&uuid) {
-                        self.flush(&[uuid]);
+                        let _ = self.flush(&[uuid]);
                     }
                 }
                 // Deliberately NOT removing `self.windows[id]` here: the
@@ -306,13 +379,13 @@ impl cosmic::Application for Tack {
                 };
                 note.frontmatter.name = name;
                 self.dirty.insert(uuid, Instant::now());
-                let title = window_title(note);
-                self.set_window_title(title, id)
-            }
-            Message::AutosaveTick => {
-                self.flush_due(Instant::now());
+                // Deliberately not setting the window title here: doing so
+                // on every keystroke is a compositor round-trip per
+                // character. `flush`/`flush_due` sync the title instead, at
+                // most once per autosave debounce.
                 Task::none()
             }
+            Message::AutosaveTick => self.flush_due(Instant::now()),
         }
     }
 
@@ -371,16 +444,18 @@ impl cosmic::Application for Tack {
                 .push(
                     widget::text_input("Name", name)
                         .on_input(move |name| Message::NameChanged(id, name))
-                        .id(name_input_id),
+                        .id(name_input_id)
+                        .style(cosmic::theme::TextInput::EditableText),
                 )
                 .push(
                     text_editor::text_editor(content)
                         .on_action(move |action| Message::BodyAction(id, action))
                         .id(input_id)
-                        .height(Length::Fill),
+                        .height(Length::Fill)
+                        .style(borderless_editor_style),
                 ),
         )
-        .padding(12)
+        .padding(4)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
@@ -435,7 +510,7 @@ mod tests {
         app.notes.insert(id, note);
         app.dirty.insert(id, Instant::now());
 
-        app.flush(&[id]);
+        let _ = app.flush(&[id]);
 
         assert!(
             app.dirty.contains_key(&id),
@@ -456,10 +531,20 @@ mod tests {
         app.notes.insert(id, note);
         app.dirty.insert(id, Instant::now());
 
-        app.flush(&[id]);
+        let _ = app.flush(&[id]);
 
         assert!(!app.dirty.contains_key(&id));
 
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn title_needs_update_when_current_differs_from_last_set() {
+        assert!(title_needs_update("New name", "Old name"));
+    }
+
+    #[test]
+    fn title_no_update_when_current_matches_last_set() {
+        assert!(!title_needs_update("Same name", "Same name"));
     }
 }
