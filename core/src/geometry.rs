@@ -53,11 +53,23 @@ pub struct Resolved {
 /// is absent. Never mutates `placement`: a displaced note keeps naming its home
 /// display and returns there when it is reconnected.
 pub fn resolve(placement: &Placement, outputs: &[OutputInfo]) -> Option<Resolved> {
+    if !placement.x.is_finite()
+        || !placement.y.is_finite()
+        || !placement.w.is_finite()
+        || !placement.h.is_finite()
+    {
+        return None;
+    }
+
     let target = outputs
         .iter()
         .find(|o| o.id.matches(&placement.output))
         .or_else(|| outputs.iter().find(|o| o.primary))
         .or_else(|| outputs.first())?;
+
+    if target.width == 0 || target.height == 0 {
+        return None;
+    }
 
     let (ow, oh) = (target.width as f32, target.height as f32);
     let w = (placement.w * ow).round().clamp(1.0, ow) as u32;
@@ -82,8 +94,7 @@ impl WindowState {
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
-            Err(e) => return Err(e),
+            Err(_) => return Ok(Self::default()),
         };
         Ok(toml::from_str(&text).unwrap_or_default())
     }
@@ -212,5 +223,71 @@ mod tests {
         let path = dir.path().join("windows.toml");
         std::fs::write(&path, "this is not toml =").unwrap();
         assert!(WindowState::load(&path).unwrap().placements.is_empty());
+    }
+
+    #[test]
+    fn zero_width_output_returns_none_instead_of_panicking() {
+        let outputs = vec![info("eDP-1", Some("LAP001"), 0, 1080, true)];
+        assert!(resolve(&placement(output("eDP-1", Some("LAP001"))), &outputs).is_none());
+    }
+
+    #[test]
+    fn zero_height_output_returns_none_instead_of_panicking() {
+        let outputs = vec![info("eDP-1", Some("LAP001"), 1920, 0, true)];
+        assert!(resolve(&placement(output("eDP-1", Some("LAP001"))), &outputs).is_none());
+    }
+
+    #[test]
+    fn nan_x_returns_none() {
+        let outputs = vec![info("eDP-1", Some("LAP001"), 1920, 1080, true)];
+        let mut p = placement(output("eDP-1", Some("LAP001")));
+        p.x = f32::NAN;
+        assert!(resolve(&p, &outputs).is_none());
+    }
+
+    #[test]
+    fn infinite_w_returns_none() {
+        let outputs = vec![info("eDP-1", Some("LAP001"), 1920, 1080, true)];
+        let mut p = placement(output("eDP-1", Some("LAP001")));
+        p.w = f32::INFINITY;
+        assert!(resolve(&p, &outputs).is_none());
+    }
+
+    #[test]
+    fn unreadable_state_file_loads_empty_rather_than_failing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("windows.toml");
+        std::fs::write(&path, "").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        // Check whether permissions are actually enforced in this environment
+        // (they are not for root). If the raw read still succeeds, skip the
+        // assertion visibly rather than fail on an environment quirk unrelated
+        // to the fix under test.
+        let permissions_enforced = std::fs::read_to_string(&path).is_err();
+
+        let result = WindowState::load(&path);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        if !permissions_enforced {
+            eprintln!("skipping unreadable_state_file_loads_empty_rather_than_failing: running as root, permissions not enforced");
+            return;
+        }
+
+        assert!(result.unwrap().placements.is_empty());
+    }
+
+    #[test]
+    fn three_outputs_primary_in_the_middle_and_target_absent_lands_on_primary() {
+        let outputs = vec![
+            info("DP-1", Some("AAA"), 1920, 1080, false),
+            info("DP-2", Some("BBB"), 2000, 2000, true),
+            info("DP-3", Some("CCC"), 1280, 720, false),
+        ];
+        let r = resolve(&placement(output("DP-9", Some("GONE"))), &outputs).unwrap();
+        // placement is x:0.5, y:0.25 of the primary (DP-2, 2000x2000): (1000, 500)
+        assert_eq!((r.x, r.y), (1000, 500));
     }
 }
