@@ -1,0 +1,15 @@
+[package]
+name = "tack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tack"
+path = "src/main.rs"
+
+[dependencies]
+sticky-notes-core = { path = "../core" }
+libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "d4d71fd", features = ["winit", "wayland", "tokio"] }
+serde.workspace = true
+uuid.workspace = true
