@@ -29,11 +29,22 @@ impl Store {
 
         let mut out = Vec::new();
         for entry in entries {
-            let path = entry?.path();
+            let entry = entry?;
+            let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some("md") {
                 continue;
             }
-            out.push(parse(&std::fs::read_to_string(&path)?));
+            // Use the entry's file type (not following symlinks) so a
+            // directory named "<uuid>.md" is skipped rather than reported
+            // as an unreadable note.
+            match entry.file_type() {
+                Ok(ft) if ft.is_file() => {}
+                _ => continue,
+            }
+            out.push(match std::fs::read_to_string(&path) {
+                Ok(text) => parse(&text),
+                Err(e) => Err(ParseError::Unreadable(e.to_string())),
+            });
         }
         Ok(out)
     }
@@ -244,5 +255,57 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::new(dir.path().join("does-not-exist"));
         assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn directory_named_like_a_note_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        write_note(dir.path(), Uuid::from_u128(1), "fine\n");
+        std::fs::create_dir(dir.path().join(format!("{}.md", Uuid::from_u128(2)))).unwrap();
+        let results = Store::new(dir.path()).list().unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].is_ok());
+    }
+
+    #[test]
+    fn unreadable_note_does_not_hide_the_others() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        write_note(dir.path(), Uuid::from_u128(1), "fine\n");
+        let bad_path = dir.path().join(format!("{}.md", Uuid::from_u128(2)));
+        write_note(dir.path(), Uuid::from_u128(2), "will be locked\n");
+        std::fs::set_permissions(&bad_path, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let results = Store::new(dir.path()).list().unwrap();
+
+        // Restore permissions so tempdir cleanup can remove the file.
+        std::fs::set_permissions(&bad_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        if std::fs::read_to_string(&bad_path).is_ok() {
+            // Running as a user (e.g. root) for whom permissions aren't
+            // enforced — the read succeeded despite 0o000, so skip the
+            // assertion rather than failing.
+            return;
+        }
+
+        assert_eq!(results.len(), 2);
+        let errs: Vec<_> = results.iter().filter_map(|r| r.as_ref().err()).collect();
+        assert_eq!(errs.len(), 1);
+        assert!(matches!(errs[0], ParseError::Unreadable(_)));
+        assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
+    }
+
+    #[test]
+    fn malformed_note_still_yields_missing_fence_error() {
+        let dir = tempfile::tempdir().unwrap();
+        write_note(dir.path(), Uuid::from_u128(1), "fine\n");
+        std::fs::write(dir.path().join("broken2.md"), "no fence here").unwrap();
+        let results = Store::new(dir.path()).list().unwrap();
+        assert_eq!(results.len(), 2);
+        let errs: Vec<_> = results.iter().filter_map(|r| r.as_ref().err()).collect();
+        assert_eq!(errs.len(), 1);
+        assert!(matches!(errs[0], ParseError::MissingFence));
+        assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
     }
 }

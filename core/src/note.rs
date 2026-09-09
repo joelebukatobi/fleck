@@ -21,6 +21,8 @@ pub enum ParseError {
     MissingFence,
     #[error("invalid frontmatter: {0}")]
     InvalidFrontmatter(String),
+    #[error("could not read note file: {0}")]
+    Unreadable(String),
 }
 
 /// The note format version this build writes.
