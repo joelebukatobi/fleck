@@ -31,28 +31,6 @@ fn title_needs_update(current: &str, last_set: &str) -> bool {
     current != last_set
 }
 
-/// Borderless, transparent style for the body editor, matching
-/// `cosmic::theme::TextInput::EditableText` used on the name field: the
-/// user asked for no chrome before they start designing. Text colour still
-/// comes from the theme so it stays readable in light and dark.
-fn borderless_editor_style(
-    theme: &cosmic::Theme,
-    _status: text_editor::Status,
-) -> text_editor::Style {
-    let text_color = theme.cosmic().on_bg_color().into();
-    text_editor::Style {
-        background: cosmic::iced::Background::Color(cosmic::iced::Color::TRANSPARENT),
-        border: cosmic::iced::Border {
-            radius: 0.0.into(),
-            width: 0.0,
-            color: cosmic::iced::Color::TRANSPARENT,
-        },
-        placeholder: text_color,
-        value: text_color,
-        selection: theme.cosmic().accent_color().into(),
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum Message {
     NewNote,
@@ -444,18 +422,16 @@ impl cosmic::Application for Tack {
                 .push(
                     widget::text_input("Name", name)
                         .on_input(move |name| Message::NameChanged(id, name))
-                        .id(name_input_id)
-                        .style(cosmic::theme::TextInput::EditableText),
+                        .id(name_input_id),
                 )
                 .push(
                     text_editor::text_editor(content)
                         .on_action(move |action| Message::BodyAction(id, action))
                         .id(input_id)
-                        .height(Length::Fill)
-                        .style(borderless_editor_style),
+                        .height(Length::Fill),
                 ),
         )
-        .padding(4)
+        .padding(12)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
