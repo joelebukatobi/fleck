@@ -158,8 +158,10 @@ impl Tack {
         let _ = self.flush(&ids);
     }
 
-    fn open_window_for(&mut self, uuid: Uuid) -> Task<Message> {
-        let (id, spawn) = window::open(window::Settings::default());
+    /// Registers `uuid` as the note shown by window `id` (already open -
+    /// either the main window, claimed once at startup, or a window just
+    /// returned by `window::open`) and pushes its initial title.
+    fn register_window(&mut self, id: window::Id, uuid: Uuid) -> Task<Message> {
         // `Id::unique()`, not `Id::new(name)`: a *named* (`Internal::Custom`)
         // id routes through libcosmic's cross-frame "named widget" state
         // relocation in `Tree::diff` (see `iced/core/src/widget/tree.rs`).
@@ -185,10 +187,19 @@ impl Tack {
             id,
             WindowNote { uuid, input_id, name_input_id, content, last_title: title.clone() },
         );
-        let opened = spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)));
-        let titled = self.set_window_title(title, id);
+        self.set_window_title(title, id)
+    }
 
-        Task::batch([opened, titled])
+    /// Opens a brand-new secondary window for `uuid`. The first note at
+    /// startup does not go through this - it attaches to the main window
+    /// libcosmic already created (see `init`), since a window can't be
+    /// opened twice.
+    fn open_window_for(&mut self, uuid: Uuid) -> Task<Message> {
+        let (id, spawn) = window::open(window::Settings::default());
+        let registered = self.register_window(id, uuid);
+        let opened = spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)));
+
+        Task::batch([opened, registered])
     }
 }
 
@@ -256,9 +267,19 @@ impl cosmic::Application for Tack {
             fallback_name_input_id: id::Id::unique(),
         };
 
-        let uuids: Vec<Uuid> = app.notes.keys().copied().collect();
-        let tasks: Vec<Task<Message>> =
-            uuids.into_iter().map(|uuid| app.open_window_for(uuid)).collect();
+        // The seeded (or loaded) notes above must exist before this: the
+        // main window always gets the first one, `open_window_for` opens a
+        // fresh secondary window for every other note.
+        let mut uuids: Vec<Uuid> = app.notes.keys().copied().collect();
+        let mut tasks = Vec::new();
+        if let Some(main_id) = app.core.main_window_id() {
+            if let Some(first) = uuids.pop() {
+                tasks.push(app.register_window(main_id, first));
+            }
+        }
+        for uuid in uuids {
+            tasks.push(app.open_window_for(uuid));
+        }
 
         (app, Task::batch(tasks))
     }
@@ -280,7 +301,7 @@ impl cosmic::Application for Tack {
         } else {
             Subscription::batch([
                 events,
-                cosmic::iced::time::every(Duration::from_millis(100))
+                cosmic::iced::time::every(Duration::from_millis(500))
                     .map(|_| Message::AutosaveTick),
             ])
         }
@@ -311,7 +332,14 @@ impl cosmic::Application for Tack {
             }
             Message::NoteClosed(id) => {
                 self.windows.remove(&id);
-                Task::none()
+                if self.windows.is_empty() {
+                    // The main window is just the first note now, not
+                    // special - exit once the *last* note window (main or
+                    // secondary) is gone, not tied to which one it was.
+                    cosmic::iced::exit()
+                } else {
+                    Task::none()
+                }
             }
             Message::CloseRequested(id) => {
                 if let Some(uuid) = self.windows.get(&id).map(|w| w.uuid) {
@@ -373,17 +401,11 @@ impl cosmic::Application for Tack {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        // Unreachable: `main.rs` runs this app with `no_main_window(true)`,
-        // so `self.core().main_window_id()` is always `None`. libcosmic's
-        // `Cosmic::view` dispatches every window id to `view_window` unless
-        // it equals the main window id, and `None.is_none_or(..)` is always
-        // true, so that comparison never picks this method for any window.
-        // A stateless placeholder here used to be a trap: iced calls the
-        // trait's `view` too when probing/sizing, and returning a
-        // shapeless `text::body` risked the same stateless-tree panic
-        // `view_window` used to hit. Fail loudly instead if that ever
-        // changes (e.g. `no_main_window` is dropped).
-        unreachable!("Tack::view is unreachable under no_main_window(true)")
+        // `Cosmic::view` dispatches every window id except the main one to
+        // `view_window` directly; for the main window it falls back to
+        // this method. Since the main window shows a note like any other,
+        // just render it the same way.
+        self.view_window(self.core.main_window_id().unwrap())
     }
 
     fn view_window(&self, id: window::Id) -> Element<'_, Message> {

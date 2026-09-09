@@ -105,8 +105,14 @@ fn main() -> cosmic::iced::Result {
         };
     }
 
+    // `exit_on_close(false)`: without it, libcosmic force-exits the whole
+    // app the instant the *main* window closes, even if other note windows
+    // are still open (`Core::exit_on_main_window_closed`, on by default).
+    // The main window is just the first note here, not special - `Tack`
+    // itself decides when to exit, in `Message::NoteClosed`, once its
+    // `windows` map is empty (i.e. the *last* note window closed).
     cosmic::app::run::<app::Tack>(
-        cosmic::app::Settings::default().no_main_window(true),
+        cosmic::app::Settings::default().exit_on_close(false),
         store,
     )
 }
