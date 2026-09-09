@@ -7,7 +7,8 @@ use cosmic::iced::widget::container;
 use cosmic::iced::{event, window, Color, Length, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget;
-use sticky_notes_core::{Note, Store};
+use cosmic::widget::text_editor;
+use sticky_notes_core::{is_disposable, Note, Store};
 use uuid::Uuid;
 
 use crate::palette::Colour;
@@ -32,15 +33,17 @@ pub enum Message {
     NoteOpened(window::Id),
     NoteClosed(window::Id),
     CloseRequested(window::Id),
-    BodyEdited(window::Id, String),
+    BodyAction(window::Id, text_editor::Action),
     AutosaveTick,
 }
 
-/// A window showing a note: which note it is, and the stable id its
-/// text input is registered under (needed to focus it on open).
+/// A window showing a note: which note it is, the stable id its text
+/// editor is registered under (needed to focus it on open), and the
+/// editor's own buffer (view state, synced from/to `Note.body`).
 struct WindowNote {
     uuid: Uuid,
     input_id: id::Id,
+    content: text_editor::Content,
 }
 
 pub struct Tack {
@@ -97,7 +100,9 @@ impl Tack {
     fn open_window_for(&mut self, uuid: Uuid) -> Task<Message> {
         let (id, spawn) = window::open(window::Settings::default());
         let input_id = id::Id::new(format!("note-body-{uuid}"));
-        self.windows.insert(id, WindowNote { uuid, input_id });
+        let body = self.notes.get(&uuid).map(|note| note.body.as_str()).unwrap_or("");
+        let content = text_editor::Content::with_text(body);
+        self.windows.insert(id, WindowNote { uuid, input_id, content });
         let opened = spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)));
 
         let title = self
@@ -202,7 +207,6 @@ impl cosmic::Application for Tack {
                 }
             }
             Message::NoteOpened(id) => {
-                eprintln!("tack: NoteOpened window={id:?}");
                 if let Some(window) = self.windows.get(&id) {
                     widget::text_input::focus(window.input_id.clone())
                 } else {
@@ -215,20 +219,30 @@ impl cosmic::Application for Tack {
             }
             Message::CloseRequested(id) => {
                 if let Some(uuid) = self.windows.get(&id).map(|w| w.uuid) {
-                    if self.dirty.contains_key(&uuid) {
+                    let disposable = self.notes.get(&uuid).map(is_disposable).unwrap_or(false);
+                    if disposable {
+                        if let Err(e) = self.store.delete(uuid) {
+                            eprintln!("tack: failed to delete empty note {uuid}: {e}");
+                        }
+                        self.notes.remove(&uuid);
+                        self.dirty.remove(&uuid);
+                    } else if self.dirty.contains_key(&uuid) {
                         self.flush(&[uuid]);
                     }
                 }
                 self.windows.remove(&id);
                 window::close(id)
             }
-            Message::BodyEdited(id, value) => {
-                eprintln!("tack: BodyEdited window={id:?} value={value:?}");
-                if let Some(uuid) = self.windows.get(&id).map(|w| w.uuid) {
-                    if let Some(note) = self.notes.get_mut(&uuid) {
-                        note.body = value;
-                        self.dirty.insert(uuid, Instant::now());
-                    }
+            Message::BodyAction(id, action) => {
+                let Some(window) = self.windows.get_mut(&id) else {
+                    return Task::none();
+                };
+                window.content.perform(action);
+                let uuid = window.uuid;
+                let text = window.content.text();
+                if let Some(note) = self.notes.get_mut(&uuid) {
+                    note.body = text;
+                    self.dirty.insert(uuid, Instant::now());
                 }
                 Task::none()
             }
@@ -260,9 +274,10 @@ impl cosmic::Application for Tack {
         let input_id = window.input_id.clone();
 
         widget::container(
-            widget::text_input("", &note.body)
-                .on_input(move |value| Message::BodyEdited(id, value))
-                .id(input_id),
+            text_editor::text_editor(&window.content)
+                .on_action(move |action| Message::BodyAction(id, action))
+                .id(input_id)
+                .height(Length::Fill),
         )
         .padding(12)
         .width(Length::Fill)

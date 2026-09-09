@@ -86,6 +86,13 @@ pub fn title(note: &Note) -> &str {
     note.body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("")
 }
 
+/// Whether a note is disposable: an empty or whitespace-only body, safe to
+/// delete instead of persisting to disk (e.g. a note window closed without
+/// ever being typed into).
+pub fn is_disposable(note: &Note) -> bool {
+    note.body.trim().is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,6 +146,18 @@ mod tests {
     fn title_is_first_non_empty_line() {
         assert_eq!(title(&sample_note("\n\nGroceries\nmilk\n")), "Groceries");
         assert_eq!(title(&sample_note("")), "");
+    }
+
+    #[test]
+    fn empty_or_whitespace_body_is_disposable() {
+        assert!(is_disposable(&sample_note("")));
+        assert!(is_disposable(&sample_note("   \n\t\n  ")));
+    }
+
+    #[test]
+    fn body_with_content_is_not_disposable() {
+        assert!(!is_disposable(&sample_note("Groceries")));
+        assert!(!is_disposable(&sample_note("  x  ")));
     }
 
     #[test]
