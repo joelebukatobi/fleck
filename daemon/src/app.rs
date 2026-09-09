@@ -54,6 +54,19 @@ pub struct Tack {
     notes: HashMap<Uuid, Note>,
     /// Notes edited since their last save, and when they were last edited.
     dirty: HashMap<Uuid, Instant>,
+    /// Content rendered by `view_window` when a window id has no entry in
+    /// `windows` (or its note has already been deleted). Never actually
+    /// edited; it exists purely so every `view_window` return builds the
+    /// exact same stateful `text_editor` widget tree, regardless of which
+    /// branch supplied the content. Mixing that with a stateless
+    /// `widget::text::body` fallback made the tree shape depend on lookup
+    /// success, which panics libcosmic's `TextEditor` (its context-menu
+    /// wrapper keeps widget state; a stateless sibling from a prior frame
+    /// leaves that state as `State::None`, and the next diff panics trying
+    /// to downcast it).
+    fallback_content: text_editor::Content,
+    /// Stable id for the fallback editor above, for the same reason.
+    fallback_input_id: id::Id,
 }
 
 impl Tack {
@@ -99,7 +112,19 @@ impl Tack {
 
     fn open_window_for(&mut self, uuid: Uuid) -> Task<Message> {
         let (id, spawn) = window::open(window::Settings::default());
-        let input_id = id::Id::new(format!("note-body-{uuid}"));
+        // `Id::unique()`, not `Id::new(name)`: a *named* (`Internal::Custom`)
+        // id routes through libcosmic's cross-frame "named widget" state
+        // relocation in `Tree::diff` (see `iced/core/src/widget/tree.rs`).
+        // For a widget nested inside `TextEditor`'s context-menu wrapper,
+        // that relocation does not restore the taken state before the next
+        // `layout()`, leaving `State::None` where `EditorWrapperState`'s
+        // child expects real state - the exact "Downcast on stateless
+        // state" panic this fix addresses, reproducible even with a single
+        // pre-existing note and zero user interaction. A unique id doesn't
+        // take that path (it isn't `Internal::Custom`) but is just as
+        // usable with `widget::text_input::focus`, which matches on the id
+        // itself rather than its name.
+        let input_id = id::Id::unique();
         let body = self.notes.get(&uuid).map(|note| note.body.as_str()).unwrap_or("");
         let content = text_editor::Content::with_text(body);
         self.windows.insert(id, WindowNote { uuid, input_id, content });
@@ -158,6 +183,8 @@ impl cosmic::Application for Tack {
             windows: HashMap::new(),
             notes,
             dirty: HashMap::new(),
+            fallback_content: text_editor::Content::new(),
+            fallback_input_id: id::Id::unique(),
         };
 
         let uuids: Vec<Uuid> = app.notes.keys().copied().collect();
@@ -230,7 +257,13 @@ impl cosmic::Application for Tack {
                         self.flush(&[uuid]);
                     }
                 }
-                self.windows.remove(&id);
+                // Deliberately NOT removing `self.windows[id]` here: the
+                // window is still alive (this only requests the close) and
+                // may render at least once more before the real `Closed`
+                // event arrives. `NoteClosed` removes the entry once the
+                // window is genuinely gone, so `view_window` keeps finding
+                // its stateful editor content in the meantime instead of
+                // falling through to the fallback branch mid-close.
                 window::close(id)
             }
             Message::BodyAction(id, action) => {
@@ -259,22 +292,46 @@ impl cosmic::Application for Tack {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        widget::text::body("tack").into()
+        // Unreachable: `main.rs` runs this app with `no_main_window(true)`,
+        // so `self.core().main_window_id()` is always `None`. libcosmic's
+        // `Cosmic::view` dispatches every window id to `view_window` unless
+        // it equals the main window id, and `None.is_none_or(..)` is always
+        // true, so that comparison never picks this method for any window.
+        // A stateless placeholder here used to be a trap: iced calls the
+        // trait's `view` too when probing/sizing, and returning a
+        // shapeless `text::body` risked the same stateless-tree panic
+        // `view_window` used to hit. Fail loudly instead if that ever
+        // changes (e.g. `no_main_window` is dropped).
+        unreachable!("Tack::view is unreachable under no_main_window(true)")
     }
 
     fn view_window(&self, id: window::Id) -> Element<'_, Message> {
-        let Some(window) = self.windows.get(&id) else {
-            return widget::text::body("").into();
+        // Every branch below builds the exact same widget tree shape - a
+        // container wrapping a stateful `text_editor` - regardless of
+        // whether the window/note lookups succeed. `text_editor`'s
+        // context-menu wrapper keeps real widget state; if one frame ever
+        // rendered a stateless placeholder here instead, the next frame's
+        // diff against the previous state tree panics (state::None can't
+        // downcast). See `fallback_content` for why the fallback branch
+        // still routes through `text_editor` rather than `widget::text`.
+        let (colour, input_id, content) = match self.windows.get(&id) {
+            Some(window) => {
+                let colour = self
+                    .notes
+                    .get(&window.uuid)
+                    // The note can be gone while the window is still
+                    // technically open (deleted-on-close, pending the real
+                    // `Closed` event) - fall back to a default colour but
+                    // keep rendering the window's own real editor content.
+                    .map(|note| Colour::from_name(&note.frontmatter.color))
+                    .unwrap_or(Colour::Yellow);
+                (colour, window.input_id.clone(), &window.content)
+            }
+            None => (Colour::Yellow, self.fallback_input_id.clone(), &self.fallback_content),
         };
-        let Some(note) = self.notes.get(&window.uuid) else {
-            return widget::text::body("").into();
-        };
-
-        let colour = Colour::from_name(&note.frontmatter.color);
-        let input_id = window.input_id.clone();
 
         widget::container(
-            text_editor::text_editor(&window.content)
+            text_editor::text_editor(content)
                 .on_action(move |action| Message::BodyAction(id, action))
                 .id(input_id)
                 .height(Length::Fill),
@@ -308,6 +365,8 @@ mod tests {
             windows: HashMap::new(),
             notes: HashMap::new(),
             dirty: HashMap::new(),
+            fallback_content: text_editor::Content::new(),
+            fallback_input_id: id::Id::unique(),
         }
     }
 
