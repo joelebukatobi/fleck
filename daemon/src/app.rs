@@ -3,8 +3,7 @@ use std::time::{Duration, Instant};
 
 use cosmic::app::{Core, Task};
 use cosmic::iced::core::id;
-use cosmic::iced::widget::container;
-use cosmic::iced::{event, window, Color, Length, Subscription};
+use cosmic::iced::{event, window, Length, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget;
 use cosmic::widget::text_editor;
@@ -16,15 +15,10 @@ use crate::palette::Colour;
 /// How long to wait after the last keystroke before writing a note to disk.
 const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 
-/// The window title for a note: its first non-empty body line, or a
-/// sensible fallback for a note with no body yet.
+/// The window title for a note: its explicit name, or its first non-empty
+/// body line, or a sensible fallback for a note with no content yet.
 fn window_title(note: &Note) -> String {
-    let title = sticky_notes_core::title(note);
-    if title.is_empty() {
-        "New note".to_string()
-    } else {
-        title.to_string()
-    }
+    sticky_notes_core::display_name(note).to_string()
 }
 
 #[derive(Debug, Clone)]
@@ -34,15 +28,18 @@ pub enum Message {
     NoteClosed(window::Id),
     CloseRequested(window::Id),
     BodyAction(window::Id, text_editor::Action),
+    NameChanged(window::Id, String),
     AutosaveTick,
 }
 
 /// A window showing a note: which note it is, the stable id its text
-/// editor is registered under (needed to focus it on open), and the
-/// editor's own buffer (view state, synced from/to `Note.body`).
+/// editor is registered under (needed to focus it on open), the stable id
+/// of its name field, and the editor's own buffer (view state, synced
+/// from/to `Note.body`).
 struct WindowNote {
     uuid: Uuid,
     input_id: id::Id,
+    name_input_id: id::Id,
     content: text_editor::Content,
 }
 
@@ -67,6 +64,8 @@ pub struct Tack {
     fallback_content: text_editor::Content,
     /// Stable id for the fallback editor above, for the same reason.
     fallback_input_id: id::Id,
+    /// Stable id for the fallback name field, for the same reason.
+    fallback_name_input_id: id::Id,
 }
 
 impl Tack {
@@ -125,16 +124,17 @@ impl Tack {
         // usable with `widget::text_input::focus`, which matches on the id
         // itself rather than its name.
         let input_id = id::Id::unique();
+        let name_input_id = id::Id::unique();
         let body = self.notes.get(&uuid).map(|note| note.body.as_str()).unwrap_or("");
         let content = text_editor::Content::with_text(body);
-        self.windows.insert(id, WindowNote { uuid, input_id, content });
+        self.windows.insert(id, WindowNote { uuid, input_id, name_input_id, content });
         let opened = spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)));
 
         let title = self
             .notes
             .get(&uuid)
             .map(window_title)
-            .unwrap_or_else(|| "New note".to_string());
+            .unwrap_or_else(|| sticky_notes_core::UNNAMED.to_string());
         let titled = self.set_window_title(title, id);
 
         Task::batch([opened, titled])
@@ -158,8 +158,14 @@ impl cosmic::Application for Tack {
 
     fn init(core: Core, store: Store) -> (Self, Task<Message>) {
         let mut notes = HashMap::new();
+        // Only true when `Store::list` succeeded and returned zero entries.
+        // A `list` failure (already logged below) must NOT trigger note
+        // creation: the notes may be on disk and merely unreadable, and
+        // creating a new one then would look like data loss.
+        let mut store_is_empty = false;
         match store.list() {
             Ok(loaded) => {
+                store_is_empty = loaded.is_empty();
                 for item in loaded {
                     match item {
                         Ok(note) => {
@@ -177,6 +183,17 @@ impl cosmic::Application for Tack {
             }
         }
 
+        // Never launch with zero windows and no way to create a note except
+        // a terminal flag: if the store is genuinely empty, seed it with one.
+        if store_is_empty {
+            match store.create(&crate::now_rfc3339(), crate::palette::Colour::Yellow.name()) {
+                Ok(note) => {
+                    notes.insert(note.frontmatter.uuid, note);
+                }
+                Err(e) => eprintln!("tack: failed to create initial note: {e}"),
+            }
+        }
+
         let mut app = Tack {
             core,
             store,
@@ -185,6 +202,7 @@ impl cosmic::Application for Tack {
             dirty: HashMap::new(),
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
+            fallback_name_input_id: id::Id::unique(),
         };
 
         let uuids: Vec<Uuid> = app.notes.keys().copied().collect();
@@ -279,6 +297,18 @@ impl cosmic::Application for Tack {
                 }
                 Task::none()
             }
+            Message::NameChanged(id, name) => {
+                let Some(uuid) = self.windows.get(&id).map(|w| w.uuid) else {
+                    return Task::none();
+                };
+                let Some(note) = self.notes.get_mut(&uuid) else {
+                    return Task::none();
+                };
+                note.frontmatter.name = name;
+                self.dirty.insert(uuid, Instant::now());
+                let title = window_title(note);
+                self.set_window_title(title, id)
+            }
             Message::AutosaveTick => {
                 self.flush_due(Instant::now());
                 Task::none()
@@ -307,48 +337,52 @@ impl cosmic::Application for Tack {
 
     fn view_window(&self, id: window::Id) -> Element<'_, Message> {
         // Every branch below builds the exact same widget tree shape - a
-        // container wrapping a stateful `text_editor` - regardless of
-        // whether the window/note lookups succeed. `text_editor`'s
-        // context-menu wrapper keeps real widget state; if one frame ever
-        // rendered a stateless placeholder here instead, the next frame's
-        // diff against the previous state tree panics (state::None can't
-        // downcast). See `fallback_content` for why the fallback branch
-        // still routes through `text_editor` rather than `widget::text`.
-        let (colour, input_id, content) = match self.windows.get(&id) {
+        // container wrapping a name field above a stateful `text_editor` -
+        // regardless of whether the window/note lookups succeed.
+        // `text_editor`'s context-menu wrapper keeps real widget state; if
+        // one frame ever rendered a stateless placeholder here instead, the
+        // next frame's diff against the previous state tree panics
+        // (state::None can't downcast). See `fallback_content` for why the
+        // fallback branch still routes through `text_editor` rather than
+        // `widget::text`.
+        let (name, name_input_id, input_id, content) = match self.windows.get(&id) {
             Some(window) => {
-                let colour = self
+                let name = self
                     .notes
                     .get(&window.uuid)
                     // The note can be gone while the window is still
                     // technically open (deleted-on-close, pending the real
-                    // `Closed` event) - fall back to a default colour but
-                    // keep rendering the window's own real editor content.
-                    .map(|note| Colour::from_name(&note.frontmatter.color))
-                    .unwrap_or(Colour::Yellow);
-                (colour, window.input_id.clone(), &window.content)
+                    // `Closed` event) - fall back to an empty name but keep
+                    // rendering the window's own real editor content.
+                    .map(|note| note.frontmatter.name.as_str())
+                    .unwrap_or("");
+                (name, window.name_input_id.clone(), window.input_id.clone(), &window.content)
             }
-            None => (Colour::Yellow, self.fallback_input_id.clone(), &self.fallback_content),
+            None => (
+                "",
+                self.fallback_name_input_id.clone(),
+                self.fallback_input_id.clone(),
+                &self.fallback_content,
+            ),
         };
 
         widget::container(
-            text_editor::text_editor(content)
-                .on_action(move |action| Message::BodyAction(id, action))
-                .id(input_id)
-                .height(Length::Fill),
+            cosmic::iced::widget::Column::new()
+                .push(
+                    widget::text_input("Name", name)
+                        .on_input(move |name| Message::NameChanged(id, name))
+                        .id(name_input_id),
+                )
+                .push(
+                    text_editor::text_editor(content)
+                        .on_action(move |action| Message::BodyAction(id, action))
+                        .id(input_id)
+                        .height(Length::Fill),
+                ),
         )
         .padding(12)
         .width(Length::Fill)
         .height(Length::Fill)
-        .class(cosmic::theme::Container::custom(move |_theme| {
-            let dark = cosmic::theme::is_dark();
-            let (br, bg, bb) = colour.background(dark);
-            let (tr, tg, tb) = colour.text(dark);
-            container::Style {
-                background: Some(cosmic::iced::Background::Color(Color::from_rgb8(br, bg, bb))),
-                text_color: Some(Color::from_rgb8(tr, tg, tb)),
-                ..container::Style::default()
-            }
-        }))
         .into()
     }
 }
@@ -367,6 +401,7 @@ mod tests {
             dirty: HashMap::new(),
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
+            fallback_name_input_id: id::Id::unique(),
         }
     }
 
@@ -377,6 +412,7 @@ mod tests {
                 uuid: Uuid::new_v4(),
                 created: "2026-09-04T10:15:00Z".to_string(),
                 color: "yellow".to_string(),
+                name: String::new(),
             },
             body: "test".to_string(),
         }

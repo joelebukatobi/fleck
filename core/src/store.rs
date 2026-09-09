@@ -78,6 +78,7 @@ impl Store {
                 uuid: Uuid::new_v4(),
                 created: now.to_string(),
                 color: color.to_string(),
+                name: String::new(),
             },
             body: String::new(),
         };
@@ -109,6 +110,7 @@ mod tests {
                 uuid: id,
                 created: "2026-09-04T10:15:00Z".into(),
                 color: "yellow".into(),
+                name: String::new(),
             },
             body: body.into(),
         }
@@ -216,6 +218,7 @@ mod tests {
                 uuid: id,
                 created: "2026-09-04T10:15:00Z".into(),
                 color: "yellow".into(),
+                name: String::new(),
             },
             body: body.into(),
         };

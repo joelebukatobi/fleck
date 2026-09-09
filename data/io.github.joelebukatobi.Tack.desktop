@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Tack
+Comment=Sticky notes for the COSMIC desktop
+Exec=tack
+Icon=io.github.joelebukatobi.Tack
+Categories=Utility;
+Terminal=false
+StartupNotify=true

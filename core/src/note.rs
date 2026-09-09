@@ -7,6 +7,8 @@ pub struct Frontmatter {
     pub uuid: Uuid,
     pub created: String,
     pub color: String,
+    #[serde(default)]
+    pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -86,11 +88,30 @@ pub fn title(note: &Note) -> &str {
     note.body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("")
 }
 
-/// Whether a note is disposable: an empty or whitespace-only body, safe to
-/// delete instead of persisting to disk (e.g. a note window closed without
-/// ever being typed into).
+/// Fallback display name for a note with no explicit name and no body text.
+pub const UNNAMED: &str = "New note";
+
+/// The name to show for a note: the explicit `frontmatter.name` when set,
+/// otherwise the first non-empty body line (`title`), otherwise `UNNAMED`.
+pub fn display_name(note: &Note) -> &str {
+    if !note.frontmatter.name.is_empty() {
+        &note.frontmatter.name
+    } else {
+        let title = title(note);
+        if title.is_empty() {
+            UNNAMED
+        } else {
+            title
+        }
+    }
+}
+
+/// Whether a note is disposable: an empty or whitespace-only body AND no
+/// explicit name, safe to delete instead of persisting to disk (e.g. a note
+/// window closed without ever being typed into). A note with a name but no
+/// body is NOT disposable — the name is content worth keeping.
 pub fn is_disposable(note: &Note) -> bool {
-    note.body.trim().is_empty()
+    note.body.trim().is_empty() && note.frontmatter.name.trim().is_empty()
 }
 
 #[cfg(test)]
@@ -131,9 +152,43 @@ mod tests {
                 uuid: Uuid::nil(),
                 created: "2026-09-04T10:15:00Z".into(),
                 color: "yellow".into(),
+                name: String::new(),
             },
             body: body.to_string(),
         }
+    }
+
+    fn named_note(name: &str, body: &str) -> Note {
+        let mut note = sample_note(body);
+        note.frontmatter.name = name.to_string();
+        note
+    }
+
+    #[test]
+    fn display_name_prefers_explicit_name_over_body() {
+        let note = named_note("Shopping List", "Groceries\nmilk\n");
+        assert_eq!(display_name(&note), "Shopping List");
+    }
+
+    #[test]
+    fn display_name_falls_back_to_first_body_line_when_name_empty() {
+        let note = named_note("", "Groceries\nmilk\n");
+        assert_eq!(display_name(&note), "Groceries");
+    }
+
+    #[test]
+    fn display_name_falls_back_to_unnamed_when_name_and_body_empty() {
+        let note = named_note("", "");
+        assert_eq!(display_name(&note), UNNAMED);
+    }
+
+    #[test]
+    fn old_note_file_without_name_key_still_parses_with_empty_name() {
+        // Hand-written, not serialised: represents a note file written
+        // before the `name` field existed, with no `name` key at all.
+        let text = "+++\nversion = 1\nuuid = \"3f2a1c88-0000-4000-8000-000000000000\"\ncreated = \"2026-09-04T10:15:00Z\"\ncolor = \"yellow\"\n+++\nGroceries\n";
+        let note = parse(text).expect("parses despite missing name key");
+        assert_eq!(note.frontmatter.name, "");
     }
 
     #[test]
@@ -158,6 +213,12 @@ mod tests {
     fn body_with_content_is_not_disposable() {
         assert!(!is_disposable(&sample_note("Groceries")));
         assert!(!is_disposable(&sample_note("  x  ")));
+    }
+
+    #[test]
+    fn named_note_with_empty_body_is_not_disposable() {
+        assert!(!is_disposable(&named_note("Shopping List", "")));
+        assert!(!is_disposable(&named_note("Shopping List", "   \n\t\n  ")));
     }
 
     #[test]

@@ -1,4 +1,8 @@
 mod app;
+// Retained for upcoming design work (the WCAG contrast checker will be
+// wanted then); nothing renders from it right now, which leaves several of
+// its pub items unused.
+#[allow(dead_code)]
 mod palette;
 
 use sticky_notes_core::Store;
