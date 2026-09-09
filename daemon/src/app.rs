@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use cosmic::app::{Core, Task};
+use cosmic::iced::core::id;
 use cosmic::iced::widget::container;
 use cosmic::iced::{event, window, Color, Length, Subscription};
 use cosmic::prelude::*;
@@ -35,11 +36,18 @@ pub enum Message {
     AutosaveTick,
 }
 
+/// A window showing a note: which note it is, and the stable id its
+/// text input is registered under (needed to focus it on open).
+struct WindowNote {
+    uuid: Uuid,
+    input_id: id::Id,
+}
+
 pub struct Tack {
     core: Core,
     store: Store,
     /// Which note each open window is showing.
-    windows: HashMap<window::Id, Uuid>,
+    windows: HashMap<window::Id, WindowNote>,
     notes: HashMap<Uuid, Note>,
     /// Notes edited since their last save, and when they were last edited.
     dirty: HashMap<Uuid, Instant>,
@@ -88,7 +96,8 @@ impl Tack {
 
     fn open_window_for(&mut self, uuid: Uuid) -> Task<Message> {
         let (id, spawn) = window::open(window::Settings::default());
-        self.windows.insert(id, uuid);
+        let input_id = id::Id::new(format!("note-body-{uuid}"));
+        self.windows.insert(id, WindowNote { uuid, input_id });
         let opened = spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)));
 
         let title = self
@@ -192,13 +201,20 @@ impl cosmic::Application for Tack {
                     }
                 }
             }
-            Message::NoteOpened(_id) => Task::none(),
+            Message::NoteOpened(id) => {
+                eprintln!("tack: NoteOpened window={id:?}");
+                if let Some(window) = self.windows.get(&id) {
+                    widget::text_input::focus(window.input_id.clone())
+                } else {
+                    Task::none()
+                }
+            }
             Message::NoteClosed(id) => {
                 self.windows.remove(&id);
                 Task::none()
             }
             Message::CloseRequested(id) => {
-                if let Some(uuid) = self.windows.get(&id).copied() {
+                if let Some(uuid) = self.windows.get(&id).map(|w| w.uuid) {
                     if self.dirty.contains_key(&uuid) {
                         self.flush(&[uuid]);
                     }
@@ -207,7 +223,8 @@ impl cosmic::Application for Tack {
                 window::close(id)
             }
             Message::BodyEdited(id, value) => {
-                if let Some(uuid) = self.windows.get(&id).copied() {
+                eprintln!("tack: BodyEdited window={id:?} value={value:?}");
+                if let Some(uuid) = self.windows.get(&id).map(|w| w.uuid) {
                     if let Some(note) = self.notes.get_mut(&uuid) {
                         note.body = value;
                         self.dirty.insert(uuid, Instant::now());
@@ -232,15 +249,20 @@ impl cosmic::Application for Tack {
     }
 
     fn view_window(&self, id: window::Id) -> Element<'_, Message> {
-        let Some(note) = self.windows.get(&id).and_then(|uuid| self.notes.get(uuid)) else {
+        let Some(window) = self.windows.get(&id) else {
+            return widget::text::body("").into();
+        };
+        let Some(note) = self.notes.get(&window.uuid) else {
             return widget::text::body("").into();
         };
 
         let colour = Colour::from_name(&note.frontmatter.color);
+        let input_id = window.input_id.clone();
 
         widget::container(
             widget::text_input("", &note.body)
-                .on_input(move |value| Message::BodyEdited(id, value)),
+                .on_input(move |value| Message::BodyEdited(id, value))
+                .id(input_id),
         )
         .padding(12)
         .width(Length::Fill)
