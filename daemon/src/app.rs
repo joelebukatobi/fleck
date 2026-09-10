@@ -391,15 +391,42 @@ impl Tack {
         }
     }
 
-    /// Deletes `uuid` through `Store::delete`, closing its window first (if
-    /// it has one) exactly like `hide_note` - directly, bypassing the
+    /// Deletes `uuid` from the store and every piece of state that tracks
+    /// it - `Store::delete`, `self.notes`, `self.dirty`, and
+    /// `self.window_state.sizes` - so this is the one place either deletion
+    /// route (the D-Bus `DeleteNote` call, or the delete-on-close branch for
+    /// an empty note) has to go through. A removed size entry only marks
+    /// `window_state_dirty`, rather than saving synchronously, so the write
+    /// rides the same debounced flush as every other window-state change
+    /// instead of an extra disk write per delete.
+    ///
+    /// Deliberately does not touch `self.windows` or close any window: a
+    /// window still open for `uuid` is the caller's responsibility (see
+    /// `delete_note`, and the delete-on-close branch which is already mid-
+    /// close). Returns whether the note existed.
+    fn delete_note_data(&mut self, uuid: Uuid) -> bool {
+        if !self.notes.contains_key(&uuid) {
+            return false;
+        }
+        if let Err(e) = self.store.delete(uuid) {
+            eprintln!("tack: failed to delete note {uuid}: {e}");
+        }
+        self.notes.remove(&uuid);
+        self.dirty.remove(&uuid);
+        if self.window_state.sizes.remove(&uuid).is_some() {
+            self.window_state_dirty = true;
+        }
+        true
+    }
+
+    /// Deletes `uuid` through `delete_note_data`, closing its window first
+    /// (if it has one) exactly like `hide_note` - directly, bypassing the
     /// delete-on-close check, since this delete is already unconditional.
     /// Returns whether the note existed.
     fn delete_note(&mut self, uuid: Uuid) -> (bool, Task<Message>) {
         if !self.notes.contains_key(&uuid) {
             return (false, Task::none());
         }
-        self.dirty.remove(&uuid);
         let close_task =
             match self.windows.iter().find(|(_, w)| w.uuid == uuid).map(|(id, _)| *id) {
                 Some(id) => {
@@ -408,17 +435,8 @@ impl Tack {
                 }
                 None => Task::none(),
             };
-        if let Err(e) = self.store.delete(uuid) {
-            eprintln!("tack: failed to delete note {uuid}: {e}");
-        }
-        self.notes.remove(&uuid);
-        if self.window_state.sizes.remove(&uuid).is_some() {
-            if let Err(e) = self.window_state.save(&self.state_path) {
-                eprintln!("tack: failed to save window state: {e}");
-            }
-            self.window_state_dirty = false;
-        }
-        (true, close_task)
+        let existed = self.delete_note_data(uuid);
+        (existed, close_task)
     }
 
     /// Applies one D-Bus request and answers its reply channel (where it
@@ -669,11 +687,11 @@ impl cosmic::Application for Tack {
                 if let Some(uuid) = self.windows.get(&id).map(|w| w.uuid) {
                     let disposable = self.notes.get(&uuid).map(is_disposable).unwrap_or(false);
                     if disposable {
-                        if let Err(e) = self.store.delete(uuid) {
-                            eprintln!("tack: failed to delete empty note {uuid}: {e}");
-                        }
-                        self.notes.remove(&uuid);
-                        self.dirty.remove(&uuid);
+                        // The window is already on its way out via
+                        // `window::close` below - `delete_note_data` never
+                        // touches `self.windows`, so there's no second close
+                        // to guard against here.
+                        self.delete_note_data(uuid);
                     } else if self.dirty.contains_key(&uuid) {
                         let _ = self.flush(&[uuid]);
                     }
@@ -990,6 +1008,67 @@ mod tests {
     #[test]
     fn title_no_update_when_current_matches_last_set() {
         assert!(!title_needs_update("Same name", "Same name"));
+    }
+
+    /// The bug this guards against: a note resized then deleted left a
+    /// stale entry in `window_state.sizes` forever, because the
+    /// delete-on-close path hand-rolled its own deletion and forgot to
+    /// touch `sizes`. `delete_note_data` is the one function both deletion
+    /// routes now go through, so exercising it directly covers both.
+    #[test]
+    fn delete_note_data_removes_window_size_entry() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-delete-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let id = note.frontmatter.uuid;
+        app.notes.insert(id, note);
+        app.window_state.sizes.insert(id, (600, 900));
+        app.window_state_dirty = false;
+
+        let existed = app.delete_note_data(id);
+
+        assert!(existed);
+        assert!(!app.notes.contains_key(&id));
+        assert!(
+            !app.window_state.sizes.contains_key(&id),
+            "stale size entry left behind after delete"
+        );
+        assert!(
+            app.window_state_dirty,
+            "window state change must be marked dirty so the existing flush picks it up"
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// The D-Bus `DeleteNote` route (`delete_note`) goes through the same
+    /// shared function - confirm it also clears the size entry.
+    #[test]
+    fn delete_note_dbus_route_removes_window_size_entry() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-delete-dbus-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let id = note.frontmatter.uuid;
+        app.notes.insert(id, note);
+        app.window_state.sizes.insert(id, (600, 900));
+
+        let (existed, _task) = app.delete_note(id);
+
+        assert!(existed);
+        assert!(!app.window_state.sizes.contains_key(&id));
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn delete_note_data_returns_false_for_unknown_note() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-delete-missing-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+
+        assert!(!app.delete_note_data(Uuid::new_v4()));
     }
 }
 
