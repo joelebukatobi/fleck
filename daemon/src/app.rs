@@ -1,15 +1,16 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use cosmic::app::{Core, Task};
 use cosmic::iced::core::id;
 use cosmic::iced::futures::channel::mpsc;
 use cosmic::iced::futures::{SinkExt, Stream, StreamExt};
-use cosmic::iced::{event, window, Length, Subscription};
+use cosmic::iced::{event, window, Length, Size, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget;
 use cosmic::widget::text_editor;
-use sticky_notes_core::{is_disposable, Note, Store};
+use sticky_notes_core::{is_disposable, Note, Store, WindowState};
 use uuid::Uuid;
 
 use crate::dbus;
@@ -17,6 +18,32 @@ use crate::palette::Colour;
 
 /// How long to wait after the last keystroke before writing a note to disk.
 const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(500);
+
+/// Every note window opens at this size unless it has a saved size of its
+/// own (see `window_size_for`).
+const DEFAULT_WINDOW_SIZE: (u32, u32) = (512, 768);
+
+/// A saved size smaller than this in either dimension is treated as absent:
+/// a note resized down to nothing (or a corrupt state file) must not reopen
+/// as an invisible window.
+const MIN_WINDOW_SIZE: (u32, u32) = (200, 150);
+
+/// The size a note's window should open at: its saved size, if one exists
+/// and is at least `MIN_WINDOW_SIZE`, otherwise `DEFAULT_WINDOW_SIZE`.
+fn window_size_for(uuid: Uuid, sizes: &BTreeMap<Uuid, (u32, u32)>) -> (u32, u32) {
+    match sizes.get(&uuid) {
+        Some(&(w, h)) if w >= MIN_WINDOW_SIZE.0 && h >= MIN_WINDOW_SIZE.1 => (w, h),
+        _ => DEFAULT_WINDOW_SIZE,
+    }
+}
+
+/// What `Tack::init` needs beyond a `Core`: the note store, the window-size
+/// state loaded from disk, and the path to save it back to.
+pub struct Flags {
+    pub store: Store,
+    pub window_state: WindowState,
+    pub state_path: PathBuf,
+}
 
 /// The window title for a note: its explicit name, or its first non-empty
 /// body line, or a sensible fallback for a note with no content yet.
@@ -49,6 +76,7 @@ pub enum Message {
     CloseRequested(window::Id),
     BodyAction(window::Id, text_editor::Action),
     NameChanged(window::Id, String),
+    WindowResized(window::Id, Size),
     AutosaveTick,
     /// A D-Bus call came in and is waiting on `self` to act on it.
     Dbus(DbusRequest),
@@ -104,6 +132,17 @@ struct WindowNote {
 pub struct Tack {
     core: Core,
     store: Store,
+    /// Per-note window size, persisted to `state_path`. The only part of
+    /// `sticky_notes_core::geometry::WindowState` this app wires up -
+    /// `placements`/`minimized` stay unused (no window position is ever
+    /// persisted or restored).
+    window_state: WindowState,
+    state_path: PathBuf,
+    /// Set when a resize has changed `window_state` since it was last
+    /// written to `state_path`. Checked on the same autosave tick that
+    /// flushes dirty notes, rather than saving on every resize event - a
+    /// resize drag emits many of those.
+    window_state_dirty: bool,
     /// Which note each open window is showing.
     windows: HashMap<window::Id, WindowNote>,
     notes: HashMap<Uuid, Note>,
@@ -143,7 +182,23 @@ impl Tack {
             .filter(|(_, &last_edit)| now.duration_since(last_edit) >= AUTOSAVE_DEBOUNCE)
             .map(|(id, _)| *id)
             .collect();
-        self.flush(&due)
+        let task = self.flush(&due);
+        self.flush_window_state();
+        task
+    }
+
+    /// Writes `window_state` to `state_path` if a resize has touched it
+    /// since the last write. Errors are logged, not retried - like note
+    /// positions, a lost resize is worth losing rather than worth crashing
+    /// startup over.
+    fn flush_window_state(&mut self) {
+        if !self.window_state_dirty {
+            return;
+        }
+        if let Err(e) = self.window_state.save(&self.state_path) {
+            eprintln!("tack: failed to save window state: {e}");
+        }
+        self.window_state_dirty = false;
     }
 
     /// Force-writes the given notes through `Store::save`, regardless of the
@@ -208,6 +263,7 @@ impl Tack {
     fn flush_all(&mut self) {
         let ids: Vec<Uuid> = self.dirty.keys().copied().collect();
         let _ = self.flush(&ids);
+        self.flush_window_state();
     }
 
     /// Registers `uuid` as the note shown by window `id` (already open -
@@ -247,7 +303,10 @@ impl Tack {
     /// libcosmic already created (see `init`), since a window can't be
     /// opened twice.
     fn open_window_for(&mut self, uuid: Uuid) -> Task<Message> {
-        let (id, spawn) = window::open(window::Settings::default());
+        let (w, h) = window_size_for(uuid, &self.window_state.sizes);
+        let settings =
+            window::Settings { size: Size::new(w as f32, h as f32), ..window::Settings::default() };
+        let (id, spawn) = window::open(settings);
         let registered = self.register_window(id, uuid);
         let opened = spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)));
 
@@ -340,6 +399,12 @@ impl Tack {
             eprintln!("tack: failed to delete note {uuid}: {e}");
         }
         self.notes.remove(&uuid);
+        if self.window_state.sizes.remove(&uuid).is_some() {
+            if let Err(e) = self.window_state.save(&self.state_path) {
+                eprintln!("tack: failed to save window state: {e}");
+            }
+            self.window_state_dirty = false;
+        }
         (true, close_task)
     }
 
@@ -441,7 +506,7 @@ fn dbus_worker() -> impl Stream<Item = Message> {
 
 impl cosmic::Application for Tack {
     type Executor = cosmic::executor::Default;
-    type Flags = Store;
+    type Flags = Flags;
     type Message = Message;
 
     const APP_ID: &'static str = "io.github.joelebukatobi.Tack";
@@ -454,7 +519,8 @@ impl cosmic::Application for Tack {
         &mut self.core
     }
 
-    fn init(core: Core, store: Store) -> (Self, Task<Message>) {
+    fn init(core: Core, flags: Flags) -> (Self, Task<Message>) {
+        let Flags { store, window_state, state_path } = flags;
         let mut notes = HashMap::new();
         // Only true when `Store::list` succeeded and returned zero entries.
         // A `list` failure (already logged below) must NOT trigger note
@@ -495,6 +561,9 @@ impl cosmic::Application for Tack {
         let mut app = Tack {
             core,
             store,
+            window_state,
+            state_path,
+            window_state_dirty: false,
             windows: HashMap::new(),
             notes,
             dirty: HashMap::new(),
@@ -512,6 +581,13 @@ impl cosmic::Application for Tack {
         if let Some(main_id) = app.core.main_window_id() {
             if let Some(first) = uuids.pop() {
                 tasks.push(app.register_window(main_id, first));
+                // The main window already opened at `DEFAULT_WINDOW_SIZE`
+                // (set as the app's initial size in `main.rs`); only a
+                // saved size that actually differs needs a resize.
+                let size = window_size_for(first, &app.window_state.sizes);
+                if size != DEFAULT_WINDOW_SIZE {
+                    tasks.push(window::resize(main_id, Size::new(size.0 as f32, size.1 as f32)));
+                }
             }
         }
         for uuid in uuids {
@@ -530,11 +606,14 @@ impl cosmic::Application for Tack {
             cosmic::iced::Event::Window(window::Event::CloseRequested) => {
                 Some(Message::CloseRequested(id))
             }
+            cosmic::iced::Event::Window(window::Event::Resized(size)) => {
+                Some(Message::WindowResized(id, size))
+            }
             _ => None,
         });
 
         let mut subscriptions = vec![events, dbus_subscription()];
-        if !self.dirty.is_empty() {
+        if !self.dirty.is_empty() || self.window_state_dirty {
             subscriptions.push(
                 cosmic::iced::time::every(Duration::from_millis(500))
                     .map(|_| Message::AutosaveTick),
@@ -624,6 +703,20 @@ impl cosmic::Application for Tack {
                 // most once per autosave debounce.
                 Task::none()
             }
+            Message::WindowResized(id, size) => {
+                // Recorded in memory only - `flush_window_state` (driven by
+                // the same autosave tick as note saves) is what actually
+                // writes this to disk, so a resize drag's flood of events
+                // costs one write at most, not one per event.
+                if let Some(window) = self.windows.get(&id) {
+                    let uuid = window.uuid;
+                    let w = size.width.round().max(0.0) as u32;
+                    let h = size.height.round().max(0.0) as u32;
+                    self.window_state.sizes.insert(uuid, (w, h));
+                    self.window_state_dirty = true;
+                }
+                Task::none()
+            }
             Message::AutosaveTick => self.flush_due(Instant::now()),
             Message::Dbus(request) => match request.take() {
                 Some(request) => self.handle_dbus_request(request),
@@ -642,6 +735,41 @@ impl cosmic::Application for Tack {
     fn on_app_exit(&mut self) -> Option<Message> {
         self.flush_all();
         None
+    }
+
+    // `header_start`/`header_center` only reach the *main* window: libcosmic
+    // builds its client-side header (`view_main`, which calls these) solely
+    // for `core.main_window_id()`; every other window id is dispatched
+    // straight to `view_window` with no header of its own layered on top
+    // (`Cosmic::view` in libcosmic's `src/app/cosmic.rs`). Secondary note
+    // windows (`window::open`, used for every note after the first) default
+    // to `decorations: true`, i.e. a compositor-drawn title bar with no
+    // client content slots at all - putting "Tack" and the note name there
+    // would mean disabling decorations and drawing a header ourselves
+    // (`crate::widget::header_bar`, as libcosmic's own `multi-window`
+    // example does for its secondary windows). That is out of scope here:
+    // the task calls that exact move - "disabling decorations... or
+    // anything similar" - a workaround to stop on rather than take. So only
+    // the first note (whichever one lands on the main window) gets this
+    // "Tack" + name header for now; every other open note window keeps
+    // whatever title bar the compositor gives it.
+    fn header_start(&self) -> Vec<Element<'_, Message>> {
+        vec![widget::text::body("Tack").into()]
+    }
+
+    fn header_center(&self) -> Vec<Element<'_, Message>> {
+        let Some(main_id) = self.core.main_window_id() else {
+            return Vec::new();
+        };
+        let Some(window) = self.windows.get(&main_id) else {
+            return Vec::new();
+        };
+        let name = self
+            .notes
+            .get(&window.uuid)
+            .map(window_title)
+            .unwrap_or_else(|| sticky_notes_core::UNNAMED.to_string());
+        vec![widget::text::body(name).into()]
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -713,6 +841,9 @@ mod tests {
         Tack {
             core: Core::default(),
             store,
+            window_state: WindowState::default(),
+            state_path: std::env::temp_dir().join(format!("tack-test-windows-{}.toml", Uuid::new_v4())),
+            window_state_dirty: false,
             windows: HashMap::new(),
             notes: HashMap::new(),
             dirty: HashMap::new(),
@@ -779,6 +910,28 @@ mod tests {
         assert!(!app.dirty.contains_key(&id));
 
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn window_size_for_uses_default_with_no_saved_size() {
+        let sizes = BTreeMap::new();
+        assert_eq!(window_size_for(Uuid::new_v4(), &sizes), DEFAULT_WINDOW_SIZE);
+    }
+
+    #[test]
+    fn window_size_for_uses_the_saved_size() {
+        let id = Uuid::new_v4();
+        let mut sizes = BTreeMap::new();
+        sizes.insert(id, (600, 900));
+        assert_eq!(window_size_for(id, &sizes), (600, 900));
+    }
+
+    #[test]
+    fn window_size_for_falls_back_when_the_saved_size_is_too_small() {
+        let id = Uuid::new_v4();
+        let mut sizes = BTreeMap::new();
+        sizes.insert(id, (10, 10));
+        assert_eq!(window_size_for(id, &sizes), DEFAULT_WINDOW_SIZE);
     }
 
     #[test]

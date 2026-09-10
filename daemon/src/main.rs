@@ -6,7 +6,7 @@ mod dbus;
 #[allow(dead_code)]
 mod palette;
 
-use sticky_notes_core::Store;
+use sticky_notes_core::{Store, WindowState};
 
 /// Client-side view of the `io.github.joelebukatobi.Tack` service that
 /// `dbus.rs` implements - one trait method per D-Bus method, generated into
@@ -285,6 +285,22 @@ fn notes_dir() -> std::path::PathBuf {
     base.join("tack/notes")
 }
 
+/// `$XDG_STATE_HOME/tack/windows.toml`, falling back to
+/// `$HOME/.local/state/tack/windows.toml`.
+fn window_state_path() -> std::path::PathBuf {
+    let base = std::env::var_os("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            let home = std::env::var_os("HOME").expect("HOME is set");
+            std::path::PathBuf::from(home).join(".local/state")
+        });
+    base.join("tack/windows.toml")
+}
+
+/// Every note window - the main one included - opens at this size unless
+/// resized before (see `app::window_size_for`).
+const DEFAULT_WINDOW_SIZE: cosmic::iced::Size = cosmic::iced::Size::new(512.0, 768.0);
+
 fn main() -> cosmic::iced::Result {
     let store = Store::new(notes_dir());
 
@@ -297,6 +313,15 @@ fn main() -> cosmic::iced::Result {
         std::process::exit(code);
     }
 
+    let state_path = window_state_path();
+    let window_state = match WindowState::load(&state_path) {
+        Ok(state) => state,
+        Err(e) => {
+            eprintln!("tack: failed to read window state {}: {e}", state_path.display());
+            WindowState::default()
+        }
+    };
+
     // `exit_on_close(false)`: without it, libcosmic force-exits the whole
     // app the instant the *main* window closes, even if other note windows
     // are still open (`Core::exit_on_main_window_closed`, on by default).
@@ -304,7 +329,7 @@ fn main() -> cosmic::iced::Result {
     // itself decides when to exit, in `Message::NoteClosed`, once its
     // `windows` map is empty (i.e. the *last* note window closed).
     cosmic::app::run::<app::Tack>(
-        cosmic::app::Settings::default().exit_on_close(false),
-        store,
+        cosmic::app::Settings::default().exit_on_close(false).size(DEFAULT_WINDOW_SIZE),
+        app::Flags { store, window_state, state_path },
     )
 }

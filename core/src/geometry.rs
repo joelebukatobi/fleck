@@ -86,6 +86,13 @@ pub struct WindowState {
     pub placements: BTreeMap<Uuid, Placement>,
     #[serde(default)]
     pub minimized: BTreeSet<Uuid>,
+    /// Last known (width, height) of each note's window, in logical pixels,
+    /// so it can reopen at the size it was last resized to. Deliberately
+    /// separate from `Placement`: position is never persisted, only size,
+    /// and `#[serde(default)]` keeps an older state file (saved before this
+    /// field existed) loading as an empty map instead of failing.
+    #[serde(default)]
+    pub sizes: BTreeMap<Uuid, (u32, u32)>,
 }
 
 impl WindowState {
@@ -277,6 +284,46 @@ mod tests {
         }
 
         assert!(result.unwrap().placements.is_empty());
+    }
+
+    #[test]
+    fn round_trips_window_state_with_sizes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("windows.toml");
+        let id = uuid::Uuid::from_u128(4);
+
+        let mut state = WindowState::default();
+        state.sizes.insert(id, (600, 900));
+        state.save(&path).unwrap();
+
+        assert_eq!(WindowState::load(&path).unwrap(), state);
+    }
+
+    #[test]
+    fn a_state_file_without_the_sizes_field_loads_it_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("windows.toml");
+        // Written by a version of `WindowState` that predates `sizes`.
+        std::fs::write(&path, "minimized = []\n\n[placements]\n").unwrap();
+
+        let state = WindowState::load(&path).unwrap();
+        assert!(state.sizes.is_empty());
+    }
+
+    #[test]
+    fn removing_a_size_entry_drops_it_from_the_saved_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("windows.toml");
+        let id = uuid::Uuid::from_u128(5);
+
+        let mut state = WindowState::default();
+        state.sizes.insert(id, (512, 768));
+        state.save(&path).unwrap();
+
+        state.sizes.remove(&id);
+        state.save(&path).unwrap();
+
+        assert!(WindowState::load(&path).unwrap().sizes.is_empty());
     }
 
     #[test]
