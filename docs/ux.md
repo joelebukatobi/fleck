@@ -27,3 +27,18 @@ Plain notes on the experience we want. Not a spec.
 - The left side of every Tack window says **Tack**, so you can tell what app it is.
 - The note's name sits in the middle.
 - Minimise, maximise and close stay on the right.
+
+## Inside a note
+
+- Name at the top, note text below. Neither has a border.
+- A thin horizontal rule separates them, with a little space above and below it.
+- The note text is ruled like lined paper: evenly spaced dotted lines, one per
+  line of text, filling the window whether or not there is text on them.
+- Pressing Enter moves the cursor down onto the next line.
+- Resizing the window fills the new space with lines.
+- Text must sit on the lines, and the lines scroll with the text.
+
+## Look
+
+- Bare minimum for now. Theme defaults for every colour, including the lines.
+- Design comes later.
