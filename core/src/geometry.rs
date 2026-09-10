@@ -93,6 +93,16 @@ pub struct WindowState {
     /// field existed) loading as an empty map instead of failing.
     #[serde(default)]
     pub sizes: BTreeMap<Uuid, (u32, u32)>,
+    /// Notes that were open when Tack last quit - snapshotted at the moment
+    /// of quitting (the last window closing, `--quit`/D-Bus `Quit`, or
+    /// application exit), including the window whose closing ended the
+    /// session: closing your last window *is* how you quit, so excluding it
+    /// would mean restore almost never has anything to offer (browser tab
+    /// restore semantics). `#[serde(default)]` keeps a `windows.toml` from
+    /// before this field existed loading as an empty set rather than
+    /// failing to parse.
+    #[serde(default)]
+    pub open_at_quit: BTreeSet<Uuid>,
 }
 
 impl WindowState {
@@ -115,6 +125,14 @@ impl WindowState {
         std::fs::write(&temp, text)?;
         std::fs::rename(&temp, path)
     }
+}
+
+/// Which notes to offer restoring on launch: the intersection of `saved`
+/// (notes open when Tack last quit) and `existing` (notes that still exist
+/// now). A note deleted since last quit is silently dropped - the caller
+/// shows no restore bar at all when this comes back empty.
+pub fn restorable(saved: &BTreeSet<Uuid>, existing: &BTreeSet<Uuid>) -> BTreeSet<Uuid> {
+    saved.intersection(existing).copied().collect()
 }
 
 #[cfg(test)]
@@ -324,6 +342,63 @@ mod tests {
         state.save(&path).unwrap();
 
         assert!(WindowState::load(&path).unwrap().sizes.is_empty());
+    }
+
+    #[test]
+    fn round_trips_window_state_with_open_at_quit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("windows.toml");
+        let id = uuid::Uuid::from_u128(6);
+
+        let mut state = WindowState::default();
+        state.open_at_quit.insert(id);
+        state.save(&path).unwrap();
+
+        assert_eq!(WindowState::load(&path).unwrap(), state);
+    }
+
+    #[test]
+    fn a_state_file_without_open_at_quit_loads_it_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("windows.toml");
+        // Written by a version of `WindowState` that predates `open_at_quit`.
+        std::fs::write(&path, "minimized = []\n\n[placements]\n\n[sizes]\n").unwrap();
+
+        let state = WindowState::load(&path).unwrap();
+        assert!(state.open_at_quit.is_empty());
+    }
+
+    #[test]
+    fn restorable_returns_all_survivors_when_every_note_still_exists() {
+        let a = Uuid::from_u128(1);
+        let b = Uuid::from_u128(2);
+        let saved = BTreeSet::from([a, b]);
+        let existing = BTreeSet::from([a, b]);
+        assert_eq!(restorable(&saved, &existing), BTreeSet::from([a, b]));
+    }
+
+    #[test]
+    fn restorable_drops_notes_deleted_since_last_quit() {
+        let a = Uuid::from_u128(1);
+        let b = Uuid::from_u128(2);
+        let saved = BTreeSet::from([a, b]);
+        let existing = BTreeSet::from([a]);
+        assert_eq!(restorable(&saved, &existing), BTreeSet::from([a]));
+    }
+
+    #[test]
+    fn restorable_is_empty_when_every_saved_note_was_deleted() {
+        let a = Uuid::from_u128(1);
+        let saved = BTreeSet::from([a]);
+        let existing = BTreeSet::new();
+        assert!(restorable(&saved, &existing).is_empty());
+    }
+
+    #[test]
+    fn restorable_is_empty_when_nothing_was_saved() {
+        let a = Uuid::from_u128(1);
+        let existing = BTreeSet::from([a]);
+        assert!(restorable(&BTreeSet::new(), &existing).is_empty());
     }
 
     #[test]

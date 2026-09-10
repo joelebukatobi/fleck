@@ -7,6 +7,7 @@ mod ruled;
 #[allow(dead_code)]
 mod palette;
 
+use cosmic::iced::futures::channel::mpsc;
 use sticky_notes_core::{Store, WindowState};
 
 /// Client-side view of the `io.github.joelebukatobi.Tack` service that
@@ -24,6 +25,7 @@ trait Tack {
     fn new_note(&self) -> zbus::Result<String>;
     fn delete_note(&self, uuid: &str) -> zbus::Result<()>;
     fn toggle_all(&self) -> zbus::Result<bool>;
+    fn show_list(&self) -> zbus::Result<()>;
     fn quit(&self) -> zbus::Result<()>;
 }
 
@@ -323,14 +325,65 @@ fn main() -> cosmic::iced::Result {
         }
     };
 
+    // Acquire the well-known D-Bus name *before* any window opens - not
+    // inside the app's `Subscription` (as it used to be), which only ran
+    // after `init()` had already opened windows. Racing two processes both
+    // past `init()` meant a second launch could open its own editable
+    // windows before ever learning it lost the name, and two processes
+    // could then save the same note file. Doing it here, in the same
+    // pre-GUI `zbus::block_on` path the CLI flags above already use, means
+    // this process knows whether it owns the name before it loads a single
+    // note or opens a single window.
+    //
+    // `zbus::block_on` (with the crate's `tokio` feature) runs on a
+    // `OnceLock`-cached, process-lifetime multi-threaded runtime - it is
+    // not torn down when this call returns, so the connection built here
+    // (and its D-Bus service tasks) keeps running for the life of the
+    // process once handed to the app below.
+    let (dbus_tx, dbus_rx) = mpsc::channel::<dbus::Request>(16);
+    let connection = zbus::block_on(async {
+        zbus::connection::Builder::session()?
+            .serve_at(dbus::OBJECT_PATH, dbus::TackInterface::new(dbus_tx))?
+            .name(dbus::SERVICE_NAME)?
+            .build()
+            .await
+    });
+
+    let connection = match connection {
+        Ok(connection) => connection,
+        Err(e) => {
+            // Another instance already owns the name (or the session bus
+            // isn't reachable at all). Either way, this process has no
+            // business loading notes or opening windows - ask whoever does
+            // own it to show the list, then get out of the way.
+            eprintln!("tack: {} is already owned: {e}", dbus::SERVICE_NAME);
+            let code = zbus::block_on(async {
+                match connect().await {
+                    Ok(proxy) => match proxy.show_list().await {
+                        Ok(()) => OK,
+                        Err(e) => {
+                            eprintln!("tack: failed to ask the running instance to show the list: {e}");
+                            FAILED
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("tack: no running instance reachable either: {e}");
+                        FAILED
+                    }
+                }
+            });
+            std::process::exit(code);
+        }
+    };
+
     // `exit_on_close(false)`: without it, libcosmic force-exits the whole
     // app the instant the *main* window closes, even if other note windows
     // are still open (`Core::exit_on_main_window_closed`, on by default).
-    // The main window is just the first note here, not special - `Tack`
-    // itself decides when to exit, in `Message::NoteClosed`, once its
-    // `windows` map is empty (i.e. the *last* note window closed).
+    // The main window is the notes list, not special beyond being first -
+    // `Tack` itself decides when to exit, once every window (list and
+    // notes) is gone.
     cosmic::app::run::<app::Tack>(
         cosmic::app::Settings::default().exit_on_close(false).size(DEFAULT_WINDOW_SIZE),
-        app::Flags { store, window_state, state_path },
+        app::Flags { store, window_state, state_path, dbus_connection: connection, dbus_rx },
     )
 }

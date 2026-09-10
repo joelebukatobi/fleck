@@ -1,5 +1,6 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cosmic::app::{Core, Task};
@@ -56,11 +57,15 @@ fn window_size_for(uuid: Uuid, sizes: &BTreeMap<Uuid, (u32, u32)>) -> (u32, u32)
 }
 
 /// What `Tack::init` needs beyond a `Core`: the note store, the window-size
-/// state loaded from disk, and the path to save it back to.
+/// state loaded from disk, the path to save it back to, and the already
+/// name-owning D-Bus connection built in `main.rs` before any window opened
+/// (see the module docs on `dbus_subscription`).
 pub struct Flags {
     pub store: Store,
     pub window_state: WindowState,
     pub state_path: PathBuf,
+    pub dbus_connection: zbus::Connection,
+    pub dbus_rx: mpsc::Receiver<dbus::Request>,
 }
 
 /// The window title for a note: its explicit name, or its first non-empty
@@ -86,6 +91,39 @@ fn next_all_visible(visible: &[bool]) -> bool {
     !visible.iter().any(|v| *v)
 }
 
+/// Whether each note is *meant* to be visible, held as explicit intent
+/// rather than derived from `self.windows` (which only updates once the
+/// compositor's asynchronous `Closed` event actually arrives). Updated
+/// synchronously by `show`/`hide` the instant a show or hide is decided, so
+/// a hide immediately followed by a show is never lost to a stale window
+/// map, and a second show of an already-visible note is a no-op instead of
+/// opening a duplicate window.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct VisibilityIntent(HashSet<Uuid>);
+
+impl VisibilityIntent {
+    fn is_visible(&self, uuid: Uuid) -> bool {
+        self.0.contains(&uuid)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Marks `uuid` as meant to be visible. Returns whether that's a change
+    /// (`false` if it was already visible - the caller must not open a
+    /// second window in that case).
+    fn show(&mut self, uuid: Uuid) -> bool {
+        self.0.insert(uuid)
+    }
+
+    /// Marks `uuid` as meant to be hidden. Returns whether that's a change
+    /// (`false` if it was already hidden).
+    fn hide(&mut self, uuid: Uuid) -> bool {
+        self.0.remove(&uuid)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     NewNote,
@@ -95,11 +133,16 @@ pub enum Message {
     BodyAction(window::Id, text_editor::Action),
     WindowResized(window::Id, Size),
     AutosaveTick,
+    /// The user picked a note from the notes list: open it, close the list.
+    PickNote(Uuid),
+    /// The user picked "Reopen" on the restore bar: open every restorable
+    /// note, close the list.
+    ReopenSession,
+    /// The user picked "No thanks" on the restore bar: it goes away, the
+    /// list stays open.
+    DismissRestore,
     /// A D-Bus call came in and is waiting on `self` to act on it.
     Dbus(DbusRequest),
-    /// The D-Bus name is already owned by another running instance - this
-    /// process loses the race and quits rather than fight over it.
-    DbusUnavailable,
 }
 
 /// Wraps a `dbus::Request` so it can ride through `Message`, which
@@ -145,22 +188,55 @@ struct WindowNote {
     last_title: String,
 }
 
+/// Cloneable, `Hash`-able handle on the D-Bus request receiver, so it can be
+/// threaded through `Subscription::run_with` (which identifies a
+/// subscription by hashing its data) while still only ever being drained by
+/// one running stream. Hashed and compared by the `Arc`'s pointer identity:
+/// stable across every `subscription()` call (called once per frame) since
+/// it's the same `Arc` cloned each time, so the underlying stream is never
+/// torn down and restarted.
+#[derive(Clone)]
+struct DbusRx(Arc<Mutex<Option<mpsc::Receiver<dbus::Request>>>>);
+
+impl std::hash::Hash for DbusRx {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (Arc::as_ptr(&self.0) as usize).hash(state);
+    }
+}
+
 pub struct Tack {
     core: Core,
     store: Store,
-    /// Per-note window size, persisted to `state_path`. The only part of
+    /// Per-note window size, persisted to `state_path`. The only parts of
     /// `sticky_notes_core::geometry::WindowState` this app wires up -
     /// `placements`/`minimized` stay unused (no window position is ever
     /// persisted or restored).
     window_state: WindowState,
     state_path: PathBuf,
-    /// Set when a resize has changed `window_state` since it was last
-    /// written to `state_path`. Checked on the same autosave tick that
-    /// flushes dirty notes, rather than saving on every resize event - a
-    /// resize drag emits many of those.
+    /// Set when a resize, or a session snapshot, has changed `window_state`
+    /// since it was last written to `state_path`. Checked on the same
+    /// autosave tick that flushes dirty notes, rather than saving on every
+    /// resize event - a resize drag emits many of those.
     window_state_dirty: bool,
-    /// Which note each open window is showing.
+    /// Which note each open note window is showing. The notes-list window
+    /// is tracked separately, in `list_window` - it shows no note.
     windows: HashMap<window::Id, WindowNote>,
+    /// The currently open notes-list window, if any. `None` once the user
+    /// has picked a note (closing the list) or closed it directly, until a
+    /// D-Bus `ShowList` reopens it.
+    list_window: Option<window::Id>,
+    /// Which notes are meant to be visible right now - see
+    /// `VisibilityIntent`.
+    intent_visible: VisibilityIntent,
+    /// Notes offered by the restore bar on this launch: the survivors (from
+    /// `sticky_notes_core::restorable`) of whatever was open at last quit.
+    /// Consumed (cleared) once the user picks "Reopen"; `restore_dismissed`
+    /// tracks "No thanks" instead, since the bar's count stays meaningful
+    /// even after being dismissed if shown again is never needed here.
+    restore_candidates: BTreeSet<Uuid>,
+    /// Whether the user dismissed the restore bar with "No thanks". Once
+    /// true, the list renders with no bar for the rest of this run.
+    restore_dismissed: bool,
     notes: HashMap<Uuid, Note>,
     /// Notes edited since their last save, and when they were last edited.
     dirty: HashMap<Uuid, Instant>,
@@ -178,11 +254,26 @@ pub struct Tack {
     /// Stable id for the fallback editor above, for the same reason.
     fallback_input_id: id::Id,
     /// Windows currently being closed by `hide_note`/`delete_note` rather
-    /// than by the user. `NoteClosed` consults this to tell "the last note
-    /// window just got hidden" apart from "the user just closed the last
-    /// note window" - only the latter should exit the process (see
-    /// `Message::NoteClosed`).
+    /// than by the user. `NoteClosed` consults this to tell "this note
+    /// window just got hidden/deleted" apart from "the user just closed
+    /// this note window" - only the latter counts toward the
+    /// nothing-left-open exit check (see `Message::NoteClosed`).
     closing_for_hide: HashSet<window::Id>,
+    /// Whether `snapshot_session` has already run for the exit currently in
+    /// progress. `on_app_exit` is the catch-all for exit paths this app
+    /// didn't itself initiate (session logout, a compositor-driven kill);
+    /// the paths it *did* initiate (last window closing, D-Bus `Quit`)
+    /// already snapshotted before asking to exit, and must not be
+    /// overwritten by a second, later snapshot that no longer has the
+    /// closing window's note in `self.windows`.
+    session_snapshotted: bool,
+    /// Kept alive for as long as the app runs: dropping it would release
+    /// the well-known D-Bus name acquired in `main.rs`. `None` only in
+    /// tests, which construct a `Tack` without a real connection.
+    _dbus_connection: Option<zbus::Connection>,
+    /// Handle on the D-Bus request receiver built in `main.rs`, threaded
+    /// into the subscription - see `DbusRx` and `dbus_subscription`.
+    dbus_rx: DbusRx,
 }
 
 impl Tack {
@@ -326,11 +417,15 @@ impl Tack {
         Task::batch([opened, registered])
     }
 
-    /// Whether `uuid` currently has an open window. This *is* the
-    /// visibility model - a hidden note is simply one with no window, still
-    /// sitting in `self.notes` exactly as it was.
+    /// Whether `uuid` is meant to be visible right now - see
+    /// `VisibilityIntent`. This is intent, not "does a window exist for it
+    /// this instant": `self.windows` only updates once the compositor's
+    /// asynchronous `Closed` event arrives, so deriving visibility from it
+    /// made a show immediately after a hide no-op (the stale entry was
+    /// still there) while replying success, and made `ListNotes` report
+    /// stale state.
     fn is_visible(&self, uuid: Uuid) -> bool {
-        self.windows.values().any(|w| w.uuid == uuid)
+        self.intent_visible.is_visible(uuid)
     }
 
     /// Closes the window showing `uuid`, if it has one open, without
@@ -339,8 +434,12 @@ impl Tack {
     /// going via `Message::CloseRequested` - so the delete-on-close rule for
     /// empty notes never runs. The window id is recorded in
     /// `closing_for_hide` so the `NoteClosed` that follows knows this
-    /// closure isn't the user quitting.
+    /// closure isn't the user quitting. A no-op if `uuid` wasn't intended
+    /// visible in the first place.
     fn hide_note(&mut self, uuid: Uuid) -> Task<Message> {
+        if !self.intent_visible.hide(uuid) {
+            return Task::none();
+        }
         let Some(id) = self.windows.iter().find(|(_, w)| w.uuid == uuid).map(|(id, _)| *id)
         else {
             return Task::none();
@@ -350,10 +449,15 @@ impl Tack {
         Task::batch([flush, window::close(id)])
     }
 
-    /// Opens a window for `uuid` from its stored content, unless it already
-    /// has one. A no-op for a uuid that isn't a known note at all.
+    /// Marks `uuid` visible and opens a window for it from its stored
+    /// content - unless it's already intended visible, in which case this
+    /// is a no-op rather than a duplicate window (see `VisibilityIntent`).
+    /// Also a no-op for a uuid that isn't a known note at all.
     fn show_note(&mut self, uuid: Uuid) -> Task<Message> {
-        if self.is_visible(uuid) || !self.notes.contains_key(&uuid) {
+        if !self.notes.contains_key(&uuid) {
+            return Task::none();
+        }
+        if !self.intent_visible.show(uuid) {
             return Task::none();
         }
         self.open_window_for(uuid)
@@ -413,6 +517,7 @@ impl Tack {
         }
         self.notes.remove(&uuid);
         self.dirty.remove(&uuid);
+        self.intent_visible.hide(uuid);
         if self.window_state.sizes.remove(&uuid).is_some() {
             self.window_state_dirty = true;
         }
@@ -437,6 +542,84 @@ impl Tack {
             };
         let existed = self.delete_note_data(uuid);
         (existed, close_task)
+    }
+
+    /// Opens the notes-list window, or raises it if one is already open.
+    fn show_list(&mut self) -> Task<Message> {
+        if let Some(id) = self.list_window {
+            return window::gain_focus(id);
+        }
+        let settings = window::Settings {
+            size: Size::new(DEFAULT_WINDOW_SIZE.0 as f32, DEFAULT_WINDOW_SIZE.1 as f32),
+            ..window::Settings::default()
+        };
+        let (id, spawn) = window::open(settings);
+        self.list_window = Some(id);
+        spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)))
+    }
+
+    /// Closes the notes-list window, if one is open. Goes through
+    /// `window::close` (not `list_window = None` here) so `self.list_window`
+    /// stays valid until the compositor's `Closed` event actually confirms
+    /// it, same as note windows - see `Message::NoteClosed`.
+    fn close_list(&mut self) -> Task<Message> {
+        match self.list_window {
+            Some(id) => window::close(id),
+            None => Task::none(),
+        }
+    }
+
+    /// The notes list: every note's display name (clickable to open it), a
+    /// "New note" button, and - when there's something to offer - the
+    /// restore bar on top. Bare minimum per the task: theme defaults only,
+    /// no rename, no delete.
+    fn view_list(&self) -> Element<'_, Message> {
+        let mut notes: Vec<&Note> = self.notes.values().collect();
+        notes.sort_by(|a, b| {
+            sticky_notes_core::display_name(a).cmp(sticky_notes_core::display_name(b))
+        });
+
+        let mut content = widget::Column::with_capacity(notes.len() + 2).spacing(8).padding(12);
+
+        if !self.restore_dismissed && !self.restore_candidates.is_empty() {
+            let count = self.restore_candidates.len();
+            let bar = widget::Row::with_capacity(3)
+                .spacing(8)
+                .push(
+                    widget::text::body(format!("Reopen {count} notes from last time?"))
+                        .width(Length::Fill),
+                )
+                .push(widget::button::suggested("Reopen").on_press(Message::ReopenSession))
+                .push(widget::button::standard("No thanks").on_press(Message::DismissRestore));
+            content = content.push(bar);
+        }
+
+        content = content.push(widget::button::suggested("New note").on_press(Message::NewNote));
+
+        for note in notes {
+            let uuid = note.frontmatter.uuid;
+            let name = sticky_notes_core::display_name(note).to_string();
+            content = content.push(widget::button::text(name).on_press(Message::PickNote(uuid)));
+        }
+
+        widget::container(widget::scrollable(content).width(Length::Fill).height(Length::Fill))
+            .class(cosmic::theme::Container::WindowBackground)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+
+    /// Records which notes are currently open (`self.windows`, not the
+    /// list) as the session to offer on next launch, and writes it out
+    /// immediately - quitting is exactly the moment this needs to survive a
+    /// crash or power loss, so it doesn't wait for the debounced autosave.
+    /// Idempotent: safe to call more than once for the same exit (see
+    /// `session_snapshotted`).
+    fn snapshot_session(&mut self) {
+        self.window_state.open_at_quit = self.windows.values().map(|w| w.uuid).collect();
+        self.window_state_dirty = true;
+        self.flush_window_state();
+        self.session_snapshotted = true;
     }
 
     /// Applies one D-Bus request and answers its reply channel (where it
@@ -485,49 +668,43 @@ impl Tack {
                 let _ = reply.send(visible);
                 task
             }
-            dbus::Request::Quit => cosmic::iced::exit(),
+            dbus::Request::ShowList(reply) => {
+                let task = self.show_list();
+                let _ = reply.send(());
+                task
+            }
+            dbus::Request::Quit => {
+                self.snapshot_session();
+                cosmic::iced::exit()
+            }
         }
     }
 }
 
-/// Runs the `io.github.joelebukatobi.Tack` D-Bus service and forwards each
-/// incoming call into the application as a `Message::Dbus`. Built with
-/// `Subscription::run` (a plain `fn`, per its signature) rather than a
-/// closure, so it identifies the same recipe across every `subscription()`
-/// call instead of being torn down and restarted each frame.
-fn dbus_subscription() -> Subscription<Message> {
-    Subscription::run(dbus_worker)
+/// Forwards each incoming D-Bus call (already received on `rx.0`, built in
+/// `main.rs` alongside the connection that owns the well-known name) into
+/// the application as a `Message::Dbus`. `Subscription::run_with` - not
+/// `run`, which only takes a bare `fn()` - because the receiver has to be
+/// threaded in from outside rather than created fresh here; `rx` is hashed
+/// by the underlying `Arc`'s pointer identity (see `DbusRx`), so this
+/// identifies the same running stream across every `subscription()` call
+/// instead of being torn down and restarted each frame.
+fn dbus_subscription(rx: &DbusRx) -> Subscription<Message> {
+    Subscription::run_with(rx.clone(), dbus_worker)
 }
 
-fn dbus_worker() -> impl Stream<Item = Message> {
+fn dbus_worker(rx: &DbusRx) -> impl Stream<Item = Message> {
+    let rx = rx.0.clone();
     cosmic::iced::stream::channel(16, async move |mut output| {
-        let (tx, mut rx) = mpsc::channel::<dbus::Request>(16);
-
-        let connection = zbus::connection::Builder::session()
-            .and_then(|b| b.serve_at(dbus::OBJECT_PATH, dbus::TackInterface::new(tx)))
-            .and_then(|b| b.name(dbus::SERVICE_NAME));
-        let connection = match connection {
-            Ok(builder) => builder.build().await,
-            Err(e) => Err(e),
+        // Taken once: whichever invocation of this recipe runs first claims
+        // the receiver. A later re-invocation (should the recipe ever be
+        // restarted) finds `None` and just idles rather than panicking.
+        let Some(mut receiver) = rx.lock().unwrap().take() else {
+            std::future::pending::<()>().await;
+            unreachable!("pending future never resolves");
         };
 
-        // Kept alive for as long as this subscription runs: dropping it
-        // would release the well-known name and tear the service down.
-        let _connection = match connection {
-            Ok(conn) => conn,
-            Err(e) => {
-                // Either another `tack` instance already owns the name, or
-                // the session bus itself isn't reachable. Either way, this
-                // process has no D-Bus service to offer - say so once, and
-                // let the application decide whether that's fatal.
-                eprintln!("tack: not starting the D-Bus service: {e}");
-                let _ = output.send(Message::DbusUnavailable).await;
-                std::future::pending::<()>().await;
-                unreachable!("pending future never resolves");
-            }
-        };
-
-        while let Some(request) = rx.next().await {
+        while let Some(request) = receiver.next().await {
             if output.send(Message::Dbus(DbusRequest::new(request))).await.is_err() {
                 break;
             }
@@ -551,16 +728,10 @@ impl cosmic::Application for Tack {
     }
 
     fn init(core: Core, flags: Flags) -> (Self, Task<Message>) {
-        let Flags { store, window_state, state_path } = flags;
+        let Flags { store, window_state, state_path, dbus_connection, dbus_rx } = flags;
         let mut notes = HashMap::new();
-        // Only true when `Store::list` succeeded and returned zero entries.
-        // A `list` failure (already logged below) must NOT trigger note
-        // creation: the notes may be on disk and merely unreadable, and
-        // creating a new one then would look like data loss.
-        let mut store_is_empty = false;
         match store.list() {
             Ok(loaded) => {
-                store_is_empty = loaded.is_empty();
                 for item in loaded {
                     match item {
                         Ok(note) => {
@@ -578,53 +749,38 @@ impl cosmic::Application for Tack {
             }
         }
 
-        // Never launch with zero windows and no way to create a note except
-        // a terminal flag: if the store is genuinely empty, seed it with one.
-        if store_is_empty {
-            match store.create(&crate::now_rfc3339(), crate::palette::Colour::Yellow.name()) {
-                Ok(note) => {
-                    notes.insert(note.frontmatter.uuid, note);
-                }
-                Err(e) => eprintln!("tack: failed to create initial note: {e}"),
-            }
-        }
+        // The survivors of whatever was open at last quit - notes deleted
+        // since then are silently dropped. Empty means no restore bar.
+        let existing: BTreeSet<Uuid> = notes.keys().copied().collect();
+        let restore_candidates = sticky_notes_core::restorable(&window_state.open_at_quit, &existing);
 
-        let mut app = Tack {
+        // The main window is the notes list, not a note - every note opens
+        // as a secondary window (`window::open`), including the ones
+        // offered for restore, only once the user picks "Reopen".
+        let list_window = core.main_window_id();
+
+        let app = Tack {
             core,
             store,
             window_state,
             state_path,
             window_state_dirty: false,
             windows: HashMap::new(),
+            list_window,
+            intent_visible: VisibilityIntent::default(),
+            restore_candidates,
+            restore_dismissed: false,
             notes,
             dirty: HashMap::new(),
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
             closing_for_hide: HashSet::new(),
+            session_snapshotted: false,
+            _dbus_connection: Some(dbus_connection),
+            dbus_rx: DbusRx(Arc::new(Mutex::new(Some(dbus_rx)))),
         };
 
-        // The seeded (or loaded) notes above must exist before this: the
-        // main window always gets the first one, `open_window_for` opens a
-        // fresh secondary window for every other note.
-        let mut uuids: Vec<Uuid> = app.notes.keys().copied().collect();
-        let mut tasks = Vec::new();
-        if let Some(main_id) = app.core.main_window_id() {
-            if let Some(first) = uuids.pop() {
-                tasks.push(app.register_window(main_id, first));
-                // The main window already opened at `DEFAULT_WINDOW_SIZE`
-                // (set as the app's initial size in `main.rs`); only a
-                // saved size that actually differs needs a resize.
-                let size = window_size_for(first, &app.window_state.sizes);
-                if size != DEFAULT_WINDOW_SIZE {
-                    tasks.push(window::resize(main_id, Size::new(size.0 as f32, size.1 as f32)));
-                }
-            }
-        }
-        for uuid in uuids {
-            tasks.push(app.open_window_for(uuid));
-        }
-
-        (app, Task::batch(tasks))
+        (app, Task::none())
     }
 
     fn subscription(&self) -> Subscription<Message> {
@@ -642,7 +798,7 @@ impl cosmic::Application for Tack {
             _ => None,
         });
 
-        let mut subscriptions = vec![events, dbus_subscription()];
+        let mut subscriptions = vec![events, dbus_subscription(&self.dbus_rx)];
         if !self.dirty.is_empty() || self.window_state_dirty {
             subscriptions.push(
                 cosmic::iced::time::every(Duration::from_millis(500))
@@ -654,7 +810,26 @@ impl cosmic::Application for Tack {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::NewNote => self.create_note().1,
+            Message::NewNote => {
+                let (_, task) = self.create_note();
+                Task::batch([task, self.close_list()])
+            }
+            Message::PickNote(uuid) => {
+                let show = self.show_note(uuid);
+                Task::batch([show, self.close_list()])
+            }
+            Message::ReopenSession => {
+                let candidates = std::mem::take(&mut self.restore_candidates);
+                let shows: Vec<Task<Message>> =
+                    candidates.into_iter().map(|uuid| self.show_note(uuid)).collect();
+                let mut tasks = shows;
+                tasks.push(self.close_list());
+                Task::batch(tasks)
+            }
+            Message::DismissRestore => {
+                self.restore_dismissed = true;
+                Task::none()
+            }
             Message::NoteOpened(id) => {
                 if let Some(window) = self.windows.get(&id) {
                     widget::text_input::focus(window.input_id.clone())
@@ -663,23 +838,44 @@ impl cosmic::Application for Tack {
                 }
             }
             Message::NoteClosed(id) => {
-                // A window closed *because it was hidden* (or deleted) is
-                // not the user quitting: `hide_all` deliberately drives
-                // `self.windows` to empty and the process must stay alive
-                // for a later `show`/`toggle-all` to reopen it (spec's
-                // hide-all requirement wins here over Task 11's
-                // exit-when-last-window-closes rule - see the task report
-                // for why). Only a window that closed on its own account -
-                // the user's X button, via `CloseRequested` - counts toward
-                // "the last note window is gone, exit".
+                if self.list_window == Some(id) {
+                    self.list_window = None;
+                    // A note opening *concurrently* with the list closing
+                    // (picking a note, or reopening a session) already
+                    // updated `intent_visible` synchronously in the same
+                    // `update()` call that requested the close - so this
+                    // check never races the asynchronous completion of
+                    // `window::open` for that note.
+                    return if self.intent_visible.is_empty() {
+                        self.snapshot_session();
+                        cosmic::iced::exit()
+                    } else {
+                        Task::none()
+                    };
+                }
+
+                // A window closed *because it was hidden or deleted* is not
+                // the user quitting: hiding deliberately drives a note out
+                // of `self.windows` and the process must stay alive for a
+                // later show/toggle-all to reopen it. Only a window that
+                // closed on its own account - the user's X button, via
+                // `CloseRequested` - counts toward "nothing is left open,
+                // exit".
                 let was_hide = self.closing_for_hide.remove(&id);
-                self.windows.remove(&id);
-                if self.windows.is_empty() && !was_hide {
-                    // The main window is just the first note now, not
-                    // special - exit once the *last* note window (main or
-                    // secondary) is gone, not tied to which one it was.
+                if was_hide {
+                    self.windows.remove(&id);
+                    return Task::none();
+                }
+                if self.windows.len() == 1 && self.list_window.is_none() {
+                    // This is the closing window whose note ended the
+                    // session - snapshot while it's still in `self.windows`
+                    // (browser tab-restore semantics: the last note you
+                    // close is part of "what was open").
+                    self.snapshot_session();
+                    self.windows.remove(&id);
                     cosmic::iced::exit()
                 } else {
+                    self.windows.remove(&id);
                     Task::none()
                 }
             }
@@ -692,8 +888,13 @@ impl cosmic::Application for Tack {
                         // touches `self.windows`, so there's no second close
                         // to guard against here.
                         self.delete_note_data(uuid);
-                    } else if self.dirty.contains_key(&uuid) {
-                        let _ = self.flush(&[uuid]);
+                    } else {
+                        if self.dirty.contains_key(&uuid) {
+                            let _ = self.flush(&[uuid]);
+                        }
+                        // Closing a note (not deleting it) returns it to
+                        // the list - it's no longer meant to be visible.
+                        self.intent_visible.hide(uuid);
                     }
                 }
                 // Deliberately NOT removing `self.windows[id]` here: the
@@ -737,17 +938,19 @@ impl cosmic::Application for Tack {
                 Some(request) => self.handle_dbus_request(request),
                 None => Task::none(),
             },
-            Message::DbusUnavailable => {
-                eprintln!(
-                    "tack: another instance already owns {}; exiting",
-                    dbus::SERVICE_NAME
-                );
-                cosmic::iced::exit()
-            }
         }
     }
 
     fn on_app_exit(&mut self) -> Option<Message> {
+        // Catch-all for an exit this app didn't itself request (session
+        // logout, a compositor-driven kill): the paths it *does* request
+        // (the last window closing, D-Bus `Quit`) already snapshotted
+        // before asking to exit, and must not be clobbered by a second,
+        // later snapshot that no longer has the closing window's note in
+        // `self.windows` (see `session_snapshotted`).
+        if !self.session_snapshotted {
+            self.snapshot_session();
+        }
         self.flush_all();
         None
     }
@@ -756,46 +959,30 @@ impl cosmic::Application for Tack {
     // builds its client-side header (`view_main`, which calls these) solely
     // for `core.main_window_id()`; every other window id is dispatched
     // straight to `view_window` with no header of its own layered on top
-    // (`Cosmic::view` in libcosmic's `src/app/cosmic.rs`). Secondary note
-    // windows (`window::open`, used for every note after the first) default
-    // to `decorations: true`, i.e. a compositor-drawn title bar with no
-    // client content slots at all - putting "Tack" and the note name there
-    // would mean disabling decorations and drawing a header ourselves
-    // (`crate::widget::header_bar`, as libcosmic's own `multi-window`
-    // example does for its secondary windows). That is out of scope here:
-    // the task calls that exact move - "disabling decorations... or
-    // anything similar" - a workaround to stop on rather than take. So only
-    // the first note (whichever one lands on the main window) gets this
-    // "Tack" + name header for now; every other open note window keeps
-    // whatever title bar the compositor gives it.
+    // (`Cosmic::view` in libcosmic's `src/app/cosmic.rs`). The main window
+    // is the notes list now, not a note, so it just gets the app name - no
+    // note title to show, and rename/delete from the list are out of scope
+    // here regardless. Secondary note windows (`window::open`, used for
+    // every note) default to `decorations: true`, i.e. a compositor-drawn
+    // title bar with no client content slots at all, so they keep whatever
+    // title bar the compositor gives them.
     fn header_start(&self) -> Vec<Element<'_, Message>> {
         vec![widget::text::body("Tack").into()]
-    }
-
-    fn header_center(&self) -> Vec<Element<'_, Message>> {
-        let Some(main_id) = self.core.main_window_id() else {
-            return Vec::new();
-        };
-        let Some(window) = self.windows.get(&main_id) else {
-            return Vec::new();
-        };
-        let name = self
-            .notes
-            .get(&window.uuid)
-            .map(window_title)
-            .unwrap_or_else(|| sticky_notes_core::UNNAMED.to_string());
-        vec![widget::text::body(name).into()]
     }
 
     fn view(&self) -> Element<'_, Message> {
         // `Cosmic::view` dispatches every window id except the main one to
         // `view_window` directly; for the main window it falls back to
-        // this method. Since the main window shows a note like any other,
-        // just render it the same way.
+        // this method. The main window is the notes list, so just render
+        // it the same way `view_window` would for that id.
         self.view_window(self.core.main_window_id().unwrap())
     }
 
     fn view_window(&self, id: window::Id) -> Element<'_, Message> {
+        if Some(id) == self.list_window {
+            return self.view_list();
+        }
+
         // Every branch below builds the exact same widget tree shape - a
         // container wrapping a stateful `text_editor` - regardless of
         // whether the window/note lookups succeed. `text_editor`'s
@@ -902,6 +1089,7 @@ impl cosmic::Application for Tack {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cosmic::Application;
     use sticky_notes_core::{Frontmatter, FORMAT_VERSION};
 
     fn make_tack(store: Store) -> Tack {
@@ -912,11 +1100,18 @@ mod tests {
             state_path: std::env::temp_dir().join(format!("tack-test-windows-{}.toml", Uuid::new_v4())),
             window_state_dirty: false,
             windows: HashMap::new(),
+            list_window: None,
+            intent_visible: VisibilityIntent::default(),
+            restore_candidates: BTreeSet::new(),
+            restore_dismissed: false,
             notes: HashMap::new(),
             dirty: HashMap::new(),
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
             closing_for_hide: HashSet::new(),
+            session_snapshotted: false,
+            _dbus_connection: None,
+            dbus_rx: DbusRx(Arc::new(Mutex::new(None))),
         }
     }
 
@@ -1070,6 +1265,110 @@ mod tests {
 
         assert!(!app.delete_note_data(Uuid::new_v4()));
     }
+
+    #[test]
+    fn show_note_on_an_already_intended_visible_note_does_not_reopen() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-show-twice-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let uuid = note.frontmatter.uuid;
+        app.notes.insert(uuid, note);
+
+        app.intent_visible.show(uuid);
+        // `show_note`'s early return (already intended visible) must fire
+        // before it ever calls `open_window_for` - the exact bug Fix 1
+        // guards against: a `ShowNote` on a note already intended visible,
+        // whose window hasn't appeared yet, opening a duplicate.
+        assert!(app.is_visible(uuid));
+        let _ = app.show_note(uuid);
+        assert!(app.is_visible(uuid));
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn snapshot_session_records_currently_open_notes() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-snapshot-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let uuid = Uuid::new_v4();
+        app.windows.insert(
+            window::Id::unique(),
+            WindowNote {
+                uuid,
+                input_id: id::Id::unique(),
+                content: text_editor::Content::new(),
+                last_title: String::new(),
+            },
+        );
+
+        app.snapshot_session();
+
+        assert_eq!(app.window_state.open_at_quit, BTreeSet::from([uuid]));
+        assert!(app.session_snapshotted);
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn hide_all_does_not_touch_the_saved_session() {
+        // Hide-all closes note windows through the same `closing_for_hide`
+        // path as a single hide - `NoteClosed` must skip the snapshot
+        // entirely for those, not just skip the exit.
+        let tmp = std::env::temp_dir().join(format!("tack-test-hideall-session-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        app.window_state.open_at_quit = BTreeSet::from([Uuid::new_v4()]);
+        let previous = app.window_state.open_at_quit.clone();
+
+        let id = window::Id::unique();
+        app.windows.insert(
+            id,
+            WindowNote {
+                uuid: Uuid::new_v4(),
+                input_id: id::Id::unique(),
+                content: text_editor::Content::new(),
+                last_title: String::new(),
+            },
+        );
+        app.closing_for_hide.insert(id);
+
+        let _ = app.update(Message::NoteClosed(id));
+
+        assert_eq!(app.window_state.open_at_quit, previous, "hide-all must not overwrite the saved session");
+        assert!(!app.session_snapshotted);
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn note_closed_as_the_last_window_includes_it_in_the_snapshot() {
+        // Browser tab-restore semantics: the very note whose window closing
+        // ends the session must still be offered back on next launch.
+        let tmp = std::env::temp_dir().join(format!("tack-test-last-window-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let uuid = Uuid::new_v4();
+        let id = window::Id::unique();
+        app.windows.insert(
+            id,
+            WindowNote {
+                uuid,
+                input_id: id::Id::unique(),
+                content: text_editor::Content::new(),
+                last_title: String::new(),
+            },
+        );
+
+        let _ = app.update(Message::NoteClosed(id));
+
+        assert_eq!(app.window_state.open_at_quit, BTreeSet::from([uuid]));
+        assert!(app.session_snapshotted);
+        assert!(!app.windows.contains_key(&id));
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
 }
 
 #[cfg(test)]
@@ -1090,5 +1389,45 @@ mod visibility_tests {
     #[test]
     fn toggle_all_shows_when_there_are_no_notes() {
         assert!(next_all_visible(&[]));
+    }
+
+    // `VisibilityIntent` is the pure state extracted from Fix 1: `self.windows`
+    // only updates once the compositor's asynchronous `Closed` event arrives,
+    // so it can't be what "visible" means without a show-after-hide going
+    // stale. These transitions are tested here with no window/Task/GUI
+    // machinery at all.
+
+    #[test]
+    fn hide_then_immediately_show_leaves_the_note_visible() {
+        let uuid = Uuid::new_v4();
+        let mut intent = VisibilityIntent::default();
+        intent.show(uuid);
+        intent.hide(uuid);
+        intent.show(uuid);
+        assert!(intent.is_visible(uuid), "a show right after a hide must leave the note visible");
+    }
+
+    #[test]
+    fn showing_twice_does_not_duplicate() {
+        let uuid = Uuid::new_v4();
+        let mut intent = VisibilityIntent::default();
+        assert!(intent.show(uuid), "first show is a real change");
+        assert!(!intent.show(uuid), "second show must report no change - no duplicate window");
+        assert!(intent.is_visible(uuid));
+    }
+
+    #[test]
+    fn hiding_twice_does_not_report_a_second_change() {
+        let uuid = Uuid::new_v4();
+        let mut intent = VisibilityIntent::default();
+        intent.show(uuid);
+        assert!(intent.hide(uuid), "first hide is a real change");
+        assert!(!intent.hide(uuid), "second hide must report no change");
+        assert!(!intent.is_visible(uuid));
+    }
+
+    #[test]
+    fn a_note_never_shown_is_not_visible() {
+        assert!(!VisibilityIntent::default().is_visible(Uuid::new_v4()));
     }
 }

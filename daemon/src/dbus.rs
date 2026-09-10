@@ -40,6 +40,10 @@ pub enum Request {
     /// `bool` reply: whether notes are now visible (the rule from
     /// `next_all_visible`).
     ToggleAll(oneshot::Sender<bool>),
+    /// Opens the notes list window, or raises it if already open. This is
+    /// how a second `tack` launch (which loses the D-Bus name race and
+    /// exits immediately - see `main.rs`) gets the user back to the list.
+    ShowList(oneshot::Sender<()>),
     Quit,
 }
 
@@ -149,6 +153,12 @@ impl TackInterface {
         let visible = rx.await.map_err(|_| dead_app())?;
         let _ = emitter.notes_changed().await;
         Ok(visible)
+    }
+
+    async fn show_list(&self) -> fdo::Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.requests.clone().send(Request::ShowList(tx)).await.map_err(|_| dead_app())?;
+        rx.await.map_err(|_| dead_app())
     }
 
     async fn quit(&self) -> fdo::Result<()> {
