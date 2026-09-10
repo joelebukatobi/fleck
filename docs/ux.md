@@ -27,14 +27,15 @@ Plain notes on the experience we want. Not a spec.
 
 ## Window title bar
 
-- The left side of every Tack window says **Tack**, so you can tell what app it is.
-- The note's name sits in the middle.
-- Minimise, maximise and close stay on the right.
+- Every note window's title reads **Note name | Tack**, followed by minimise,
+  maximise and close. COSMIC already renders it this way.
 
 ## Inside a note
 
-- Name at the top, note text below. Neither has a border.
-- A thin horizontal rule separates them, with a little space above and below it.
+- Just the note text. No name field inside the note — the name lives in the title bar.
+- A note's name is its first line of text. Renaming explicitly happens from the
+  notes list.
+- The note text has no border.
 - The note text is ruled like lined paper: evenly spaced dotted lines, one per
   line of text, filling the window whether or not there is text on them.
 - Pressing Enter moves the cursor down onto the next line.
