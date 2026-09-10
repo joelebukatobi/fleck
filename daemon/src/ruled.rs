@@ -56,38 +56,56 @@ pub struct RuledLines {
 }
 
 impl<Message> canvas::Program<Message, Theme> for RuledLines {
-    type State = ();
+    // A `canvas::Cache`, not `()`: `draw` below is called on every cursor
+    // blink and every keystroke (the note body redraws on each), and
+    // without a cache each of those re-tessellates the whole dashed-line
+    // background from scratch. `Cache::draw_with_bounds` already skips
+    // redrawing when `bounds` is unchanged from the previous call, so a
+    // resize (bounds change) still redraws - no separate invalidation
+    // needed here. This has to live in `State`, not on the `RuledLines`
+    // struct itself, because `view_window` rebuilds a fresh `RuledLines`
+    // every `view()` call; `State` is what libcosmic keeps alive across
+    // views.
+    type State = canvas::Cache;
 
     fn draw(
         &self,
-        _state: &(),
+        state: &canvas::Cache,
         renderer: &cosmic::Renderer,
         theme: &Theme,
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry<cosmic::Renderer>> {
-        let mut frame = canvas::Frame::new(renderer, bounds.size());
-        let container = theme.current_container();
+        // Local bounds (size only, no position): the geometry itself never
+        // depends on where the canvas sits in the window, only on how big
+        // it is, so keying the cache on size alone (rather than the
+        // `bounds` the canvas widget reports, whose x/y shifts whenever an
+        // ancestor's layout does) avoids spurious cache misses.
+        let local_bounds = Rectangle::with_size(bounds.size());
+        let geometry = state.draw_with_bounds(renderer, local_bounds, |frame| {
+            let container = theme.current_container();
 
-        // The opaque backing the module doc above promises: without this,
-        // the transparent editor above would let whatever the compositor
-        // clears the surface to (often nothing at all) show through.
-        frame.fill_rectangle(Point::ORIGIN, bounds.size(), Color::from(container.base));
+            // The opaque backing the module doc above promises: without
+            // this, the transparent editor above would let whatever the
+            // compositor clears the surface to (often nothing at all) show
+            // through.
+            frame.fill_rectangle(Point::ORIGIN, bounds.size(), Color::from(container.base));
 
-        let dash = [1.0_f32, 3.0];
-        let stroke = canvas::Stroke {
-            style: canvas::Style::Solid(Color::from(container.divider)),
-            width: 1.0,
-            line_dash: canvas::LineDash { segments: &dash, offset: 0 },
-            ..canvas::Stroke::default()
-        };
+            let dash = [1.0_f32, 3.0];
+            let stroke = canvas::Stroke {
+                style: canvas::Style::Solid(Color::from(container.divider)),
+                width: 1.0,
+                line_dash: canvas::LineDash { segments: &dash, offset: 0 },
+                ..canvas::Stroke::default()
+            };
 
-        for y in line_offsets(bounds.height, self.line_height, self.padding_top) {
-            let line = canvas::Path::line(Point::new(0.0, y), Point::new(bounds.width, y));
-            frame.stroke(&line, stroke);
-        }
+            for y in line_offsets(bounds.height, self.line_height, self.padding_top) {
+                let line = canvas::Path::line(Point::new(0.0, y), Point::new(bounds.width, y));
+                frame.stroke(&line, stroke);
+            }
+        });
 
-        vec![frame.into_geometry()]
+        vec![geometry]
     }
 }
 

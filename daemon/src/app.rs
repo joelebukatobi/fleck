@@ -35,6 +35,25 @@ const BODY_LINE_HEIGHT: f32 = 22.0;
 /// this much space above the first line of text.
 const BODY_PADDING: f32 = 8.0;
 
+/// The minimum height to give the note body's editor+canvas stack, given the
+/// finite viewport height `responsive` reports for it: the viewport height
+/// itself, so a short note's content is exactly viewport-tall (filling it
+/// with ruled lines) while a long note is free to grow past it and scroll.
+///
+/// `responsive` sits outside the body's `scrollable` specifically so it only
+/// ever sees a real, finite size (see `view_window`) - but a non-finite
+/// input here is a caller bug away, and `min_height(f32::INFINITY)` would
+/// mean "this editor is infinitely tall", i.e. the exact failure this
+/// arrangement exists to avoid. So a non-finite `viewport_height` falls back
+/// to no minimum (`0.0`) rather than passing infinity into layout.
+fn body_min_height(viewport_height: f32) -> f32 {
+    if viewport_height.is_finite() {
+        viewport_height
+    } else {
+        0.0
+    }
+}
+
 /// How long to wait after the last keystroke before writing a note to disk.
 const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 
@@ -1007,23 +1026,24 @@ impl cosmic::Application for Tack {
         // height and padding constants, so the lines and the text they
         // carry can never drift apart.
         //
-        // Wrapped in `responsive` so the pair can be told the body's actual
-        // visible height (`size.height` below) and use it as the editor's
-        // *minimum* height - filling the window with ruled lines even when
-        // there's no text yet - without knowing that height ahead of time
-        // from fixed layout math. The editor's own height otherwise stays
-        // `Shrink` (never `Fill`): growing to fit its content, rather than
-        // scrolling internally, is what lets it and the canvas behind it
-        // live in one `scrollable` and move together (see below) instead of
-        // the canvas staying put while only the editor's text scrolls.
-        let responsive_body = widget::responsive(move |size| {
+        // `responsive` has to sit *outside* the `scrollable`, not inside
+        // it: a vertical `scrollable` gives its content a max height of
+        // `f32::INFINITY` (that's the whole point - it lets content grow
+        // past the viewport), and `responsive::layout` takes `limits.max()`
+        // as the size it hands its closure. `responsive` inside `scrollable`
+        // would therefore receive an infinite height and pass it straight
+        // through to `min_height` below - an editor told its minimum height
+        // is infinite. Outside the `scrollable`, `responsive` instead sees
+        // the real, finite space the window gives the body, which is
+        // exactly the height a short note's lines should fill.
+        let body = widget::responsive(move |size| {
             let editor = text_editor::text_editor(content)
                 .on_action(move |action| Message::BodyAction(id, action))
                 .id(input_id.clone())
                 .padding(BODY_PADDING)
                 .size(BODY_TEXT_SIZE)
                 .line_height(LineHeight::Absolute(Pixels(BODY_LINE_HEIGHT)))
-                .min_height(size.height)
+                .min_height(body_min_height(size.height))
                 .style(|theme: &cosmic::Theme, _status| {
                     let container = theme.current_container();
                     let value = Color::from(container.on);
@@ -1052,23 +1072,28 @@ impl cosmic::Application for Tack {
 
             // `editor` pushed first (and so, via `push_under`, ends up the
             // stack's *base layer*) is what the stack sizes itself from -
-            // its `Shrink` height is exactly the "grow to fit content, floor
-            // at the visible height" behaviour wanted here. `push_under`
-            // then slots `lines` in *underneath* it without disturbing that
-            // sizing, so the canvas (`Length::Fill`) matches the editor's
-            // resolved size exactly while still rendering first, i.e.
-            // behind the (transparent) text.
-            Stack::new().push(editor).push_under(lines).width(Length::Fill).into()
+            // its `Shrink` height, floored at `min_height` above, is the
+            // "grow to fit content, floor at the visible height" behaviour
+            // wanted here. `push_under` then slots `lines` in *underneath*
+            // it without disturbing that sizing, so the canvas
+            // (`Length::Fill`) matches the editor's resolved size exactly
+            // while still rendering first, i.e. behind the (transparent)
+            // text.
+            let stack = Stack::new().push(editor).push_under(lines).width(Length::Fill);
+
+            // The `scrollable` lives *inside* `responsive`, wrapping the
+            // editor+canvas stack: for a short note the stack is exactly
+            // `size.height` tall (via `min_height` above) and doesn't
+            // scroll, so the lines fill the window; for a long note the
+            // stack grows past `size.height` and this `scrollable` is what
+            // lets the editor and the ruled lines behind it scroll together
+            // as a unit - if the editor scrolled *internally* instead, the
+            // canvas would stay fixed while the text moved, breaking the
+            // line alignment.
+            widget::scrollable(stack).width(Length::Fill).height(Length::Fill).into()
         })
         .width(Length::Fill)
         .height(Length::Fill);
-
-        // The editor+canvas pair lives inside this one `scrollable` so they
-        // scroll together as a unit: if the editor scrolled *internally*
-        // instead, the canvas behind it would stay fixed while the text
-        // moved, breaking the line alignment the moment the note grows past
-        // one screenful.
-        let body = widget::scrollable(responsive_body).width(Length::Fill).height(Length::Fill);
 
         widget::container(body)
         // An explicit opaque background is a rendering requirement, not
@@ -1091,6 +1116,26 @@ mod tests {
     use super::*;
     use cosmic::Application;
     use sticky_notes_core::{Frontmatter, FORMAT_VERSION};
+
+    #[test]
+    fn body_min_height_passes_through_a_finite_viewport() {
+        assert_eq!(body_min_height(600.0), 600.0);
+    }
+
+    #[test]
+    fn body_min_height_passes_through_zero() {
+        assert_eq!(body_min_height(0.0), 0.0);
+    }
+
+    #[test]
+    fn body_min_height_falls_back_to_zero_for_infinity() {
+        assert_eq!(body_min_height(f32::INFINITY), 0.0);
+    }
+
+    #[test]
+    fn body_min_height_falls_back_to_zero_for_nan() {
+        assert_eq!(body_min_height(f32::NAN), 0.0);
+    }
 
     fn make_tack(store: Store) -> Tack {
         Tack {
