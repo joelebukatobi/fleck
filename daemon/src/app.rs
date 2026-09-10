@@ -110,6 +110,16 @@ fn next_all_visible(visible: &[bool]) -> bool {
     !visible.iter().any(|v| *v)
 }
 
+/// Whether `Message::PickNote` should close the list after acting on a
+/// pick: only when the picked note actually existed. Closing the list
+/// unconditionally quits the whole app when nothing else is visible (see
+/// `Message::NoteClosed`'s list branch) - so a pick on a note deleted
+/// between the list rendering and the click, which leaves `show_note` a
+/// no-op, must not also close the list right along with it.
+fn pick_note_closes_list(existed: bool) -> bool {
+    existed
+}
+
 /// Whether each note is *meant* to be visible, held as explicit intent
 /// rather than derived from `self.windows` (which only updates once the
 /// compositor's asynchronous `Closed` event actually arrives). Updated
@@ -390,9 +400,10 @@ impl Tack {
         self.flush_window_state();
     }
 
-    /// Registers `uuid` as the note shown by window `id` (already open -
-    /// either the main window, claimed once at startup, or a window just
-    /// returned by `window::open`) and pushes its initial title.
+    /// Registers `uuid` as the note shown by window `id` (already open - a
+    /// window just returned by `window::open`) and pushes its initial
+    /// title. The main window is the notes list, not a note, so it never
+    /// goes through here.
     fn register_window(&mut self, id: window::Id, uuid: Uuid) -> Task<Message> {
         // `Id::unique()`, not `Id::new(name)`: a *named* (`Internal::Custom`)
         // id routes through libcosmic's cross-frame "named widget" state
@@ -425,7 +436,18 @@ impl Tack {
     /// startup does not go through this - it attaches to the main window
     /// libcosmic already created (see `init`), since a window can't be
     /// opened twice.
+    ///
+    /// This is the one choke point every path that opens a note window goes
+    /// through (`show_note`, `create_note`, and anything added later) - so
+    /// marking `uuid` intent-visible happens here, not at each call site.
+    /// `create_note` used to call this directly without ever touching
+    /// `intent_visible`, which meant a brand-new note could never be hidden
+    /// (`hide_note` early-returns when intent never had it) and, worse, left
+    /// the list's "is anything still meant to be visible" exit check blind
+    /// to it - closing the list right after creating a note quit the whole
+    /// app. See `show_note` for the now-redundant call this replaces.
     fn open_window_for(&mut self, uuid: Uuid) -> Task<Message> {
+        self.intent_visible.show(uuid);
         let (w, h) = window_size_for(uuid, &self.window_state.sizes);
         let settings =
             window::Settings { size: Size::new(w as f32, h as f32), ..window::Settings::default() };
@@ -468,15 +490,18 @@ impl Tack {
         Task::batch([flush, window::close(id)])
     }
 
-    /// Marks `uuid` visible and opens a window for it from its stored
-    /// content - unless it's already intended visible, in which case this
-    /// is a no-op rather than a duplicate window (see `VisibilityIntent`).
-    /// Also a no-op for a uuid that isn't a known note at all.
+    /// Opens a window for `uuid` from its stored content - unless it's
+    /// already intended visible, in which case this is a no-op rather than a
+    /// duplicate window (see `VisibilityIntent`). Also a no-op for a uuid
+    /// that isn't a known note at all. The actual `intent_visible.show` call
+    /// lives in `open_window_for`, the choke point every window-opening path
+    /// shares - this only guards against opening a second window for a note
+    /// already showing one.
     fn show_note(&mut self, uuid: Uuid) -> Task<Message> {
         if !self.notes.contains_key(&uuid) {
             return Task::none();
         }
-        if !self.intent_visible.show(uuid) {
+        if self.intent_visible.is_visible(uuid) {
             return Task::none();
         }
         self.open_window_for(uuid)
@@ -834,8 +859,20 @@ impl cosmic::Application for Tack {
                 Task::batch([task, self.close_list()])
             }
             Message::PickNote(uuid) => {
+                // Only close the list when the pick actually opened (or
+                // would have opened, had it not already been visible) a
+                // note. `show_note` no-ops silently for a uuid the list is
+                // still showing a stale button for - the note was deleted
+                // between the list rendering and the click - and with
+                // nothing else visible, closing the list unconditionally
+                // used to exit the whole app right along with it.
+                let existed = self.notes.contains_key(&uuid);
                 let show = self.show_note(uuid);
-                Task::batch([show, self.close_list()])
+                if pick_note_closes_list(existed) {
+                    Task::batch([show, self.close_list()])
+                } else {
+                    show
+                }
             }
             Message::ReopenSession => {
                 let candidates = std::mem::take(&mut self.restore_candidates);
@@ -881,6 +918,26 @@ impl cosmic::Application for Tack {
                 // `CloseRequested` - counts toward "nothing is left open,
                 // exit".
                 let was_hide = self.closing_for_hide.remove(&id);
+
+                // Clear intent for whichever note this window showed, now
+                // that its window is genuinely gone - unless this close was
+                // a hide, which already recorded the note as hidden (not
+                // visible) the instant `hide_note` decided to hide it. A
+                // hidden note must stay recorded as hidden - re-clearing
+                // intent here would be a no-op either way (`hide` is
+                // idempotent), but skipping it keeps the "who owns this
+                // note's intent" story to one writer per close reason. A
+                // window destroyed without ever going through
+                // `CloseRequested` (compositor-forced, anything outside the
+                // normal close-button sequence) previously left its note
+                // reported visible forever - unreachable by a later
+                // `show_note`, and a lie to `ListNotes`.
+                if !was_hide {
+                    if let Some(uuid) = self.windows.get(&id).map(|w| w.uuid) {
+                        self.intent_visible.hide(uuid);
+                    }
+                }
+
                 if was_hide {
                     self.windows.remove(&id);
                     return Task::none();
@@ -1411,6 +1468,214 @@ mod tests {
         assert_eq!(app.window_state.open_at_quit, BTreeSet::from([uuid]));
         assert!(app.session_snapshotted);
         assert!(!app.windows.contains_key(&id));
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // --- Review fix regression tests (Findings 1, 2, 4) ---
+    //
+    // These drive `update` with messages directly, as instructed - the one
+    // exception is a `window::Id` for a window that never really opened
+    // (no compositor here), which is unavoidable to populate `self.windows`
+    // for `NoteClosed`, exactly like the pre-existing tests above already
+    // do (see `note_closed_as_the_last_window_includes_it_in_the_snapshot`).
+
+    /// Finding 1: this is the exact scenario that used to kill the whole
+    /// app - `NewNote` with nothing else open, then the list closes. Before
+    /// the fix, `create_note` opened the window via `open_window_for`
+    /// directly, which never touched `intent_visible` - so `NoteClosed`'s
+    /// `intent_visible.is_empty()` check was still true, and the brand-new
+    /// note's own window died along with everything else.
+    #[test]
+    fn new_note_with_nothing_else_open_does_not_quit_when_the_list_closes() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-newnote-quit-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let list_id = window::Id::unique();
+        app.list_window = Some(list_id);
+
+        let _ = app.update(Message::NewNote);
+        let uuid = *app.notes.keys().next().expect("NewNote must create a note");
+        assert!(app.is_visible(uuid), "the new note must be intent-visible as soon as it's created");
+
+        // Simulate the compositor actually finishing the close that
+        // `Message::NewNote`'s `close_list()` requested.
+        let _ = app.update(Message::NoteClosed(list_id));
+
+        assert!(
+            !app.session_snapshotted,
+            "must not exit when the just-created note is still intent-visible"
+        );
+        assert!(app.is_visible(uuid), "the new note must still be reported visible");
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// Finding 1's other half: a newly created note used to be permanently
+    /// stuck visible (`hide_note` early-returns when intent never had the
+    /// note), and a later `show_note` on it opened a second window for the
+    /// same note. Both are intent-level bugs, testable without a real
+    /// window ever opening.
+    #[test]
+    fn a_newly_created_note_can_be_hidden_then_shown_exactly_once() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-newnote-hide-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+
+        let (uuid, _task) = app.create_note();
+        let uuid = uuid.expect("note creation must succeed");
+        assert!(app.is_visible(uuid), "create_note must mark the note intent-visible");
+
+        let _ = app.hide_note(uuid);
+        assert!(!app.is_visible(uuid), "a newly created note must be hideable");
+
+        let _ = app.show_note(uuid);
+        assert!(app.is_visible(uuid), "showing it again must make it visible");
+
+        // A second show on an already-visible note must be a no-op at the
+        // intent level - `show_note`'s guard is what stops a second
+        // `open_window_for` call, i.e. a second window, from ever
+        // happening.
+        let _ = app.show_note(uuid);
+        assert!(
+            !app.intent_visible.show(uuid),
+            "note must already be recorded visible - show_note must not have called \
+             open_window_for a second time"
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn closing_the_list_with_nothing_visible_exits_and_snapshots() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-list-close-exit-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let list_id = window::Id::unique();
+        app.list_window = Some(list_id);
+
+        let _ = app.update(Message::NoteClosed(list_id));
+
+        assert!(app.session_snapshotted, "closing the list with nothing intent-visible must exit");
+        assert!(app.list_window.is_none());
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// Finding 2: a window destroyed without going through
+    /// `CloseRequested` first (compositor-forced, or anything outside the
+    /// normal close-button sequence) must not leave its note reported
+    /// visible forever. `list_window` is set here so this doesn't also
+    /// trip the (separately-tested) "last window closed" exit branch.
+    #[test]
+    fn note_closed_without_close_requested_stops_reporting_visible() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-forced-close-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        app.list_window = Some(window::Id::unique());
+        let uuid = Uuid::new_v4();
+        app.intent_visible.show(uuid);
+        let id = window::Id::unique();
+        app.windows.insert(
+            id,
+            WindowNote {
+                uuid,
+                input_id: id::Id::unique(),
+                content: text_editor::Content::new(),
+                last_title: String::new(),
+            },
+        );
+
+        let _ = app.update(Message::NoteClosed(id));
+
+        assert!(
+            !app.is_visible(uuid),
+            "a window destroyed without CloseRequested must stop reporting its note visible"
+        );
+        assert!(!app.windows.contains_key(&id));
+        assert!(!app.session_snapshotted);
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// Finding 2's other half: a hide-close must leave the note recorded as
+    /// hidden, not visible - `NoteClosed` must not re-derive "visible" for
+    /// a note `hide_note` already, synchronously, marked hidden.
+    #[test]
+    fn hide_close_leaves_the_note_hidden_not_visible_and_does_not_exit() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-hide-close-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let uuid = Uuid::new_v4();
+        let id = window::Id::unique();
+        app.windows.insert(
+            id,
+            WindowNote {
+                uuid,
+                input_id: id::Id::unique(),
+                content: text_editor::Content::new(),
+                last_title: String::new(),
+            },
+        );
+        app.intent_visible.show(uuid);
+
+        let _ = app.hide_note(uuid);
+        assert!(!app.is_visible(uuid), "hide_note itself must mark it hidden synchronously");
+
+        let _ = app.update(Message::NoteClosed(id));
+
+        assert!(!app.is_visible(uuid), "a hide-close must leave the note hidden, not visible");
+        assert!(!app.session_snapshotted, "a hide must never trigger the exit path");
+        assert!(!app.windows.contains_key(&id));
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// Finding 4: `PickNote` on a note deleted between the list rendering
+    /// and the click must leave the list open, not quit the app.
+    ///
+    /// This is the pure decision `update`'s `PickNote` arm defers to
+    /// (`pick_note_closes_list`), extracted specifically because the
+    /// runtime effect it gates - whether `close_list()`'s `window::close`
+    /// task actually gets included in the returned `Task` batch - has no
+    /// way to be observed from a unit test: `cosmic::app::Task` requires a
+    /// real executor to run, and `NoteClosed` only ever arrives once the
+    /// compositor confirms a close it was actually asked to make. Firing
+    /// `NoteClosed(list_id)` by hand here wouldn't test the fix; it would
+    /// only test `NoteClosed`'s (already covered) exit-on-empty-intent
+    /// branch regardless of whether `PickNote` ever asked for the close. So
+    /// this is exactly the boundary this task's brief says to name rather
+    /// than paper over with a test that asserts nothing meaningful: full
+    /// end-to-end confirmation that a vanished note's pick truly leaves the
+    /// list open needs a live app.
+    #[test]
+    fn pick_note_closes_list_only_when_the_note_existed() {
+        assert!(pick_note_closes_list(true), "an existing note's pick must still close the list");
+        assert!(!pick_note_closes_list(false), "a vanished note must not close the list");
+    }
+
+    /// `update`'s `PickNote` arm must consult exactly this predicate (not
+    /// some other condition) to decide whether to close the list - checked
+    /// by exercising the arm on a note that was never created, where
+    /// `show_note` no-ops exactly like it would for one just deleted.
+    /// `app.list_window` and `app.notes` are the state this arm actually
+    /// reads; a `pick_note_closes_list(false)` outcome must correspond to
+    /// `show_note` itself being a no-op, which is what's checked here.
+    #[test]
+    fn pick_note_on_a_missing_note_leaves_it_unshown() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-pick-missing-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        app.list_window = Some(window::Id::unique());
+        let uuid = Uuid::new_v4(); // never inserted into app.notes: "no longer exists"
+
+        let _ = app.update(Message::PickNote(uuid));
+
+        assert!(
+            !app.is_visible(uuid),
+            "a pick on a note that doesn't exist must not mark it visible"
+        );
+        assert!(app.notes.is_empty());
 
         std::fs::remove_dir_all(&tmp).ok();
     }

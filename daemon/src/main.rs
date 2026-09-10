@@ -7,8 +7,16 @@ mod ruled;
 #[allow(dead_code)]
 mod palette;
 
+use std::time::Duration;
+
 use cosmic::iced::futures::channel::mpsc;
 use sticky_notes_core::{Store, WindowState};
+
+/// How long a losing-the-name-race relaunch waits for the running instance
+/// to answer `ShowList()` before giving up. Long enough for a normal
+/// D-Bus round trip, short enough that a wedged running instance doesn't
+/// hang every subsequent `tack` invocation forever.
+const RELAUNCH_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Client-side view of the `io.github.joelebukatobi.Tack` service that
 /// `dbus.rs` implements - one trait method per D-Bus method, generated into
@@ -357,17 +365,29 @@ fn main() -> cosmic::iced::Result {
             // business loading notes or opening windows - ask whoever does
             // own it to show the list, then get out of the way.
             eprintln!("tack: {} is already owned: {e}", dbus::SERVICE_NAME);
+            // Bounded: a running instance that's wedged (compositor stuck,
+            // deadlocked, whatever) must not hang this process - and every
+            // future relaunch - forever waiting on a reply that never
+            // comes. `zbus::block_on` already runs on the process-lifetime
+            // tokio runtime (see the name-acquisition comment above), so
+            // `tokio::time::timeout` bounds it without a second runtime.
             let code = zbus::block_on(async {
-                match connect().await {
-                    Ok(proxy) => match proxy.show_list().await {
-                        Ok(()) => OK,
-                        Err(e) => {
-                            eprintln!("tack: failed to ask the running instance to show the list: {e}");
-                            FAILED
-                        }
-                    },
-                    Err(e) => {
-                        eprintln!("tack: no running instance reachable either: {e}");
+                match tokio::time::timeout(RELAUNCH_TIMEOUT, async {
+                    let proxy = connect().await?;
+                    proxy.show_list().await
+                })
+                .await
+                {
+                    Ok(Ok(())) => OK,
+                    Ok(Err(e)) => {
+                        eprintln!("tack: failed to ask the running instance to show the list: {e}");
+                        FAILED
+                    }
+                    Err(_) => {
+                        eprintln!(
+                            "tack: the running instance did not respond within {}s - it may be stuck",
+                            RELAUNCH_TIMEOUT.as_secs()
+                        );
                         FAILED
                     }
                 }

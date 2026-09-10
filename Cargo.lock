@@ -4573,6 +4573,7 @@ dependencies = [
  "libcosmic",
  "serde",
  "sticky-notes-core",
+ "tokio",
  "uuid",
  "zbus",
 ]

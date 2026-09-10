@@ -14,3 +14,7 @@ libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "d4d71fd", feat
 serde.workspace = true
 uuid.workspace = true
 zbus.workspace = true
+# Already in the dependency tree via zbus's `tokio` feature (zbus::block_on
+# runs on it) - listed explicitly only so main.rs can reach `tokio::time::timeout`
+# directly, not to add a second runtime.
+tokio = { version = "1", default-features = false, features = ["time"] }
