@@ -4,9 +4,11 @@ use std::time::{Duration, Instant};
 
 use cosmic::app::{Core, Task};
 use cosmic::iced::core::id;
+use cosmic::iced::core::text::LineHeight;
 use cosmic::iced::futures::channel::mpsc;
 use cosmic::iced::futures::{SinkExt, Stream, StreamExt};
-use cosmic::iced::{event, window, Length, Size, Subscription};
+use cosmic::iced::widget::Stack;
+use cosmic::iced::{event, window, Border, Color, Length, Pixels, Size, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget;
 use cosmic::widget::text_editor;
@@ -15,6 +17,22 @@ use uuid::Uuid;
 
 use crate::dbus;
 use crate::palette::Colour;
+use crate::ruled::RuledLines;
+
+/// Size of the note body's text, in logical pixels.
+const BODY_TEXT_SIZE: f32 = 14.0;
+
+/// Height of one line of the note body, in logical pixels. Set explicitly
+/// (rather than left to font metrics) and shared, unchanged, with
+/// `ruled::RuledLines::line_height` so the dotted rules drawn behind the
+/// body can never drift out of alignment with the text sitting on them.
+const BODY_LINE_HEIGHT: f32 = 22.0;
+
+/// The body `text_editor`'s padding, in logical pixels, on every side.
+/// Shared with `ruled::RuledLines::padding_top` for the same reason as
+/// `BODY_LINE_HEIGHT` - the first rule's offset has to account for exactly
+/// this much space above the first line of text.
+const BODY_PADDING: f32 = 8.0;
 
 /// How long to wait after the last keystroke before writing a note to disk.
 const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -75,7 +93,6 @@ pub enum Message {
     NoteClosed(window::Id),
     CloseRequested(window::Id),
     BodyAction(window::Id, text_editor::Action),
-    NameChanged(window::Id, String),
     WindowResized(window::Id, Size),
     AutosaveTick,
     /// A D-Bus call came in and is waiting on `self` to act on it.
@@ -117,14 +134,13 @@ impl std::fmt::Debug for DbusRequest {
 }
 
 /// A window showing a note: which note it is, the stable id its text
-/// editor is registered under (needed to focus it on open), the stable id
-/// of its name field, the editor's own buffer (view state, synced from/to
-/// `Note.body`), and the title last actually sent to the compositor (so it
-/// is only re-sent when the display name has changed).
+/// editor is registered under (needed to focus it on open), the editor's
+/// own buffer (view state, synced from/to `Note.body`), and the title last
+/// actually sent to the compositor (so it is only re-sent when the display
+/// name has changed).
 struct WindowNote {
     uuid: Uuid,
     input_id: id::Id,
-    name_input_id: id::Id,
     content: text_editor::Content,
     last_title: String,
 }
@@ -161,8 +177,6 @@ pub struct Tack {
     fallback_content: text_editor::Content,
     /// Stable id for the fallback editor above, for the same reason.
     fallback_input_id: id::Id,
-    /// Stable id for the fallback name field, for the same reason.
-    fallback_name_input_id: id::Id,
     /// Windows currently being closed by `hide_note`/`delete_note` rather
     /// than by the user. `NoteClosed` consults this to tell "the last note
     /// window just got hidden" apart from "the user just closed the last
@@ -283,7 +297,6 @@ impl Tack {
         // usable with `widget::text_input::focus`, which matches on the id
         // itself rather than its name.
         let input_id = id::Id::unique();
-        let name_input_id = id::Id::unique();
         let body = self.notes.get(&uuid).map(|note| note.body.as_str()).unwrap_or("");
         let content = text_editor::Content::with_text(body);
         let title = self
@@ -293,7 +306,7 @@ impl Tack {
             .unwrap_or_else(|| sticky_notes_core::UNNAMED.to_string());
         self.windows.insert(
             id,
-            WindowNote { uuid, input_id, name_input_id, content, last_title: title.clone() },
+            WindowNote { uuid, input_id, content, last_title: title.clone() },
         );
         self.set_window_title(title, id)
     }
@@ -569,7 +582,6 @@ impl cosmic::Application for Tack {
             dirty: HashMap::new(),
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
-            fallback_name_input_id: id::Id::unique(),
             closing_for_hide: HashSet::new(),
         };
 
@@ -688,21 +700,6 @@ impl cosmic::Application for Tack {
                 }
                 Task::none()
             }
-            Message::NameChanged(id, name) => {
-                let Some(uuid) = self.windows.get(&id).map(|w| w.uuid) else {
-                    return Task::none();
-                };
-                let Some(note) = self.notes.get_mut(&uuid) else {
-                    return Task::none();
-                };
-                note.frontmatter.name = name;
-                self.dirty.insert(uuid, Instant::now());
-                // Deliberately not setting the window title here: doing so
-                // on every keystroke is a compositor round-trip per
-                // character. `flush`/`flush_due` sync the title instead, at
-                // most once per autosave debounce.
-                Task::none()
-            }
             Message::WindowResized(id, size) => {
                 // Recorded in memory only - `flush_window_state` (driven by
                 // the same autosave tick as note saves) is what actually
@@ -782,49 +779,101 @@ impl cosmic::Application for Tack {
 
     fn view_window(&self, id: window::Id) -> Element<'_, Message> {
         // Every branch below builds the exact same widget tree shape - a
-        // container wrapping a name field above a stateful `text_editor` -
-        // regardless of whether the window/note lookups succeed.
-        // `text_editor`'s context-menu wrapper keeps real widget state; if
-        // one frame ever rendered a stateless placeholder here instead, the
-        // next frame's diff against the previous state tree panics
-        // (state::None can't downcast). See `fallback_content` for why the
-        // fallback branch still routes through `text_editor` rather than
-        // `widget::text`.
-        let (name, name_input_id, input_id, content) = match self.windows.get(&id) {
-            Some(window) => {
-                let name = self
-                    .notes
-                    .get(&window.uuid)
-                    // The note can be gone while the window is still
-                    // technically open (deleted-on-close, pending the real
-                    // `Closed` event) - fall back to an empty name but keep
-                    // rendering the window's own real editor content.
-                    .map(|note| note.frontmatter.name.as_str())
-                    .unwrap_or("");
-                (name, window.name_input_id.clone(), window.input_id.clone(), &window.content)
-            }
-            None => (
-                "",
-                self.fallback_name_input_id.clone(),
-                self.fallback_input_id.clone(),
-                &self.fallback_content,
-            ),
+        // container wrapping a stateful `text_editor` - regardless of
+        // whether the window/note lookups succeed. `text_editor`'s
+        // context-menu wrapper keeps real widget state; if one frame ever
+        // rendered a stateless placeholder here instead, the next frame's
+        // diff against the previous state tree panics (state::None can't
+        // downcast). See `fallback_content` for why the fallback branch
+        // still routes through `text_editor` rather than `widget::text`.
+        //
+        // No name field: per `docs/ux.md`'s "Inside a note", a note's name
+        // is just its first line of text and renaming happens from the
+        // notes list, not here - so there's nothing to sit above a divider
+        // any more, and the note window is the body editor alone.
+        let (input_id, content) = match self.windows.get(&id) {
+            Some(window) => (window.input_id.clone(), &window.content),
+            None => (self.fallback_input_id.clone(), &self.fallback_content),
         };
 
-        widget::container(
-            cosmic::iced::widget::Column::new()
-                .push(
-                    widget::text_input("Name", name)
-                        .on_input(move |name| Message::NameChanged(id, name))
-                        .id(name_input_id),
-                )
-                .push(
-                    text_editor::text_editor(content)
-                        .on_action(move |action| Message::BodyAction(id, action))
-                        .id(input_id)
-                        .height(Length::Fill),
-                ),
-        )
+        // The body: a transparent `text_editor` stacked on top of a canvas
+        // that paints the ruled-paper background (and, critically, an
+        // opaque fill - see `ruled::RuledLines`). Both read the same line
+        // height and padding constants, so the lines and the text they
+        // carry can never drift apart.
+        //
+        // Wrapped in `responsive` so the pair can be told the body's actual
+        // visible height (`size.height` below) and use it as the editor's
+        // *minimum* height - filling the window with ruled lines even when
+        // there's no text yet - without knowing that height ahead of time
+        // from fixed layout math. The editor's own height otherwise stays
+        // `Shrink` (never `Fill`): growing to fit its content, rather than
+        // scrolling internally, is what lets it and the canvas behind it
+        // live in one `scrollable` and move together (see below) instead of
+        // the canvas staying put while only the editor's text scrolls.
+        let responsive_body = widget::responsive(move |size| {
+            let editor = text_editor::text_editor(content)
+                .on_action(move |action| Message::BodyAction(id, action))
+                .id(input_id.clone())
+                .padding(BODY_PADDING)
+                .size(BODY_TEXT_SIZE)
+                .line_height(LineHeight::Absolute(Pixels(BODY_LINE_HEIGHT)))
+                .min_height(size.height)
+                .style(|theme: &cosmic::Theme, _status| {
+                    let container = theme.current_container();
+                    let value = Color::from(container.on);
+                    let mut placeholder = value;
+                    placeholder.a *= 0.7;
+                    text_editor::Style {
+                        // Transparent: the canvas drawn behind it (pushed
+                        // `push_under`, below) is what actually paints an
+                        // opaque background for this area - see the warning
+                        // in `ruled::RuledLines` about why that canvas fill
+                        // has to exist at all.
+                        background: Color::TRANSPARENT.into(),
+                        border: Border { width: 0.0, ..Border::default() },
+                        placeholder,
+                        value,
+                        selection: Color::from(theme.cosmic().accent.base),
+                    }
+                });
+
+            let lines = widget::canvas(RuledLines {
+                line_height: BODY_LINE_HEIGHT,
+                padding_top: BODY_PADDING,
+            })
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+            // `editor` pushed first (and so, via `push_under`, ends up the
+            // stack's *base layer*) is what the stack sizes itself from -
+            // its `Shrink` height is exactly the "grow to fit content, floor
+            // at the visible height" behaviour wanted here. `push_under`
+            // then slots `lines` in *underneath* it without disturbing that
+            // sizing, so the canvas (`Length::Fill`) matches the editor's
+            // resolved size exactly while still rendering first, i.e.
+            // behind the (transparent) text.
+            Stack::new().push(editor).push_under(lines).width(Length::Fill).into()
+        })
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        // The editor+canvas pair lives inside this one `scrollable` so they
+        // scroll together as a unit: if the editor scrolled *internally*
+        // instead, the canvas behind it would stay fixed while the text
+        // moved, breaking the line alignment the moment the note grows past
+        // one screenful.
+        let body = widget::scrollable(responsive_body).width(Length::Fill).height(Length::Fill);
+
+        widget::container(body)
+        // An explicit opaque background is a rendering requirement, not
+        // decoration: `view_window` is used directly for every secondary
+        // note window with nothing else wrapping it (see `Cosmic::view` in
+        // libcosmic), so if this container's background were left at its
+        // default (`Container::Transparent`), the whole window would render
+        // transparent - the desktop showing through, stale frames smearing,
+        // exactly the failure mode this task's brief warns about.
+        .class(cosmic::theme::Container::WindowBackground)
         .padding(12)
         .width(Length::Fill)
         .height(Length::Fill)
@@ -849,7 +898,6 @@ mod tests {
             dirty: HashMap::new(),
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
-            fallback_name_input_id: id::Id::unique(),
             closing_for_hide: HashSet::new(),
         }
     }
