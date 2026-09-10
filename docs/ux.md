@@ -21,6 +21,9 @@ Plain notes on the experience we want. Not a spec.
 - Closing a note does not delete it. It goes back to the list.
 - Deleting a note is its own separate action.
 - An empty note — no name, no text — is thrown away when you close it.
+- A new note opens at **512 × 768** — half the width of a normal COSMIC window,
+  same height. Where it appears on screen is up to COSMIC.
+- If you resize a note, it reopens at that size next time.
 
 ## Window title bar
 
