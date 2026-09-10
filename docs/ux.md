@@ -6,16 +6,19 @@ Plain notes on the experience we want. Not a spec.
 
 - When you open Tack, the **notes list** opens: every note you have, and a way
   to make a new one.
-- If you had notes open when you last quit, the list shows a bar across the top
-  asking whether to reopen them — like a browser offering to restore your tabs.
-  - **Reopen** — those notes open, and the list closes.
-  - **No** — the bar goes away and you stay in the list.
+- If you had notes open when you last quit, a **dialog** appears over the list,
+  dimming it, asking whether to reopen them.
+  - **Reopen** — takes the theme accent colour. Those notes open, and the list closes.
+  - **No thanks** — theme default. The dialog goes away and you stay in the list.
 - If nothing was open when you last quit, you just get the list. No bar.
 - "Open when you last quit" includes the last note you closed, since closing your
   last window is how you quit.
 - Notes deleted since then are left out.
 
 ## Notes
+
+- Tack is sticky notes, not a notes app. Each note is its own window; the list
+  never turns into a note.
 
 - A note opens in its own window.
 - Closing a note does not delete it. It goes back to the list.
