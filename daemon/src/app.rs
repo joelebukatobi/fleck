@@ -273,9 +273,10 @@ const CARD_RADIUS: f32 = 4.0;
 /// has two padded sections instead of one.
 const CARD_PADDING: u16 = 8;
 /// Padding inside the card's heading strip (title + rename pencil).
-const CARD_HEADING_PADDING: u16 = 8;
+const CARD_HEADING_PADDING_Y: u16 = 4;
+const CARD_HEADING_PADDING_X: u16 = 8;
 /// Gap between the heading strip and the content section below it.
-const CARD_HEADING_GAP: u16 = 8;
+const CARD_HEADING_GAP: u16 = 4;
 /// Gap between a card's title and its rename pencil, within the heading row.
 const CARD_HEADING_ROW_SPACING: u16 = 8;
 /// Gap between the preview lines and the timestamp in a card's content.
@@ -284,7 +285,7 @@ const CARD_SPACING: u16 = 8;
 /// How much darker the card heading strip is than the card itself: each
 /// channel is scaled down by this factor, so `1.0` would be no change and
 /// `0.0` would be black.
-const HEADING_DARKEN_FACTOR: f32 = 0.85;
+const HEADING_DARKEN_FACTOR: f32 = 0.70;
 
 /// Builds one state closure of the search bar's style: the theme's `Search`
 /// appearance for `state` (active/hovered/focused/error/disabled), with the
@@ -946,7 +947,7 @@ impl Tack {
 
         let heading = widget::container(heading_row)
             .class(cosmic::theme::Container::custom(card_heading_style))
-            .padding(CARD_HEADING_PADDING)
+            .padding([CARD_HEADING_PADDING_Y, CARD_HEADING_PADDING_X])
             .width(Length::Fill);
 
         let mut content_col = widget::Column::with_capacity(1 + PREVIEW_LINES).spacing(CARD_CONTENT_SPACING);
@@ -973,7 +974,10 @@ impl Tack {
             // already owns clicks/focus here.
             card.into()
         } else {
+            // No padding: libcosmic buttons default to 5 px, which inset the card from
+            // the search bar and drew the hover state 5 px outside the card.
             widget::button::custom(card)
+                .padding(0)
                 .on_press(Message::PickNote(uuid))
                 .class(cosmic::theme::Button::Text)
                 .width(Length::Fill)
