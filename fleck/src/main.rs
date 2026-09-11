@@ -1,6 +1,7 @@
 mod app;
 mod applet;
 mod dbus;
+mod i18n;
 mod icons;
 mod ruled;
 mod undo;
@@ -330,6 +331,7 @@ fn init_tracing() {
 
 fn main() -> cosmic::iced::Result {
     init_tracing();
+    i18n::init();
 
     // `--applet` dispatches to the panel icon and nothing else: no
     // data-directory migration, no D-Bus name acquisition, no note store,

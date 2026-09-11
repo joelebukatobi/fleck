@@ -18,6 +18,9 @@ zbus.workspace = true
 # runs on it) - listed explicitly only so main.rs can reach `tokio::time::timeout`
 # directly, not to add a second runtime.
 tokio = { version = "1", default-features = false, features = ["time"] }
+i18n-embed = { version = "0.16", features = ["fluent-system", "desktop-requester"] }
+i18n-embed-fl = "0.10"
+rust-embed = "8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

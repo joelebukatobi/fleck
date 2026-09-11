@@ -62,27 +62,22 @@ pub(super) const WEEK: Duration = Duration::from_hours(168);
 
 /// Formats how long ago a note was last edited, from the elapsed time since
 /// its file's mtime. No date/time crate: relative phrasing needs no
-/// timezone handling, just bucketed arithmetic on a `Duration`.
-/// "1 day ago", "3 days ago" - singular for a count of one.
-pub(super) fn ago(count: u64, unit: &str) -> String {
-    if count == 1 {
-        format!("1 {unit} ago")
-    } else {
-        format!("{count} {unit}s ago")
-    }
-}
-
+/// timezone handling, just bucketed arithmetic on a `Duration`. Wording and
+/// plurals come from the translation files.
 pub(super) fn relative_time(elapsed: Duration) -> String {
+    let secs = elapsed.as_secs();
+    // Plain locals: `fl!` takes each argument as `name = variable`.
+    let (minutes, hours, days, weeks) = (secs / 60, secs / 3600, secs / 86_400, secs / 604_800);
     if elapsed < MINUTE {
-        "just now".to_string()
+        crate::fl!("just-now")
     } else if elapsed < HOUR {
-        format!("{} min ago", elapsed.as_secs() / 60)
+        crate::fl!("minutes-ago", count = minutes)
     } else if elapsed < DAY {
-        ago(elapsed.as_secs() / 3600, "hour")
+        crate::fl!("hours-ago", count = hours)
     } else if elapsed < WEEK {
-        ago(elapsed.as_secs() / 86_400, "day")
+        crate::fl!("days-ago", count = days)
     } else {
-        ago(elapsed.as_secs() / 604_800, "week")
+        crate::fl!("weeks-ago", count = weeks)
     }
 }
 
@@ -345,7 +340,7 @@ impl Fleck {
                 .cmp(&self.note_mtime(a.frontmatter.uuid))
         });
 
-        let search = widget::search_input("Search notes", self.search.clone())
+        let search = widget::search_input(crate::fl!("search-notes"), self.search.clone())
             .id(self.search_input_id.clone())
             .on_input(Message::SearchChanged)
             // Our own clear button in place of libcosmic's `on_clear`, which
@@ -446,6 +441,12 @@ impl Fleck {
 #[allow(clippy::float_cmp)] // exact pixel values are the point of these tests
 mod tests {
     use super::*;
+
+    /// `relative_time` without Fluent's bidi isolation marks around numbers,
+    /// so the English wording can be compared directly.
+    fn relative_time(elapsed: Duration) -> String {
+        super::relative_time(elapsed).replace(['\u{2068}', '\u{2069}'], "")
+    }
     use fleck_core::{Frontmatter, FORMAT_VERSION};
 
     #[test]

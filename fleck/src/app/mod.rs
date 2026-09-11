@@ -1238,14 +1238,16 @@ impl cosmic::Application for Fleck {
             let count = self.restore_candidates.len();
             return Some(
                 widget::dialog()
-                    .title("Reopen notes?")
+                    .title(crate::fl!("restore-title"))
                     .width(Length::Fixed(dialog_width(self.list_window_width)))
-                    .body(format!("Reopen {count} notes from last time?"))
+                    .body(crate::fl!("restore-body", count = count))
                     .primary_action(
-                        widget::button::suggested("Reopen").on_press(Message::ReopenSession),
+                        widget::button::suggested(crate::fl!("restore-confirm"))
+                            .on_press(Message::ReopenSession),
                     )
                     .secondary_action(
-                        widget::button::standard("No thanks").on_press(Message::DismissRestore),
+                        widget::button::standard(crate::fl!("restore-dismiss"))
+                            .on_press(Message::DismissRestore),
                     )
                     .into(),
             );
@@ -1258,14 +1260,15 @@ impl cosmic::Application for Fleck {
         let name = self.notes.get(&uuid).map_or("", display_name);
         Some(
             widget::dialog()
-                .title("Delete note?")
+                .title(crate::fl!("delete-title"))
                 .width(Length::Fixed(dialog_width(self.list_window_width)))
-                .body(format!("\"{name}\" will be deleted. This can't be undone."))
+                .body(crate::fl!("delete-body", name = name))
                 .primary_action(
-                    widget::button::destructive("Delete").on_press(Message::DeleteConfirm),
+                    widget::button::destructive(crate::fl!("delete-confirm"))
+                        .on_press(Message::DeleteConfirm),
                 )
                 .secondary_action(
-                    widget::button::standard("Cancel").on_press(Message::DeleteCancel),
+                    widget::button::standard(crate::fl!("cancel")).on_press(Message::DeleteCancel),
                 )
                 .into(),
         )
