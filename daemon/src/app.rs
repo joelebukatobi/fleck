@@ -239,17 +239,26 @@ const WEEK: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 /// Formats how long ago a note was last edited, from the elapsed time since
 /// its file's mtime. No date/time crate: relative phrasing needs no
 /// timezone handling, just bucketed arithmetic on a `Duration`.
+/// "1 day ago", "3 days ago" - singular for a count of one.
+fn ago(count: u64, unit: &str) -> String {
+    if count == 1 {
+        format!("1 {unit} ago")
+    } else {
+        format!("{count} {unit}s ago")
+    }
+}
+
 fn relative_time(elapsed: Duration) -> String {
     if elapsed < MINUTE {
         "just now".to_string()
     } else if elapsed < HOUR {
         format!("{} min ago", elapsed.as_secs() / 60)
     } else if elapsed < DAY {
-        format!("{} hours ago", elapsed.as_secs() / 3600)
+        ago(elapsed.as_secs() / 3600, "hour")
     } else if elapsed < WEEK {
-        format!("{} days ago", elapsed.as_secs() / 86400)
+        ago(elapsed.as_secs() / 86400, "day")
     } else {
-        format!("{} weeks ago", elapsed.as_secs() / 604800)
+        ago(elapsed.as_secs() / 604800, "week")
     }
 }
 
@@ -2247,21 +2256,21 @@ mod tests {
 
     #[test]
     fn relative_time_hours_boundary() {
-        assert_eq!(relative_time(Duration::from_secs(60 * 60)), "1 hours ago");
+        assert_eq!(relative_time(Duration::from_secs(60 * 60)), "1 hour ago");
         assert_eq!(relative_time(Duration::from_secs(2 * 60 * 60)), "2 hours ago");
         assert_eq!(relative_time(Duration::from_secs(23 * 60 * 60 + 3599)), "23 hours ago");
     }
 
     #[test]
     fn relative_time_days_boundary() {
-        assert_eq!(relative_time(Duration::from_secs(24 * 60 * 60)), "1 days ago");
+        assert_eq!(relative_time(Duration::from_secs(24 * 60 * 60)), "1 day ago");
         assert_eq!(relative_time(Duration::from_secs(3 * 24 * 60 * 60)), "3 days ago");
         assert_eq!(relative_time(Duration::from_secs(6 * 24 * 60 * 60 + 86399)), "6 days ago");
     }
 
     #[test]
     fn relative_time_weeks_boundary() {
-        assert_eq!(relative_time(Duration::from_secs(7 * 24 * 60 * 60)), "1 weeks ago");
+        assert_eq!(relative_time(Duration::from_secs(7 * 24 * 60 * 60)), "1 week ago");
         assert_eq!(relative_time(Duration::from_secs(3 * 7 * 24 * 60 * 60)), "3 weeks ago");
     }
 
