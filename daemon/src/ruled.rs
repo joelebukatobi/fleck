@@ -1,7 +1,9 @@
 //! The ruled-paper look of a note's body: ruled.rs owns the pure arithmetic
 //! that decides where each dotted line goes, plus the `canvas::Program` that
-//! paints them (and the opaque background the transparent `text_editor`
-//! layered on top of it depends on).
+//! paints them. The canvas paints only the dotted lines - the opaque
+//! background the transparent `text_editor` layered on top of it needs
+//! comes from the window content's own `Container::WindowBackground` in
+//! `app.rs`'s `view_window`, not from this canvas.
 //!
 //! Kept separate from `app.rs` so the position arithmetic can be unit
 //! tested with no widget tree involved at all.
@@ -41,11 +43,11 @@ pub fn line_offsets(height: f32, line_height: f32, padding_top: f32) -> Vec<f32>
     offsets
 }
 
-/// Draws the lined-paper background behind a note's body: an opaque fill
-/// (the transparent `text_editor` stacked on top of this canvas has nothing
-/// else to paint the note's background - see the warning in `app.rs`'s
-/// `view_window`) plus one dotted horizontal rule per line, positioned by
-/// [`line_offsets`] and coloured from the current theme.
+/// Draws the lined-paper background behind a note's body: one dotted
+/// horizontal rule per line, positioned by [`line_offsets`] and coloured
+/// from the current theme. Paints no fill of its own - the window content
+/// it sits on is already opaque (see `app.rs`'s `view_window`), so this
+/// canvas only ever needs to add the lines.
 pub struct RuledLines {
     /// Must equal the `text_editor`'s own `line_height`, in pixels - see
     /// `app::BODY_LINE_HEIGHT`.
@@ -84,12 +86,6 @@ impl<Message> canvas::Program<Message, Theme> for RuledLines {
         let local_bounds = Rectangle::with_size(bounds.size());
         let geometry = state.draw_with_bounds(renderer, local_bounds, |frame| {
             let container = theme.current_container();
-
-            // The opaque backing the module doc above promises: without
-            // this, the transparent editor above would let whatever the
-            // compositor clears the surface to (often nothing at all) show
-            // through.
-            frame.fill_rectangle(Point::ORIGIN, bounds.size(), Color::from(container.base));
 
             let dash = [1.0_f32, 3.0];
             let stroke = canvas::Stroke {

@@ -36,9 +36,23 @@ const BODY_LINE_HEIGHT: f32 = 22.0;
 const BODY_PADDING: f32 = 8.0;
 
 /// The minimum height to give the note body's editor+canvas stack, given the
-/// finite viewport height `responsive` reports for it: the viewport height
-/// itself, so a short note's content is exactly viewport-tall (filling it
-/// with ruled lines) while a long note is free to grow past it and scroll.
+/// finite viewport height `responsive` reports for it: the viewport height,
+/// floored to a whole pixel, so a short note's content is at most
+/// viewport-tall (filling it with ruled lines) while a long note is free to
+/// grow past it and scroll.
+///
+/// Flooring matters: `responsive` can report a fractional viewport height
+/// (e.g. 767.6). Passing that straight through as `min_height` makes the
+/// editor's content exactly as tall as the viewport, and whether that
+/// counts as "overflowing" the `scrollable` around it then comes down to
+/// sub-pixel rounding in text layout - which flips from frame to frame,
+/// toggling the scrollbar on and off and, with it, the note body's
+/// scroll-offset clamping (see `Scrollable::layout` in the pinned iced
+/// fork), producing a visible one-pixel jitter of the ruled canvas. Flooring
+/// the minimum keeps it a whole pixel and strictly at or below the
+/// (possibly fractional) viewport height, so the content can never be
+/// measured as taller than the viewport and the scrollbar never appears for
+/// a short note in the first place.
 ///
 /// `responsive` sits outside the body's `scrollable` specifically so it only
 /// ever sees a real, finite size (see `view_window`) - but a non-finite
@@ -48,7 +62,7 @@ const BODY_PADDING: f32 = 8.0;
 /// to no minimum (`0.0`) rather than passing infinity into layout.
 fn body_min_height(viewport_height: f32) -> f32 {
     if viewport_height.is_finite() {
-        viewport_height
+        viewport_height.floor()
     } else {
         0.0
     }
@@ -1192,6 +1206,27 @@ mod tests {
     #[test]
     fn body_min_height_falls_back_to_zero_for_nan() {
         assert_eq!(body_min_height(f32::NAN), 0.0);
+    }
+
+    #[test]
+    fn body_min_height_floors_a_fractional_viewport_to_a_whole_pixel() {
+        assert_eq!(body_min_height(767.6), 767.0);
+    }
+
+    #[test]
+    fn body_min_height_never_exceeds_a_fractional_viewport_height() {
+        let viewport = 767.6;
+        assert!(
+            body_min_height(viewport) <= viewport,
+            "a short note's content must never be measured as taller than the viewport, \
+             or the scrollable flips between overflowing and not from frame to frame"
+        );
+    }
+
+    #[test]
+    fn body_min_height_is_always_a_whole_pixel_for_a_finite_input() {
+        assert_eq!(body_min_height(600.3).fract(), 0.0);
+        assert_eq!(body_min_height(600.0).fract(), 0.0);
     }
 
     fn make_tack(store: Store) -> Tack {
