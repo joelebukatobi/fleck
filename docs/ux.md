@@ -15,6 +15,21 @@ Plain notes on the experience we want. Not a spec.
   last window is how you quit.
 - Notes deleted since then are left out.
 
+## The notes list
+
+Modelled on the Windows Sticky Notes list window.
+
+- **Header:** a `+` button on the left for a new note, then **Tack**, then the
+  window buttons on the right.
+- **Search bar** under the header. Filters as you type, matching note names and text.
+- **Notes as cards**, most recently edited first, scrolling when there are more
+  than fit. Each card shows the note's name in bold, the first couple of lines
+  of its text, and when it was last edited.
+- **Plain cards for now** — theme defaults. Card colours come with the design pass.
+- Renaming a note is an action on its card.
+- The darker panel the cards sit on has an **even gap on all four sides** between
+  it and the window edge — including the bottom, which currently runs flush.
+
 ## Notes
 
 - Tack is sticky notes, not a notes app. Each note is its own window; the list
