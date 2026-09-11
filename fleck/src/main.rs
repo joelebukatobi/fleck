@@ -333,7 +333,17 @@ fn window_state_path() -> std::path::PathBuf {
 /// resized before (see `app::window_size_for`).
 const DEFAULT_WINDOW_SIZE: cosmic::iced::Size = cosmic::iced::Size::new(512.0, 768.0);
 
+/// Logs go to stderr. `RUST_LOG` overrides the default level, e.g.
+/// `RUST_LOG=fleck=debug fleck`.
+fn init_tracing() {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn,fleck=info"));
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).try_init();
+}
+
 fn main() -> cosmic::iced::Result {
+    init_tracing();
+
     // `--applet` dispatches to the panel icon and nothing else: no
     // data-directory migration, no D-Bus name acquisition, no note store,
     // no window state. Checked before any of that runs.
@@ -361,7 +371,7 @@ fn main() -> cosmic::iced::Result {
     let window_state = match WindowState::load(&state_path) {
         Ok(state) => state,
         Err(e) => {
-            eprintln!("fleck: failed to read window state {}: {e}", state_path.display());
+            tracing::warn!("failed to read window state {}: {e}", state_path.display());
             WindowState::default()
         }
     };
@@ -397,7 +407,7 @@ fn main() -> cosmic::iced::Result {
             // isn't reachable at all). Either way, this process has no
             // business loading notes or opening windows - ask whoever does
             // own it to show the list, then get out of the way.
-            eprintln!("fleck: {} is already owned: {e}", dbus::SERVICE_NAME);
+            tracing::info!("{} is already owned: {e}", dbus::SERVICE_NAME);
             // Bounded: a running instance that's wedged (compositor stuck,
             // deadlocked, whatever) must not hang this process - and every
             // future relaunch - forever waiting on a reply that never
@@ -413,12 +423,12 @@ fn main() -> cosmic::iced::Result {
                 {
                     Ok(Ok(())) => OK,
                     Ok(Err(e)) => {
-                        eprintln!("fleck: failed to ask the running instance to show the list: {e}");
+                        tracing::error!("failed to ask the running instance to show the list: {e}");
                         FAILED
                     }
                     Err(_) => {
-                        eprintln!(
-                            "fleck: the running instance did not respond within {}s - it may be stuck",
+                        tracing::error!(
+                            "the running instance did not respond within {}s - it may be stuck",
                             RELAUNCH_TIMEOUT.as_secs()
                         );
                         FAILED

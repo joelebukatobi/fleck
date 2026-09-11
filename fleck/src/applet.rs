@@ -100,7 +100,7 @@ fn spawn_app() {
     let mut command = match app_command() {
         Ok(command) => command,
         Err(e) => {
-            eprintln!("fleck --applet: couldn't determine own path: {e}");
+            tracing::error!("couldn't determine own path: {e}");
             return;
         }
     };
@@ -111,7 +111,7 @@ fn spawn_app() {
             });
         }
         Err(e) => {
-            eprintln!("fleck --applet: failed to start the app: {e}");
+            tracing::error!("failed to start the app: {e}");
         }
     }
 }
@@ -121,7 +121,7 @@ async fn handle_click() {
         ShowListOutcome::Shown => {}
         ShowListOutcome::NotRunning => spawn_app(),
         ShowListOutcome::Failed(msg) => {
-            eprintln!("fleck --applet: ShowList failed: {msg}");
+            tracing::warn!("ShowList failed: {msg}");
         }
     }
 }

@@ -361,7 +361,7 @@ impl Fleck {
             return;
         }
         if let Err(e) = self.window_state.save(&self.state_path) {
-            eprintln!("fleck: failed to save window state: {e}");
+            tracing::error!("failed to save window state: {e}");
         }
         self.window_state_dirty = false;
     }
@@ -379,7 +379,7 @@ impl Fleck {
                 Some(note) => match self.store.save(note) {
                     Ok(()) => true,
                     Err(e) => {
-                        eprintln!("fleck: failed to save note {id}: {e}");
+                        tracing::error!("failed to save note {id}: {e}");
                         false
                     }
                 },
@@ -567,7 +567,7 @@ impl Fleck {
                 (Some(uuid), self.open_window_for(uuid))
             }
             Err(e) => {
-                eprintln!("fleck: failed to create note: {e}");
+                tracing::error!("failed to create note: {e}");
                 (None, Task::none())
             }
         }
@@ -591,7 +591,7 @@ impl Fleck {
             return false;
         }
         if let Err(e) = self.store.delete(uuid) {
-            eprintln!("fleck: failed to delete note {uuid}: {e}");
+            tracing::error!("failed to delete note {uuid}: {e}");
         }
         self.notes.remove(&uuid);
         self.dirty.remove(&uuid);
@@ -844,13 +844,13 @@ impl cosmic::Application for Fleck {
                         Ok(note) => {
                             notes.insert(note.frontmatter.uuid, note);
                         }
-                        Err(e) => eprintln!("fleck: skipping unreadable note: {e}"),
+                        Err(e) => tracing::warn!("skipping unreadable note: {e}"),
                     }
                 }
             }
             Err(e) => {
-                eprintln!(
-                    "fleck: failed to read notes directory {}: {e}",
+                tracing::error!(
+                    "failed to read notes directory {}: {e}",
                     store.dir().display()
                 );
             }
