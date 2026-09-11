@@ -27,6 +27,9 @@ Modelled on the Windows Sticky Notes list window.
   of its text, and when it was last edited.
 - **Plain cards for now** — theme defaults. Card colours come with the design pass.
 - Renaming a note is an action on its card.
+- Deleting a note is an action on its card: a trash icon after the rename pencil.
+  It asks first — "Delete note?" with **Delete** (destructive style) and
+  **Cancel**. If the note is open in a window, that window closes.
 - The darker panel the cards sit on has an **even gap on all four sides** between
   it and the window edge — including the bottom, which currently runs flush.
 
