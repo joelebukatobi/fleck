@@ -230,7 +230,13 @@ mod tests {
 
         let modified = store.modified(id).unwrap();
 
-        assert!(modified >= before && modified <= after, "mtime must fall within the save window");
+        // File timestamps come from the kernel's coarse clock, which can sit a
+        // few milliseconds behind SystemTime::now(); allow a tolerance either side.
+        let tolerance = std::time::Duration::from_secs(1);
+        assert!(
+            modified + tolerance >= before && modified <= after + tolerance,
+            "mtime must fall within the save window, allowing for timestamp granularity"
+        );
     }
 
     #[test]
