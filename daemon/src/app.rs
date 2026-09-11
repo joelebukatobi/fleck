@@ -1148,7 +1148,7 @@ impl Tack {
             .scroller_width(scroller_width)
             // `Minimal` leaves the track transparent, so only the thumb shows;
             // `Permanent` (the default) paints the track at its full 8 px.
-            .class(cosmic::theme::Scrollable::Minimal);
+            .class(cosmic::style::iced::Scrollable::Minimal);
         let list_scrollable = widget::mouse_area(list_scrollable)
             .on_enter(Message::ListScrollHover(true))
             .on_exit(Message::ListScrollHover(false));
