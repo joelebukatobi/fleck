@@ -286,6 +286,32 @@ const CARD_SPACING: u16 = 8;
 /// channel is scaled down by this factor, so `1.0` would be no change and
 /// `0.0` would be black.
 const HEADING_DARKEN_FACTOR: f32 = 0.70;
+/// How much lighter a hovered card gets: each channel is mixed towards
+/// white by this fraction, so `0.0` would be no change and `1.0` would be
+/// white.
+const CARD_HOVER_LIGHTEN_FACTOR: f32 = 0.08;
+/// How much darker a pressed card gets - a subtler scale-down than
+/// `HEADING_DARKEN_FACTOR`, which exists to contrast a whole strip rather
+/// than to read as a light "pressed" tap.
+const CARD_PRESS_DARKEN_FACTOR: f32 = 0.90;
+/// Minimum gap between a card's right edge and the scrollbar's widest
+/// extent, embedded via `Scrollbar::spacing` (see `view_list`) so it only
+/// takes up space while a scrollbar is actually shown.
+const SCROLLBAR_GAP: f32 = 4.0;
+/// The list scrollbar's rail thickness - reserved layout space, constant
+/// regardless of hover, so the cards never shift width when the scroller
+/// widens (see `SCROLLBAR_SCROLLER_WIDTH_HOVER`).
+const SCROLLBAR_WIDTH: f32 = 8.0;
+/// The scroller's thickness at rest ("slim"): thinner than
+/// `SCROLLBAR_WIDTH`, centered within the (unchanging) rail lane.
+const SCROLLBAR_SCROLLER_WIDTH_REST: f32 = 4.0;
+/// The scroller's thickness while the list is hovered ("wide"): matches
+/// `SCROLLBAR_WIDTH`, filling the rail lane. Changing only `scroller_width`
+/// between the two states is what keeps this from ever moving the cards -
+/// `Scrollable::layout`'s reserved padding is computed from `width` and
+/// `margin`, not `scroller_width` (see `iced/widget/src/scrollable.rs`
+/// ~line 616 in the pinned iced fork).
+const SCROLLBAR_SCROLLER_WIDTH_HOVER: f32 = 8.0;
 
 /// Builds one state closure of the search bar's style: the theme's `Search`
 /// appearance for `state` (active/hovered/focused/error/disabled), with the
@@ -313,14 +339,21 @@ fn card_container_style(theme: &cosmic::Theme) -> cosmic::iced::widget::containe
     style
 }
 
-/// Scales a colour's channels down by `HEADING_DARKEN_FACTOR`, leaving alpha
-/// untouched. A pure scale-down of already non-negative channels can never
-/// produce a negative channel, so black stays black instead of clipping.
-fn darken(color: Color) -> Color {
+/// Scales a colour's channels down by `factor`, leaving alpha untouched. A
+/// pure scale-down of already non-negative channels can never produce a
+/// negative channel, so black stays black instead of clipping.
+fn darken(color: Color, factor: f32) -> Color {
+    Color { r: color.r * factor, g: color.g * factor, b: color.b * factor, a: color.a }
+}
+
+/// Mixes a colour's channels towards white by `factor`, leaving alpha
+/// untouched. A pure lerp towards 1.0 of already at-most-1.0 channels can
+/// never push a channel past 1.0, so white stays white instead of clipping.
+fn lighten(color: Color, factor: f32) -> Color {
     Color {
-        r: color.r * HEADING_DARKEN_FACTOR,
-        g: color.g * HEADING_DARKEN_FACTOR,
-        b: color.b * HEADING_DARKEN_FACTOR,
+        r: color.r + (1.0 - color.r) * factor,
+        g: color.g + (1.0 - color.g) * factor,
+        b: color.b + (1.0 - color.b) * factor,
         a: color.a,
     }
 }
@@ -329,15 +362,75 @@ fn darken(color: Color) -> Color {
 /// `card_container_style`) darkened by `darken`, rounded only at the top
 /// (`CARD_RADIUS`) so it follows the card's rounded top edge while its
 /// bottom edge - where it meets the content section - stays square.
+///
+/// Stays the same regardless of the card button's hover/press state: a
+/// container's style function only ever receives the theme, not its
+/// parent button's interaction state, so there is no state to shift it
+/// with even if the design wanted that - see `view_card`.
 fn card_heading_style(theme: &cosmic::Theme) -> cosmic::iced::widget::container::Style {
     let card = card_container_style(theme);
     cosmic::iced::widget::container::Style {
         background: card.background.map(|background| match background {
-            cosmic::iced::Background::Color(c) => cosmic::iced::Background::Color(darken(c)),
+            cosmic::iced::Background::Color(c) => {
+                cosmic::iced::Background::Color(darken(c, HEADING_DARKEN_FACTOR))
+            }
             other => other,
         }),
         border: Border { radius: cosmic::iced::border::top(CARD_RADIUS), ..Border::default() },
         ..card
+    }
+}
+
+/// The card's theme background colour alone (see `card_container_style`),
+/// for building the card button's hover/press variants. Falls back to
+/// transparent for the (never-hit-in-practice) case that the theme's Card
+/// container has no solid colour background.
+fn card_color(theme: &cosmic::Theme) -> Color {
+    match card_container_style(theme).background {
+        Some(cosmic::iced::Background::Color(c)) => c,
+        _ => Color::TRANSPARENT,
+    }
+}
+
+/// One state's appearance for the card button (see `view_card`): `card_container_style`'s
+/// border and `CARD_RADIUS`, with `background` as the fill - `card_color`
+/// itself for the resting state, `lighten`/`darken`d for hover/press. `focused`
+/// draws the same accent outline `cosmic`'s own button styles draw for a
+/// Tab-focused button, so keyboard focus stays visible.
+fn card_button_style(theme: &cosmic::Theme, focused: bool, background: Color) -> cosmic::widget::button::Style {
+    let card = card_container_style(theme);
+    let mut style = cosmic::widget::button::Style {
+        background: Some(cosmic::iced::Background::Color(background)),
+        border_radius: card.border.radius,
+        border_width: card.border.width,
+        border_color: card.border.color,
+        ..cosmic::widget::button::Style::new()
+    };
+    if focused {
+        let cosmic = theme.cosmic();
+        style.outline_width = 1.0;
+        style.outline_color = cosmic.accent.base.into();
+        style.border_width = 2.0;
+        style.border_color = Color::TRANSPARENT;
+    }
+    style
+}
+
+/// The card button's full `Button::Custom` style class: active/hovered/
+/// pressed each derive their background from `card_color`, lightened on
+/// hover and darkened on press (see `lighten`/`darken`) - never a hardcoded
+/// colour. `disabled` is never actually reached (a card button is never
+/// disabled) but is required to build the class.
+fn card_button_class() -> cosmic::theme::Button {
+    cosmic::theme::Button::Custom {
+        active: Box::new(|focused, theme| card_button_style(theme, focused, card_color(theme))),
+        disabled: Box::new(|theme| card_button_style(theme, false, card_color(theme))),
+        hovered: Box::new(|focused, theme| {
+            card_button_style(theme, focused, lighten(card_color(theme), CARD_HOVER_LIGHTEN_FACTOR))
+        }),
+        pressed: Box::new(|focused, theme| {
+            card_button_style(theme, focused, darken(card_color(theme), CARD_PRESS_DARKEN_FACTOR))
+        }),
     }
 }
 
@@ -444,6 +537,11 @@ pub enum Message {
     RenameSave,
     /// Escape (or losing focus) in the active rename text input: discard it.
     RenameCancel,
+    /// The mouse entered or left the notes list's scrollable area - tracked
+    /// only to widen the scrollbar's scroller on hover
+    /// (`SCROLLBAR_SCROLLER_WIDTH_HOVER`) without ever changing the
+    /// reserved layout width the cards see (`SCROLLBAR_WIDTH`, constant).
+    ListScrollHover(bool),
 }
 
 /// Wraps a `dbus::Request` so it can ride through `Message`, which
@@ -593,6 +691,9 @@ pub struct Tack {
     /// Handle on the D-Bus request receiver built in `main.rs`, threaded
     /// into the subscription - see `DbusRx` and `dbus_subscription`.
     dbus_rx: DbusRx,
+    /// Whether the mouse is currently over the notes list's scrollable
+    /// area - see `Message::ListScrollHover`.
+    list_scroll_hovered: bool,
 }
 
 impl Tack {
@@ -965,21 +1066,26 @@ impl Tack {
             .push(heading)
             .push(content);
 
-        let card = widget::container(card_body)
-            .class(cosmic::theme::Container::custom(card_container_style))
-            .width(Length::Fill);
+        // Bare (no background) in both branches, so rename mode and the
+        // button-wrapped display mode size and position identically - only
+        // one of them actually paints a card surface. In display mode the
+        // button itself is that surface (see `card_button_class`); in
+        // rename mode, with no button to paint it, this container carries
+        // the same resting-card style directly so the card still reads as
+        // a card while its name is being edited.
+        let card = widget::container(card_body).width(Length::Fill);
 
         if editing {
             // Mid-rename, the card isn't a pick target - the text input
             // already owns clicks/focus here.
-            card.into()
+            card.class(cosmic::theme::Container::custom(card_container_style)).into()
         } else {
             // No padding: libcosmic buttons default to 5 px, which inset the card from
             // the search bar and drew the hover state 5 px outside the card.
             widget::button::custom(card)
                 .padding(0)
                 .on_press(Message::PickNote(uuid))
-                .class(cosmic::theme::Button::Text)
+                .class(card_button_class())
                 .width(Length::Fill)
                 .into()
         }
@@ -1017,10 +1123,37 @@ impl Tack {
             cards = cards.push(self.view_card(note));
         }
 
+        // Slim until hovered, then wider, like other COSMIC apps: the
+        // reserved rail lane (`scrollbar_width`) never changes, so the
+        // cards never shift - only the scroller's own thickness
+        // (`scroller_width`) does, between `SCROLLBAR_SCROLLER_WIDTH_REST`
+        // and `SCROLLBAR_SCROLLER_WIDTH_HOVER`, tracked via
+        // `Message::ListScrollHover` since neither is reachable through
+        // libcosmic's `Scrollable` style catalog alone (its `Style` only
+        // ever carries colour/border, never a size - see
+        // `card_button_class`'s sibling investigation in `docs`/the phase
+        // report). `spacing(SCROLLBAR_GAP)` embeds the scrollbar - the
+        // cards only lose that width when a scrollbar is actually shown
+        // (`Scrollable::layout`), so a short list still runs full width.
+        let scroller_width = if self.list_scroll_hovered {
+            SCROLLBAR_SCROLLER_WIDTH_HOVER
+        } else {
+            SCROLLBAR_SCROLLER_WIDTH_REST
+        };
+        let list_scrollable = widget::scrollable(cards)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .spacing(SCROLLBAR_GAP)
+            .scrollbar_width(SCROLLBAR_WIDTH)
+            .scroller_width(scroller_width);
+        let list_scrollable = widget::mouse_area(list_scrollable)
+            .on_enter(Message::ListScrollHover(true))
+            .on_exit(Message::ListScrollHover(false));
+
         let content = widget::Column::with_capacity(2)
             .spacing(8)
             .push(search)
-            .push(widget::scrollable(cards).width(Length::Fill).height(Length::Fill));
+            .push(list_scrollable);
 
         widget::container(content)
             .class(cosmic::theme::Container::WindowBackground)
@@ -1272,6 +1405,7 @@ impl cosmic::Application for Tack {
             session_snapshotted: false,
             _dbus_connection: Some(dbus_connection),
             dbus_rx: DbusRx(Arc::new(Mutex::new(Some(dbus_rx)))),
+            list_scroll_hovered: false,
         };
 
         (app, Task::none())
@@ -1489,6 +1623,10 @@ impl cosmic::Application for Tack {
             }
             Message::RenameCancel => {
                 self.rename = RenameState::Idle;
+                Task::none()
+            }
+            Message::ListScrollHover(hovered) => {
+                self.list_scroll_hovered = hovered;
                 Task::none()
             }
         }
@@ -1761,7 +1899,7 @@ mod tests {
         for c in
             [Color::from_rgb(0.9, 0.9, 0.9), Color::from_rgb(0.5, 0.5, 0.5), Color::from_rgb(0.15, 0.15, 0.15)]
         {
-            let d = darken(c);
+            let d = darken(c, HEADING_DARKEN_FACTOR);
             assert!(luminance(d) < luminance(c), "{d:?} should be darker than {c:?}");
         }
     }
@@ -1769,15 +1907,42 @@ mod tests {
     #[test]
     fn darken_preserves_alpha() {
         let c = Color::from_rgba(0.5, 0.4, 0.3, 0.42);
-        assert_eq!(darken(c).a, 0.42);
+        assert_eq!(darken(c, HEADING_DARKEN_FACTOR).a, 0.42);
     }
 
     #[test]
     fn darken_keeps_pure_black_black_not_negative() {
         let black = Color::from_rgb(0.0, 0.0, 0.0);
-        let d = darken(black);
+        let d = darken(black, HEADING_DARKEN_FACTOR);
         assert_eq!(d, black);
         assert!(d.r >= 0.0 && d.g >= 0.0 && d.b >= 0.0);
+    }
+
+    /// `lighten` doesn't exist yet - this locks in what it must do before
+    /// it's written: raise luminance for light, mid and dark inputs alike,
+    /// preserve alpha, and leave white unchanged (mixing towards white can
+    /// never push a channel past 1.0).
+    #[test]
+    fn lighten_increases_luminance_for_light_mid_and_dark_colors() {
+        for c in
+            [Color::from_rgb(0.9, 0.9, 0.9), Color::from_rgb(0.5, 0.5, 0.5), Color::from_rgb(0.15, 0.15, 0.15)]
+        {
+            let l = lighten(c, CARD_HOVER_LIGHTEN_FACTOR);
+            assert!(luminance(l) > luminance(c), "{l:?} should be lighter than {c:?}");
+        }
+    }
+
+    #[test]
+    fn lighten_preserves_alpha() {
+        let c = Color::from_rgba(0.5, 0.4, 0.3, 0.42);
+        assert_eq!(lighten(c, CARD_HOVER_LIGHTEN_FACTOR).a, 0.42);
+    }
+
+    #[test]
+    fn lighten_keeps_white_white() {
+        let white = Color::from_rgb(1.0, 1.0, 1.0);
+        let l = lighten(white, CARD_HOVER_LIGHTEN_FACTOR);
+        assert_eq!(l, white);
     }
 
     #[test]
@@ -1827,6 +1992,7 @@ mod tests {
             session_snapshotted: false,
             _dbus_connection: None,
             dbus_rx: DbusRx(Arc::new(Mutex::new(None))),
+            list_scroll_hovered: false,
         }
     }
 
