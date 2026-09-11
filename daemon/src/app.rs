@@ -282,6 +282,12 @@ const CARD_HEADING_PADDING_X: u16 = 8;
 const CARD_HEADING_GAP: u16 = 4;
 /// Gap between a card's title and its rename pencil, within the heading row.
 const CARD_HEADING_ROW_SPACING: u16 = 8;
+/// Gap between the pencil and trash buttons. 0 because each button's own
+/// 8 px padding already puts their icons 16 px apart.
+const CARD_ACTION_SPACING: u16 = 0;
+/// Right padding of the card heading. 0 so the trash icon, inside its own
+/// 8 px button padding, sits 8 px from the card's right edge.
+const CARD_HEADING_PADDING_RIGHT: u16 = 0;
 /// Gap between the preview lines and the timestamp in a card's content.
 const CARD_CONTENT_SPACING: u16 = 4;
 const CARD_SPACING: u16 = 8;
@@ -1164,26 +1170,31 @@ impl Tack {
             widget::text::heading(display_name(note).to_string()).width(Length::Fill).into()
         };
 
-        let heading_row = widget::Row::with_capacity(3)
+        let heading_row = widget::Row::with_capacity(2)
             .spacing(CARD_HEADING_ROW_SPACING)
             .align_y(Alignment::Center)
             .push(title)
             .push(
-                widget::button::icon(crate::icons::pencil_simple())
-                    .extra_small()
-                    .on_press(Message::RenameStart(uuid))
-                    .class(icon_button_class(IconHoverRole::Accent)),
-            )
-            .push(
-                widget::button::icon(crate::icons::trash())
-                    .extra_small()
-                    .on_press(Message::DeleteStart(uuid))
-                    .class(icon_button_class(IconHoverRole::Destructive)),
+                widget::Row::with_capacity(2)
+                    .spacing(CARD_ACTION_SPACING)
+                    .align_y(Alignment::Center)
+                    .push(
+                        widget::button::icon(crate::icons::pencil_simple())
+                            .extra_small()
+                            .on_press(Message::RenameStart(uuid))
+                            .class(icon_button_class(IconHoverRole::Accent)),
+                    )
+                    .push(
+                        widget::button::icon(crate::icons::trash())
+                            .extra_small()
+                            .on_press(Message::DeleteStart(uuid))
+                            .class(icon_button_class(IconHoverRole::Destructive)),
+                    ),
             );
 
         let heading = widget::container(heading_row)
             .class(cosmic::theme::Container::custom(card_heading_style))
-            .padding([CARD_HEADING_PADDING_Y, CARD_HEADING_PADDING_X])
+            .padding([CARD_HEADING_PADDING_Y, CARD_HEADING_PADDING_RIGHT, CARD_HEADING_PADDING_Y, CARD_HEADING_PADDING_X])
             .width(Length::Fill);
 
         let mut content_col = widget::Column::with_capacity(1 + PREVIEW_LINES).spacing(CARD_CONTENT_SPACING);
@@ -1251,9 +1262,11 @@ impl Tack {
                 widget::icon(crate::icons::x())
                     .size(16)
                     .apply(widget::button::custom)
-                    .class(cosmic::theme::Button::Icon)
+                    .class(icon_button_class(IconHoverRole::Accent))
                     .on_press(Message::SearchChanged(String::new()))
-                    .padding(8)
+                    // No right inset, so the x sits 8 px from the bar's right
+                    // edge, in line with the card trash icons.
+                    .padding([SEARCH_ICON_INSET, 0, SEARCH_ICON_INSET, SEARCH_ICON_INSET])
                     .into(),
             )
             .leading_icon(
