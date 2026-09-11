@@ -451,6 +451,86 @@ fn card_button_class() -> cosmic::theme::Button {
     }
 }
 
+/// Which theme colour a header icon button's (`+`, pencil, trash) hovered/
+/// pressed icon takes - see `icon_button_class`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IconHoverRole {
+    Accent,
+    Destructive,
+}
+
+/// The hovered/pressed icon colour for a header icon button, given its
+/// role - pure and GUI-free so it's directly testable. `cosmic.accent.base`
+/// and `cosmic.destructive.base` are exactly the colours `accent_button` and
+/// `destructive_button` use for their own backgrounds too (both are built
+/// from that same base colour - see `cosmic-theme`'s
+/// `Component::colored_button`), so `Destructive` here really is "the same
+/// red the delete confirmation dialog's `widget::button::destructive`
+/// draws", not a new colour.
+fn icon_hover_color(role: IconHoverRole, theme: &cosmic::Theme) -> Color {
+    let cosmic = theme.cosmic();
+    match role {
+        IconHoverRole::Accent => cosmic.accent.base.into(),
+        IconHoverRole::Destructive => cosmic.destructive.base.into(),
+    }
+}
+
+/// A header icon button's (the `+` new-note button in `header_start`, and
+/// the pencil/trash buttons in `view_card`) full `Button::Custom` style
+/// class: no background in any state - removing libcosmic's default icon-
+/// button hover/press fill - the theme's normal icon colour at rest and
+/// disabled exactly as `widget::button::icon` already draws it, and `role`'s
+/// colour (`icon_hover_color`) while hovered or pressed.
+///
+/// Built from `Catalog::active/hovered/pressed/disabled` for
+/// `theme::Button::Icon` (libcosmic's own icon-button appearance) rather
+/// than a hand-built `Style`, so focus outline, sizing, and disabled
+/// appearance stay byte-for-byte what they are today - the only fields this
+/// ever touches are `background` (always cleared) and hover/press
+/// `icon_color`.
+fn icon_button_class(role: IconHoverRole) -> cosmic::theme::Button {
+    fn no_background(mut style: cosmic::widget::button::Style) -> cosmic::widget::button::Style {
+        style.background = None;
+        style
+    }
+    cosmic::theme::Button::Custom {
+        active: Box::new(|focused, theme| {
+            no_background(<cosmic::Theme as cosmic::widget::button::Catalog>::active(
+                theme,
+                focused,
+                false,
+                &cosmic::theme::Button::Icon,
+            ))
+        }),
+        disabled: Box::new(|theme| {
+            no_background(<cosmic::Theme as cosmic::widget::button::Catalog>::disabled(
+                theme,
+                &cosmic::theme::Button::Icon,
+            ))
+        }),
+        hovered: Box::new(move |focused, theme| {
+            let mut style = no_background(<cosmic::Theme as cosmic::widget::button::Catalog>::hovered(
+                theme,
+                focused,
+                false,
+                &cosmic::theme::Button::Icon,
+            ));
+            style.icon_color = Some(icon_hover_color(role, theme));
+            style
+        }),
+        pressed: Box::new(move |focused, theme| {
+            let mut style = no_background(<cosmic::Theme as cosmic::widget::button::Catalog>::pressed(
+                theme,
+                focused,
+                false,
+                &cosmic::theme::Button::Icon,
+            ));
+            style.icon_color = Some(icon_hover_color(role, theme));
+            style
+        }),
+    }
+}
+
 /// Whether the notes list's rename control is currently editing `uuid`'s
 /// card - the pure question a card's view asks to pick between its display
 /// and rename widget tree.
@@ -1088,12 +1168,14 @@ impl Tack {
             .push(
                 widget::button::icon(crate::icons::pencil_simple())
                     .extra_small()
-                    .on_press(Message::RenameStart(uuid)),
+                    .on_press(Message::RenameStart(uuid))
+                    .class(icon_button_class(IconHoverRole::Accent)),
             )
             .push(
                 widget::button::icon(crate::icons::trash())
                     .extra_small()
-                    .on_press(Message::DeleteStart(uuid)),
+                    .on_press(Message::DeleteStart(uuid))
+                    .class(icon_button_class(IconHoverRole::Destructive)),
             );
 
         let heading = widget::container(heading_row)
@@ -1749,6 +1831,7 @@ impl cosmic::Application for Tack {
         vec![
             widget::button::icon(crate::icons::plus())
                 .on_press(Message::NewNote)
+                .class(icon_button_class(IconHoverRole::Accent))
                 .into(),
             widget::text::body("Tack").into(),
         ]
@@ -1965,6 +2048,30 @@ mod tests {
         assert_eq!(dialog_width(-5.0), fallback);
         assert_eq!(dialog_width(f32::NAN), fallback);
         assert_eq!(dialog_width(f32::INFINITY), fallback);
+    }
+
+    #[test]
+    fn icon_hover_color_maps_trash_to_destructive() {
+        let theme = cosmic::Theme::dark();
+        let expected: Color = theme.cosmic().destructive.base.into();
+        assert_eq!(icon_hover_color(IconHoverRole::Destructive, &theme), expected);
+    }
+
+    #[test]
+    fn icon_hover_color_maps_plus_and_pencil_to_accent() {
+        let theme = cosmic::Theme::dark();
+        let expected: Color = theme.cosmic().accent.base.into();
+        assert_eq!(icon_hover_color(IconHoverRole::Accent, &theme), expected);
+    }
+
+    #[test]
+    fn icon_hover_color_accent_and_destructive_differ() {
+        let theme = cosmic::Theme::dark();
+        assert_ne!(
+            icon_hover_color(IconHoverRole::Accent, &theme),
+            icon_hover_color(IconHoverRole::Destructive, &theme),
+            "trash must read visibly differently from the + and pencil buttons"
+        );
     }
 
     #[test]
