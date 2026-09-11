@@ -62,5 +62,9 @@ Modelled on the Windows Sticky Notes list window.
 
 ## Look
 
-- Bare minimum for now. Theme defaults for every colour, including the lines.
-- Design comes later.
+- Mostly theme defaults for now; the full design pass comes later.
+- Working in multiples of 8.
+- Notes list sizes, fixed rather than following COSMIC's roundness setting:
+  - Content panel: 8 px padding on all four sides.
+  - Search bar: 16 px padding left and right, 4 px corner radius.
+  - Cards: 4 px corner radius, 8 px padding inside, 8 px between cards.
