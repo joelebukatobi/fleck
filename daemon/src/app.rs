@@ -262,13 +262,39 @@ fn relative_time(elapsed: Duration) -> String {
     }
 }
 
-/// The insets libcosmic's own `view_main` already gives the list window's
-/// content on the left and right (see `border_padding`/`main_content_padding`
-/// in libcosmic's `src/app/mod.rs`) - applying the same amount to just the
-/// top and bottom of the notes panel makes the gap around it even on all
-/// four sides, without touching libcosmic's own chrome padding.
-fn list_inset(border_padding: Option<u16>, maximized: bool) -> u16 {
-    border_padding.unwrap_or(if maximized { 8 } else { 7 })
+/// Layout constants for the notes list panel (`view_list`/`view_card`) - one
+/// place for the design pass to change spacing and corner radius.
+const LIST_PANEL_PADDING: u16 = 8;
+const SEARCH_PADDING_X: u16 = 16;
+const SEARCH_RADIUS: f32 = 4.0;
+const CARD_RADIUS: f32 = 4.0;
+const CARD_PADDING: u16 = 8;
+const CARD_SPACING: u16 = 8;
+
+/// Builds one state closure of the search bar's style: the theme's `Search`
+/// appearance for `state` (active/hovered/focused/error/disabled), with the
+/// radius replaced by `SEARCH_RADIUS`. Every other field - background,
+/// border colour, text colours - stays exactly what the theme gives it.
+fn search_input_style(
+    state: fn(&cosmic::Theme, &cosmic::theme::TextInput) -> cosmic::widget::text_input::Appearance,
+) -> Box<dyn Fn(&cosmic::Theme) -> cosmic::widget::text_input::Appearance> {
+    Box::new(move |theme| {
+        let mut appearance = state(theme, &cosmic::theme::TextInput::Search);
+        appearance.border_radius = SEARCH_RADIUS.into();
+        appearance
+    })
+}
+
+/// A card's style: the theme's `Card` appearance with the radius replaced
+/// by `CARD_RADIUS` instead of the theme's `radius_s`. Every other field -
+/// background, text/icon colours - stays exactly what the theme gives it.
+fn card_container_style(theme: &cosmic::Theme) -> cosmic::iced::widget::container::Style {
+    let mut style = <cosmic::Theme as cosmic::iced::widget::container::Catalog>::style(
+        theme,
+        &cosmic::theme::Container::Card,
+    );
+    style.border.radius = CARD_RADIUS.into();
+    style
 }
 
 /// Whether the notes list's rename control is currently editing `uuid`'s
@@ -880,8 +906,8 @@ impl Tack {
         body_col = body_col.push(widget::text::caption(relative_time(elapsed)));
 
         let card = widget::container(body_col.spacing(4))
-            .class(cosmic::theme::Container::Card)
-            .padding(12)
+            .class(cosmic::theme::Container::custom(card_container_style))
+            .padding(CARD_PADDING)
             .width(Length::Fill);
 
         if editing {
@@ -914,9 +940,17 @@ impl Tack {
         let search = widget::search_input("Search notes", self.search.clone())
             .id(self.search_input_id.clone())
             .on_input(Message::SearchChanged)
-            .on_clear(Message::SearchChanged(String::new()));
+            .on_clear(Message::SearchChanged(String::new()))
+            .padding([0, SEARCH_PADDING_X])
+            .style(cosmic::theme::TextInput::Custom {
+                active: search_input_style(<cosmic::Theme as cosmic::widget::text_input::StyleSheet>::active),
+                error: search_input_style(<cosmic::Theme as cosmic::widget::text_input::StyleSheet>::error),
+                hovered: search_input_style(<cosmic::Theme as cosmic::widget::text_input::StyleSheet>::hovered),
+                focused: search_input_style(<cosmic::Theme as cosmic::widget::text_input::StyleSheet>::focused),
+                disabled: search_input_style(<cosmic::Theme as cosmic::widget::text_input::StyleSheet>::disabled),
+            });
 
-        let mut cards = widget::Column::with_capacity(notes.len()).spacing(8);
+        let mut cards = widget::Column::with_capacity(notes.len()).spacing(CARD_SPACING);
         for note in notes {
             cards = cards.push(self.view_card(note));
         }
@@ -926,15 +960,9 @@ impl Tack {
             .push(search)
             .push(widget::scrollable(cards).width(Length::Fill).height(Length::Fill));
 
-        // Equal gap on all four sides: libcosmic's own chrome already
-        // insets the content by `inset` on the left and right (see
-        // `list_inset`'s docs); adding the same amount here, top and
-        // bottom only, closes the gap it otherwise leaves flush at the
-        // bottom.
-        let inset = list_inset(self.core.window.border_padding, self.core.window.is_maximized);
         widget::container(content)
             .class(cosmic::theme::Container::WindowBackground)
-            .padding([inset, 0, inset, 0])
+            .padding(LIST_PANEL_PADDING)
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -2272,18 +2300,6 @@ mod tests {
     fn relative_time_weeks_boundary() {
         assert_eq!(relative_time(Duration::from_secs(7 * 24 * 60 * 60)), "1 week ago");
         assert_eq!(relative_time(Duration::from_secs(3 * 7 * 24 * 60 * 60)), "3 weeks ago");
-    }
-
-    #[test]
-    fn list_inset_falls_back_by_maximized_state_when_unset() {
-        assert_eq!(list_inset(None, false), 7);
-        assert_eq!(list_inset(None, true), 8);
-    }
-
-    #[test]
-    fn list_inset_prefers_an_explicit_value() {
-        assert_eq!(list_inset(Some(20), false), 20);
-        assert_eq!(list_inset(Some(20), true), 20);
     }
 
     #[test]
