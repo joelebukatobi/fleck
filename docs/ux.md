@@ -66,5 +66,10 @@ Modelled on the Windows Sticky Notes list window.
 - Working in multiples of 8.
 - Notes list sizes, fixed rather than following COSMIC's roundness setting:
   - Content panel: 8 px padding on all four sides.
-  - Search bar: 16 px padding left and right, 4 px corner radius.
-  - Cards: 4 px corner radius, 8 px padding inside, 8 px between cards.
+  - Search bar: 8 px padding left and right, 4 px corner radius.
+  - Cards: 4 px corner radius, 8 px between cards.
+  - Card heading: a darker strip across the top of the card, edge to edge, with
+    the title on the left and the rename pencil on the right of the same row.
+    8 px padding inside it. Darker is derived from the card's theme colour.
+  - 8 px between the heading strip and the card's content.
+  - Card content (preview and time): 8 px padding, including top and bottom.
