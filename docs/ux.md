@@ -84,3 +84,16 @@ Modelled on the Windows Sticky Notes list window.
     top or bottom.
   - At least 4 px between the cards and the scrollbar at its widest. With no
     scrollbar, cards run full width, lined up with the search bar.
+
+## Panel applet
+
+- An icon that lives permanently in the COSMIC top panel.
+- Clicking it opens the full notes list window — the same as launching Tack from
+  the app library. No popup of its own.
+- If Tack isn't running, clicking it starts Tack.
+
+## Dialogs
+
+- Dialogs over the notes list are 75% of the list window's width.
+- The list behind a dialog is not dimmed or blurred.
+
