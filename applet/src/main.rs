@@ -10,15 +10,11 @@ use std::time::Duration;
 use cosmic::app::{Core, Task};
 use cosmic::Element;
 
+mod icons;
+
 /// Separate from Tack's own id (`io.github.joelebukatobi.Tack`) - this is a
 /// different program.
 const APP_ID: &str = "io.github.joelebukatobi.TackApplet";
-
-/// Present in the `Cosmic` icon theme (checked under
-/// `/usr/share/icons/Cosmic/scalable/apps/`) as well as Adwaita and breeze,
-/// so it resolves regardless of which icon theme is active. Tack has no
-/// icon of its own yet.
-const ICON: &str = "accessories-text-editor-symbolic";
 
 /// Mirrors `daemon/src/main.rs`'s `RELAUNCH_TIMEOUT`: long enough for a
 /// normal D-Bus round trip, short enough that a wedged Tack doesn't freeze
@@ -162,7 +158,11 @@ impl cosmic::Application for TackApplet {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        self.core.applet.icon_button(ICON).on_press(Message::Clicked).into()
+        self.core
+            .applet
+            .icon_button_from_handle(icons::note_pencil())
+            .on_press(Message::Clicked)
+            .into()
     }
 
     fn style(&self) -> Option<cosmic::iced::theme::Style> {

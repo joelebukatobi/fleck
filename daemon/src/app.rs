@@ -1086,12 +1086,12 @@ impl Tack {
             .align_y(Alignment::Center)
             .push(title)
             .push(
-                widget::button::icon(widget::icon::from_name("edit-symbolic"))
+                widget::button::icon(crate::icons::pencil_simple())
                     .extra_small()
                     .on_press(Message::RenameStart(uuid)),
             )
             .push(
-                widget::button::icon(widget::icon::from_name("user-trash-symbolic"))
+                widget::button::icon(crate::icons::trash())
                     .extra_small()
                     .on_press(Message::DeleteStart(uuid)),
             );
@@ -1159,6 +1159,13 @@ impl Tack {
             .id(self.search_input_id.clone())
             .on_input(Message::SearchChanged)
             .on_clear(Message::SearchChanged(String::new()))
+            .leading_icon(
+                widget::icon(crate::icons::magnifying_glass())
+                    .size(16)
+                    .apply(widget::container)
+                    .padding(8)
+                    .into(),
+            )
             .padding([0, SEARCH_PADDING_X])
             .style(cosmic::theme::TextInput::Custom {
                 active: search_input_style(<cosmic::Theme as cosmic::widget::text_input::StyleSheet>::active),
@@ -1740,7 +1747,7 @@ impl cosmic::Application for Tack {
     // title bar the compositor gives them.
     fn header_start(&self) -> Vec<Element<'_, Message>> {
         vec![
-            widget::button::icon(widget::icon::from_name("list-add-symbolic"))
+            widget::button::icon(crate::icons::plus())
                 .on_press(Message::NewNote)
                 .into(),
             widget::text::body("Tack").into(),

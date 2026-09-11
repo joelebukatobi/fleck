@@ -1,5 +1,6 @@
 mod app;
 mod dbus;
+mod icons;
 mod ruled;
 mod undo;
 // Retained for upcoming design work (the WCAG contrast checker will be
