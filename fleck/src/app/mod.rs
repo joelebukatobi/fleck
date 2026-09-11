@@ -658,12 +658,19 @@ impl Fleck {
         if let Some(id) = self.list_window {
             return window::gain_focus(id);
         }
-        let settings = note_window_settings(Size::new(
+        let mut settings = note_window_settings(Size::new(
             DEFAULT_WINDOW_SIZE.0 as f32,
             DEFAULT_WINDOW_SIZE.1 as f32,
         ));
+        // Like libcosmic's own main window: its client-side header is the
+        // title bar, so no server-side one on top of it.
+        settings.decorations = false;
         let (id, spawn) = window::open(settings);
         self.list_window = Some(id);
+        // libcosmic draws the header (the `+` button) and dialogs only on
+        // the main window. The original main window is gone once the list
+        // has been closed, so the reopened list takes over that role.
+        self.core.set_main_window_id(Some(id));
         spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)))
     }
 
@@ -689,6 +696,18 @@ impl Fleck {
         self.window_state_dirty = true;
         self.flush_window_state();
         self.session_snapshotted = true;
+    }
+
+    /// Every exit Fleck starts itself goes through here: snapshot the
+    /// session (unless this exit already did), write every dirty note, then
+    /// exit. `cosmic::iced::exit()` does not run `on_app_exit`, so without
+    /// this an edit or rename made in the last autosave interval was lost.
+    fn exit_app(&mut self) -> Task<Message> {
+        if !self.session_snapshotted {
+            self.snapshot_session();
+        }
+        self.flush_all();
+        cosmic::iced::exit()
     }
 
     /// Applies one D-Bus request and answers its reply channel (where it
@@ -742,10 +761,7 @@ impl Fleck {
                 let _ = reply.send(());
                 task
             }
-            dbus::Request::Quit => {
-                self.snapshot_session();
-                cosmic::iced::exit()
-            }
+            dbus::Request::Quit => self.exit_app(),
         }
     }
 
@@ -1021,8 +1037,7 @@ impl cosmic::Application for Fleck {
                     // check never races the asynchronous completion of
                     // `window::open` for that note.
                     return if self.intent_visible.is_empty() {
-                        self.snapshot_session();
-                        cosmic::iced::exit()
+                        self.exit_app()
                     } else {
                         Task::none()
                     };
@@ -1065,9 +1080,9 @@ impl cosmic::Application for Fleck {
                     // session - snapshot while it's still in `self.windows`
                     // (browser tab-restore semantics: the last note you
                     // close is part of "what was open").
-                    self.snapshot_session();
+                    let exit = self.exit_app();
                     self.windows.remove(&id);
-                    cosmic::iced::exit()
+                    exit
                 } else {
                     self.windows.remove(&id);
                     Task::none()
@@ -2095,6 +2110,52 @@ mod tests {
             "the cancelled rename must not be saved"
         );
         assert_eq!(app.pending_delete, Some(other_id));
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn a_reopened_list_becomes_the_main_window() {
+        let mut app = make_fleck(Store::new(std::env::temp_dir().join("fleck-test-unused")));
+
+        let _ = app.show_list();
+
+        assert!(app.list_window.is_some());
+        assert_eq!(
+            app.core.main_window_id(),
+            app.list_window,
+            "libcosmic only draws the header and dialogs on the main window"
+        );
+    }
+
+    /// `cosmic::iced::exit()` skips `on_app_exit`, so exiting must write
+    /// pending edits itself - here, a rename made just before closing the
+    /// list with nothing else open.
+    #[test]
+    fn closing_the_list_saves_a_pending_rename_before_exiting() {
+        let tmp = std::env::temp_dir().join(format!("fleck-test-exit-flush-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_fleck(store);
+        let note = sample_note();
+        let uuid = note.frontmatter.uuid;
+        app.notes.insert(uuid, note);
+        let list_id = window::Id::unique();
+        app.list_window = Some(list_id);
+        app.rename_note(uuid, "Groceries");
+
+        let _ = app.update(Message::NoteClosed(list_id));
+
+        assert!(
+            app.session_snapshotted,
+            "closing the list with nothing open must exit"
+        );
+        assert!(
+            !app.dirty.contains_key(&uuid),
+            "the rename must be saved before exiting"
+        );
+        let saved =
+            fleck_core::parse(&std::fs::read_to_string(app.store.path(uuid)).unwrap()).unwrap();
+        assert_eq!(saved.frontmatter.name, "Groceries");
 
         std::fs::remove_dir_all(&tmp).ok();
     }
