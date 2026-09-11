@@ -1,0 +1,17 @@
+[package]
+name = "cosmic-ext-applet-tack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cosmic-ext-applet-tack"
+path = "src/main.rs"
+
+[dependencies]
+libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "d4d71fd", features = ["applet"] }
+zbus.workspace = true
+# Already in the dependency tree via zbus's `tokio` feature - listed
+# explicitly only so main.rs can reach `tokio::time::timeout` directly, not
+# to add a second runtime. Mirrors daemon/Cargo.toml.
+tokio = { version = "1", default-features = false, features = ["time"] }

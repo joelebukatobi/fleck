@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Tack
+Comment=Open your sticky notes
+Exec=cosmic-ext-applet-tack
+Icon=accessories-text-editor-symbolic
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;Notes;Sticky;
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicShrinkable=true
+X-HostWaylandDisplay=true
