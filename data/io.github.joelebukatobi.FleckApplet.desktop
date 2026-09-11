@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Tack
+Name=Fleck
 Comment=Open your sticky notes
-Exec=cosmic-ext-applet-tack
+Exec=cosmic-ext-applet-fleck
 Icon=accessories-text-editor-symbolic
 Terminal=false
 Categories=COSMIC;

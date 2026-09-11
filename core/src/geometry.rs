@@ -93,7 +93,7 @@ pub struct WindowState {
     /// field existed) loading as an empty map instead of failing.
     #[serde(default)]
     pub sizes: BTreeMap<Uuid, (u32, u32)>,
-    /// Notes that were open when Tack last quit - snapshotted at the moment
+    /// Notes that were open when Fleck last quit - snapshotted at the moment
     /// of quitting (the last window closing, `--quit`/D-Bus `Quit`, or
     /// application exit), including the window whose closing ended the
     /// session: closing your last window *is* how you quit, so excluding it
@@ -128,7 +128,7 @@ impl WindowState {
 }
 
 /// Which notes to offer restoring on launch: the intersection of `saved`
-/// (notes open when Tack last quit) and `existing` (notes that still exist
+/// (notes open when Fleck last quit) and `existing` (notes that still exist
 /// now). A note deleted since last quit is silently dropped - the caller
 /// shows no restore bar at all when this comes back empty.
 pub fn restorable(saved: &BTreeSet<Uuid>, existing: &BTreeSet<Uuid>) -> BTreeSet<Uuid> {

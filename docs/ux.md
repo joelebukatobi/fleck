@@ -1,10 +1,10 @@
-# Tack — how it should behave
+# Fleck — how it should behave
 
 Plain notes on the experience we want. Not a spec.
 
-## Opening Tack
+## Opening Fleck
 
-- When you open Tack, the **notes list** opens: every note you have, and a way
+- When you open Fleck, the **notes list** opens: every note you have, and a way
   to make a new one.
 - If you had notes open when you last quit, a **dialog** appears over the list,
   dimming it, asking whether to reopen them.
@@ -19,7 +19,7 @@ Plain notes on the experience we want. Not a spec.
 
 Modelled on the Windows Sticky Notes list window.
 
-- **Header:** a `+` button on the left for a new note, then **Tack**, then the
+- **Header:** a `+` button on the left for a new note, then **Fleck**, then the
   window buttons on the right.
 - **Search bar** under the header. Filters as you type, matching note names and text.
 - **Notes as cards**, most recently edited first, scrolling when there are more
@@ -35,7 +35,7 @@ Modelled on the Windows Sticky Notes list window.
 
 ## Notes
 
-- Tack is sticky notes, not a notes app. Each note is its own window; the list
+- Fleck is sticky notes, not a notes app. Each note is its own window; the list
   never turns into a note.
 
 - A note opens in its own window.
@@ -48,7 +48,7 @@ Modelled on the Windows Sticky Notes list window.
 
 ## Window title bar
 
-- Every note window's title reads **Note name | Tack**, followed by minimise,
+- Every note window's title reads **Note name | Fleck**, followed by minimise,
   maximise and close. COSMIC already renders it this way.
 
 ## Inside a note
@@ -93,9 +93,9 @@ Modelled on the Windows Sticky Notes list window.
 ## Panel applet
 
 - An icon that lives permanently in the COSMIC top panel.
-- Clicking it opens the full notes list window — the same as launching Tack from
+- Clicking it opens the full notes list window — the same as launching Fleck from
   the app library. No popup of its own.
-- If Tack isn't running, clicking it starts Tack.
+- If Fleck isn't running, clicking it starts Fleck.
 
 ## Dialogs
 
@@ -104,10 +104,10 @@ Modelled on the Windows Sticky Notes list window.
 
 ## Icons
 
-- Tack uses its own bundled icons from **Phosphor** (MIT), not the system icon theme,
+- Fleck uses its own bundled icons from **Phosphor** (MIT), not the system icon theme,
   so they look the same whatever COSMIC's icon theme is set to.
 - **Bold** weight — the closest to COSMIC's own icons. COSMIC's measure 2 px thick at
   16 px; Phosphor bold is 1.5 px, regular would be 1 px.
 - Icons follow the theme's text colour, so they work in light and dark mode.
-- Tack's own app icon, for the panel list and the app library, comes with the design pass.
+- Fleck's own app icon, for the panel list and the app library, comes with the design pass.
 

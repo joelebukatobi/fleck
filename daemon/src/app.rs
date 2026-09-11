@@ -83,7 +83,7 @@ const BODY_PADDING: f32 = 8.0;
 fn note_window_settings(size: Size) -> window::Settings {
     let mut settings = window::Settings { size, ..window::Settings::default() };
     settings.transparent = true;
-    settings.platform_specific.application_id = <Tack as cosmic::Application>::APP_ID.to_string();
+    settings.platform_specific.application_id = <Fleck as cosmic::Application>::APP_ID.to_string();
     settings
 }
 
@@ -145,7 +145,7 @@ fn window_size_for(uuid: Uuid, sizes: &BTreeMap<Uuid, (u32, u32)>) -> (u32, u32)
     }
 }
 
-/// What `Tack::init` needs beyond a `Core`: the note store, the window-size
+/// What `Fleck::init` needs beyond a `Core`: the note store, the window-size
 /// state loaded from disk, the path to save it back to, and the already
 /// name-owning D-Bus connection built in `main.rs` before any window opened
 /// (see the module docs on `dbus_subscription`).
@@ -722,7 +722,7 @@ impl std::hash::Hash for DbusRx {
     }
 }
 
-pub struct Tack {
+pub struct Fleck {
     core: Core,
     store: Store,
     /// Per-note window size, persisted to `state_path`. The only parts of
@@ -806,7 +806,7 @@ pub struct Tack {
     session_snapshotted: bool,
     /// Kept alive for as long as the app runs: dropping it would release
     /// the well-known D-Bus name acquired in `main.rs`. `None` only in
-    /// tests, which construct a `Tack` without a real connection.
+    /// tests, which construct a `Fleck` without a real connection.
     _dbus_connection: Option<zbus::Connection>,
     /// Handle on the D-Bus request receiver built in `main.rs`, threaded
     /// into the subscription - see `DbusRx` and `dbus_subscription`.
@@ -819,7 +819,7 @@ pub struct Tack {
     list_window_width: f32,
 }
 
-impl Tack {
+impl Fleck {
     /// Writes every note that has been dirty for at least the debounce
     /// window through `Store::save`, and re-syncs the window title of any
     /// note whose display name changed while it was dirty.
@@ -844,7 +844,7 @@ impl Tack {
             return;
         }
         if let Err(e) = self.window_state.save(&self.state_path) {
-            eprintln!("tack: failed to save window state: {e}");
+            eprintln!("fleck: failed to save window state: {e}");
         }
         self.window_state_dirty = false;
     }
@@ -862,7 +862,7 @@ impl Tack {
                 Some(note) => match self.store.save(note) {
                     Ok(()) => true,
                     Err(e) => {
-                        eprintln!("tack: failed to save note {id}: {e}");
+                        eprintln!("fleck: failed to save note {id}: {e}");
                         false
                     }
                 },
@@ -1050,7 +1050,7 @@ impl Tack {
                 (Some(uuid), self.open_window_for(uuid))
             }
             Err(e) => {
-                eprintln!("tack: failed to create note: {e}");
+                eprintln!("fleck: failed to create note: {e}");
                 (None, Task::none())
             }
         }
@@ -1074,7 +1074,7 @@ impl Tack {
             return false;
         }
         if let Err(e) = self.store.delete(uuid) {
-            eprintln!("tack: failed to delete note {uuid}: {e}");
+            eprintln!("fleck: failed to delete note {uuid}: {e}");
         }
         self.notes.remove(&uuid);
         self.dirty.remove(&uuid);
@@ -1503,12 +1503,12 @@ fn dbus_worker(rx: &DbusRx) -> impl Stream<Item = Message> {
     })
 }
 
-impl cosmic::Application for Tack {
+impl cosmic::Application for Fleck {
     type Executor = cosmic::executor::Default;
     type Flags = Flags;
     type Message = Message;
 
-    const APP_ID: &'static str = "io.github.joelebukatobi.Tack";
+    const APP_ID: &'static str = "io.github.joelebukatobi.Fleck";
 
     fn core(&self) -> &Core {
         &self.core
@@ -1528,13 +1528,13 @@ impl cosmic::Application for Tack {
                         Ok(note) => {
                             notes.insert(note.frontmatter.uuid, note);
                         }
-                        Err(e) => eprintln!("tack: skipping unreadable note: {e}"),
+                        Err(e) => eprintln!("fleck: skipping unreadable note: {e}"),
                     }
                 }
             }
             Err(e) => {
                 eprintln!(
-                    "tack: failed to read notes directory {}: {e}",
+                    "fleck: failed to read notes directory {}: {e}",
                     store.dir().display()
                 );
             }
@@ -1555,7 +1555,7 @@ impl cosmic::Application for Tack {
             .filter_map(|id| store.modified(*id).ok().map(|m| (*id, m)))
             .collect();
 
-        let app = Tack {
+        let app = Fleck {
             core,
             store,
             window_state,
@@ -1864,7 +1864,7 @@ impl cosmic::Application for Tack {
                 .on_press(Message::NewNote)
                 .class(icon_button_class(IconHoverRole::Accent))
                 .into(),
-            widget::text::body("Tack").into(),
+            widget::text::body("Fleck").into(),
         ]
     }
 
@@ -2223,12 +2223,12 @@ mod tests {
         assert_eq!(body_min_height(600.0).fract(), 0.0);
     }
 
-    fn make_tack(store: Store) -> Tack {
-        Tack {
+    fn make_fleck(store: Store) -> Fleck {
+        Fleck {
             core: Core::default(),
             store,
             window_state: WindowState::default(),
-            state_path: std::env::temp_dir().join(format!("tack-test-windows-{}.toml", Uuid::new_v4())),
+            state_path: std::env::temp_dir().join(format!("fleck-test-windows-{}.toml", Uuid::new_v4())),
             window_state_dirty: false,
             windows: HashMap::new(),
             list_window: None,
@@ -2274,11 +2274,11 @@ mod tests {
         // Point the store at a path that can't become a directory: a plain
         // file already occupies it, so `Store::save`'s `create_dir_all`
         // fails and the write never happens.
-        let tmp = std::env::temp_dir().join(format!("tack-test-fail-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-fail-{}", Uuid::new_v4()));
         std::fs::write(&tmp, b"not a directory").unwrap();
         let store = Store::new(&tmp);
 
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let id = note.frontmatter.uuid;
         app.notes.insert(id, note);
@@ -2296,10 +2296,10 @@ mod tests {
 
     #[test]
     fn flush_clears_dirty_flag_when_save_succeeds() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-ok-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-ok-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
 
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let id = note.frontmatter.uuid;
         app.notes.insert(id, note);
@@ -2351,9 +2351,9 @@ mod tests {
     /// routes now go through, so exercising it directly covers both.
     #[test]
     fn delete_note_data_removes_window_size_entry() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-delete-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let id = note.frontmatter.uuid;
         app.notes.insert(id, note);
@@ -2380,9 +2380,9 @@ mod tests {
     /// shared function - confirm it also clears the size entry.
     #[test]
     fn delete_note_dbus_route_removes_window_size_entry() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-delete-dbus-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-dbus-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let id = note.frontmatter.uuid;
         app.notes.insert(id, note);
@@ -2398,18 +2398,18 @@ mod tests {
 
     #[test]
     fn delete_note_data_returns_false_for_unknown_note() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-delete-missing-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-missing-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
 
         assert!(!app.delete_note_data(Uuid::new_v4()));
     }
 
     #[test]
     fn show_note_on_an_already_intended_visible_note_does_not_reopen() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-show-twice-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-show-twice-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let uuid = note.frontmatter.uuid;
         app.notes.insert(uuid, note);
@@ -2428,9 +2428,9 @@ mod tests {
 
     #[test]
     fn snapshot_session_records_currently_open_notes() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-snapshot-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-snapshot-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let uuid = Uuid::new_v4();
         app.windows.insert(
             window::Id::unique(),
@@ -2456,9 +2456,9 @@ mod tests {
         // Hide-all closes note windows through the same `closing_for_hide`
         // path as a single hide - `NoteClosed` must skip the snapshot
         // entirely for those, not just skip the exit.
-        let tmp = std::env::temp_dir().join(format!("tack-test-hideall-session-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-hideall-session-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         app.window_state.open_at_quit = BTreeSet::from([Uuid::new_v4()]);
         let previous = app.window_state.open_at_quit.clone();
 
@@ -2487,9 +2487,9 @@ mod tests {
     fn note_closed_as_the_last_window_includes_it_in_the_snapshot() {
         // Browser tab-restore semantics: the very note whose window closing
         // ends the session must still be offered back on next launch.
-        let tmp = std::env::temp_dir().join(format!("tack-test-last-window-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-last-window-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let uuid = Uuid::new_v4();
         let id = window::Id::unique();
         app.windows.insert(
@@ -2528,9 +2528,9 @@ mod tests {
     /// note's own window died along with everything else.
     #[test]
     fn new_note_with_nothing_else_open_does_not_quit_when_the_list_closes() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-newnote-quit-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-newnote-quit-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let list_id = window::Id::unique();
         app.list_window = Some(list_id);
 
@@ -2558,9 +2558,9 @@ mod tests {
     /// window ever opening.
     #[test]
     fn a_newly_created_note_can_be_hidden_then_shown_exactly_once() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-newnote-hide-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-newnote-hide-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
 
         let (uuid, _task) = app.create_note();
         let uuid = uuid.expect("note creation must succeed");
@@ -2588,9 +2588,9 @@ mod tests {
 
     #[test]
     fn closing_the_list_with_nothing_visible_exits_and_snapshots() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-list-close-exit-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-list-close-exit-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let list_id = window::Id::unique();
         app.list_window = Some(list_id);
 
@@ -2609,9 +2609,9 @@ mod tests {
     /// trip the (separately-tested) "last window closed" exit branch.
     #[test]
     fn note_closed_without_close_requested_stops_reporting_visible() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-forced-close-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-forced-close-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         app.list_window = Some(window::Id::unique());
         let uuid = Uuid::new_v4();
         app.intent_visible.show(uuid);
@@ -2644,9 +2644,9 @@ mod tests {
     /// a note `hide_note` already, synchronously, marked hidden.
     #[test]
     fn hide_close_leaves_the_note_hidden_not_visible_and_does_not_exit() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-hide-close-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-hide-close-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let uuid = Uuid::new_v4();
         let id = window::Id::unique();
         app.windows.insert(
@@ -2705,9 +2705,9 @@ mod tests {
     /// `show_note` itself being a no-op, which is what's checked here.
     #[test]
     fn pick_note_on_a_missing_note_leaves_it_unshown() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-pick-missing-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-pick-missing-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         app.list_window = Some(window::Id::unique());
         let uuid = Uuid::new_v4(); // never inserted into app.notes: "no longer exists"
 
@@ -2855,9 +2855,9 @@ mod tests {
 
     #[test]
     fn rename_save_writes_the_new_name_and_marks_the_note_dirty() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-rename-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-rename-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let uuid = note.frontmatter.uuid;
         app.notes.insert(uuid, note);
@@ -2875,9 +2875,9 @@ mod tests {
 
     #[test]
     fn rename_save_allows_an_empty_name() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-rename-empty-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-rename-empty-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let mut note = sample_note();
         note.frontmatter.name = "Old name".to_string();
         let uuid = note.frontmatter.uuid;
@@ -2894,9 +2894,9 @@ mod tests {
 
     #[test]
     fn rename_cancel_discards_the_edit_and_leaves_the_note_untouched() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-rename-cancel-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-rename-cancel-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let mut note = sample_note();
         note.frontmatter.name = "Original".to_string();
         let uuid = note.frontmatter.uuid;
@@ -2915,9 +2915,9 @@ mod tests {
 
     #[test]
     fn flush_refreshes_the_cached_mtime_on_a_successful_save() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-mtime-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-mtime-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let id = note.frontmatter.uuid;
         app.notes.insert(id, note);
@@ -2933,9 +2933,9 @@ mod tests {
 
     #[test]
     fn delete_note_data_removes_the_cached_mtime() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-mtime-delete-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-mtime-delete-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let id = note.frontmatter.uuid;
         app.notes.insert(id, note);
@@ -2950,9 +2950,9 @@ mod tests {
 
     #[test]
     fn delete_start_sets_pending_delete_without_deleting_anything() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-delete-start-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-start-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let id = note.frontmatter.uuid;
         app.notes.insert(id, note);
@@ -2967,9 +2967,9 @@ mod tests {
 
     #[test]
     fn delete_confirm_deletes_through_the_shared_path() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-delete-confirm-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-confirm-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let id = note.frontmatter.uuid;
         app.store.save(&note).unwrap();
@@ -2994,9 +2994,9 @@ mod tests {
 
     #[test]
     fn delete_cancel_leaves_everything_intact() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-delete-cancel-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-cancel-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let id = note.frontmatter.uuid;
         app.notes.insert(id, note);
@@ -3012,9 +3012,9 @@ mod tests {
 
     #[test]
     fn delete_confirm_closes_the_notes_open_window() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-delete-window-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-window-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let id = note.frontmatter.uuid;
         app.notes.insert(id, note);
@@ -3043,9 +3043,9 @@ mod tests {
 
     #[test]
     fn delete_start_is_a_no_op_while_the_restore_dialog_is_showing() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-delete-restore-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-restore-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let note = sample_note();
         let id = note.frontmatter.uuid;
         app.notes.insert(id, note);
@@ -3064,9 +3064,9 @@ mod tests {
 
     #[test]
     fn delete_start_cancels_an_in_progress_rename_without_saving() {
-        let tmp = std::env::temp_dir().join(format!("tack-test-delete-rename-{}", Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-rename-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
-        let mut app = make_tack(store);
+        let mut app = make_fleck(store);
         let mut renaming_note = sample_note();
         renaming_note.frontmatter.name = "Original".to_string();
         let renaming_id = renaming_note.frontmatter.uuid;

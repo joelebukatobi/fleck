@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Tack
+Name=Fleck
 Comment=Sticky notes for the COSMIC desktop
-Exec=tack
-Icon=io.github.joelebukatobi.Tack
+Exec=fleck
+Icon=io.github.joelebukatobi.Fleck
 Categories=Utility;
 Terminal=false
 StartupNotify=true

@@ -1,4 +1,4 @@
-//! Bundled Phosphor icons, replacing the named COSMIC symbolic icons Tack
+//! Bundled Phosphor icons, replacing the named COSMIC symbolic icons Fleck
 //! used before it had an icon of its own. Embedded with `include_bytes!` so
 //! nothing is read from disk at runtime; each handle is marked
 //! `.symbolic(true)` so libcosmic tints it to the theme's icon colour the

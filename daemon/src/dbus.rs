@@ -1,9 +1,9 @@
-//! The `io.github.joelebukatobi.Tack` D-Bus service.
+//! The `io.github.joelebukatobi.Fleck` D-Bus service.
 //!
 //! The interface implementation below holds no note state itself: every
-//! method forwards a [`Request`] to the running [`crate::app::Tack`] over an
+//! method forwards a [`Request`] to the running [`crate::app::Fleck`] over an
 //! `mpsc` channel and, where it owes the caller an answer, awaits a paired
-//! one-shot reply that `Tack::update` sends back once the change has
+//! one-shot reply that `Fleck::update` sends back once the change has
 //! actually been applied. `NotesChanged` is only ever emitted after that
 //! reply confirms the state it describes is real.
 //!
@@ -19,13 +19,13 @@ use zbus::object_server::SignalEmitter;
 use zbus::{fdo, interface};
 
 /// Well-known bus name this service is published under.
-pub const SERVICE_NAME: &str = "io.github.joelebukatobi.Tack";
+pub const SERVICE_NAME: &str = "io.github.joelebukatobi.Fleck";
 /// Object path the interface is served at - the standard slash-separated
 /// form of [`SERVICE_NAME`].
-pub const OBJECT_PATH: &str = "/io/github/joelebukatobi/Tack";
+pub const OBJECT_PATH: &str = "/io/github/joelebukatobi/Fleck";
 
 /// One D-Bus call, carrying whatever reply channel its caller is waiting
-/// on. `Tack::update` matches on this exactly like any other `Message`.
+/// on. `Fleck::update` matches on this exactly like any other `Message`.
 pub enum Request {
     ListNotes(oneshot::Sender<Vec<(String, String, bool)>>),
     /// `bool` reply: whether a note with that uuid existed to be shown.
@@ -41,18 +41,18 @@ pub enum Request {
     /// `next_all_visible`).
     ToggleAll(oneshot::Sender<bool>),
     /// Opens the notes list window, or raises it if already open. This is
-    /// how a second `tack` launch (which loses the D-Bus name race and
+    /// how a second `fleck` launch (which loses the D-Bus name race and
     /// exits immediately - see `main.rs`) gets the user back to the list.
     ShowList(oneshot::Sender<()>),
     Quit,
 }
 
 /// The D-Bus object. Cheap to construct - it's just a sender.
-pub struct TackInterface {
+pub struct FleckInterface {
     requests: mpsc::Sender<Request>,
 }
 
-impl TackInterface {
+impl FleckInterface {
     pub fn new(requests: mpsc::Sender<Request>) -> Self {
         Self { requests }
     }
@@ -62,7 +62,7 @@ impl TackInterface {
 /// process is shutting down. There's no meaningful reply to give a D-Bus
 /// caller at that point beyond "the service is going away".
 fn dead_app() -> fdo::Error {
-    fdo::Error::Failed("tack: the application isn't responding".to_string())
+    fdo::Error::Failed("fleck: the application isn't responding".to_string())
 }
 
 fn parse_uuid(raw: &str) -> fdo::Result<Uuid> {
@@ -73,8 +73,8 @@ fn unknown_note(uuid: Uuid) -> fdo::Error {
     fdo::Error::Failed(format!("no such note: {uuid}"))
 }
 
-#[interface(name = "io.github.joelebukatobi.Tack")]
-impl TackInterface {
+#[interface(name = "io.github.joelebukatobi.Fleck")]
+impl FleckInterface {
     async fn list_notes(&self) -> fdo::Result<Vec<(String, String, bool)>> {
         let (tx, rx) = oneshot::channel();
         self.requests.clone().send(Request::ListNotes(tx)).await.map_err(|_| dead_app())?;
@@ -124,7 +124,7 @@ impl TackInterface {
                 let _ = emitter.notes_changed().await;
                 Ok(uuid.to_string())
             }
-            None => Err(fdo::Error::Failed("tack: failed to create note".to_string())),
+            None => Err(fdo::Error::Failed("fleck: failed to create note".to_string())),
         }
     }
 

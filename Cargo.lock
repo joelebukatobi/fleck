@@ -955,7 +955,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cosmic-ext-applet-tack"
+name = "cosmic-ext-applet-fleck"
 version = "0.1.0"
 dependencies = [
  "libcosmic",
@@ -1502,6 +1502,18 @@ dependencies = [
  "crc32fast",
  "miniz_oxide 0.9.1",
  "zlib-rs",
+]
+
+[[package]]
+name = "fleck"
+version = "0.1.0"
+dependencies = [
+ "libcosmic",
+ "serde",
+ "sticky-notes-core",
+ "tokio",
+ "uuid",
+ "zbus",
 ]
 
 [[package]]
@@ -4666,18 +4678,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8eab9a99a024a169fe8a903cf9d4a3b3601109bcc13bd9e3c6fff259138626c4"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "tack"
-version = "0.1.0"
-dependencies = [
- "libcosmic",
- "serde",
- "sticky-notes-core",
- "tokio",
- "uuid",
- "zbus",
 ]
 
 [[package]]

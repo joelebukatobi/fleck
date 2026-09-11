@@ -17,18 +17,18 @@ use sticky_notes_core::{Store, WindowState};
 /// How long a losing-the-name-race relaunch waits for the running instance
 /// to answer `ShowList()` before giving up. Long enough for a normal
 /// D-Bus round trip, short enough that a wedged running instance doesn't
-/// hang every subsequent `tack` invocation forever.
+/// hang every subsequent `fleck` invocation forever.
 const RELAUNCH_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Client-side view of the `io.github.joelebukatobi.Tack` service that
+/// Client-side view of the `io.github.joelebukatobi.Fleck` service that
 /// `dbus.rs` implements - one trait method per D-Bus method, generated into
-/// an async `TackProxy` by the `#[zbus::proxy]` macro.
+/// an async `FleckProxy` by the `#[zbus::proxy]` macro.
 #[zbus::proxy(
-    default_service = "io.github.joelebukatobi.Tack",
-    default_path = "/io/github/joelebukatobi/Tack",
-    interface = "io.github.joelebukatobi.Tack"
+    default_service = "io.github.joelebukatobi.Fleck",
+    default_path = "/io/github/joelebukatobi/Fleck",
+    interface = "io.github.joelebukatobi.Fleck"
 )]
-trait Tack {
+trait Fleck {
     fn list_notes(&self) -> zbus::Result<Vec<(String, String, bool)>>;
     fn show_note(&self, uuid: &str) -> zbus::Result<()>;
     fn hide_note(&self, uuid: &str) -> zbus::Result<()>;
@@ -39,13 +39,13 @@ trait Tack {
     fn quit(&self) -> zbus::Result<()>;
 }
 
-/// Connects to the session bus and builds a proxy for a running `tack`
+/// Connects to the session bus and builds a proxy for a running `fleck`
 /// instance. Errors here (no session bus, or nothing owns the well-known
 /// name yet) all mean the same thing to a caller: there's no daemon to talk
 /// to right now.
-async fn connect() -> zbus::Result<TackProxy<'static>> {
+async fn connect() -> zbus::Result<FleckProxy<'static>> {
     let connection = zbus::Connection::session().await?;
-    TackProxy::new(&connection).await
+    FleckProxy::new(&connection).await
 }
 
 /// Every CLI flag prints its own diagnostics and reports success/failure
@@ -63,12 +63,12 @@ async fn cli_list() -> i32 {
                 OK
             }
             Err(e) => {
-                eprintln!("tack: --list failed: {e}");
+                eprintln!("fleck: --list failed: {e}");
                 FAILED
             }
         },
         Err(e) => {
-            eprintln!("tack: no running daemon to list notes from: {e}");
+            eprintln!("fleck: no running daemon to list notes from: {e}");
             FAILED
         }
     }
@@ -86,7 +86,7 @@ async fn cli_new_note(store: &Store) -> i32 {
                 OK
             }
             Err(e) => {
-                eprintln!("tack: --new-note failed: {e}");
+                eprintln!("fleck: --new-note failed: {e}");
                 FAILED
             }
         },
@@ -96,7 +96,7 @@ async fn cli_new_note(store: &Store) -> i32 {
                 OK
             }
             Err(e) => {
-                eprintln!("tack: failed to create note: {e}");
+                eprintln!("fleck: failed to create note: {e}");
                 FAILED
             }
         },
@@ -108,12 +108,12 @@ async fn cli_show(uuid: &str) -> i32 {
         Ok(proxy) => match proxy.show_note(uuid).await {
             Ok(()) => OK,
             Err(e) => {
-                eprintln!("tack: --show failed: {e}");
+                eprintln!("fleck: --show failed: {e}");
                 FAILED
             }
         },
         Err(e) => {
-            eprintln!("tack: no running daemon: {e}");
+            eprintln!("fleck: no running daemon: {e}");
             FAILED
         }
     }
@@ -124,12 +124,12 @@ async fn cli_hide(uuid: &str) -> i32 {
         Ok(proxy) => match proxy.hide_note(uuid).await {
             Ok(()) => OK,
             Err(e) => {
-                eprintln!("tack: --hide failed: {e}");
+                eprintln!("fleck: --hide failed: {e}");
                 FAILED
             }
         },
         Err(e) => {
-            eprintln!("tack: no running daemon: {e}");
+            eprintln!("fleck: no running daemon: {e}");
             FAILED
         }
     }
@@ -140,12 +140,12 @@ async fn cli_delete(uuid: &str) -> i32 {
         Ok(proxy) => match proxy.delete_note(uuid).await {
             Ok(()) => OK,
             Err(e) => {
-                eprintln!("tack: --delete failed: {e}");
+                eprintln!("fleck: --delete failed: {e}");
                 FAILED
             }
         },
         Err(e) => {
-            eprintln!("tack: no running daemon: {e}");
+            eprintln!("fleck: no running daemon: {e}");
             FAILED
         }
     }
@@ -159,12 +159,12 @@ async fn cli_toggle_all() -> i32 {
                 OK
             }
             Err(e) => {
-                eprintln!("tack: --toggle-all failed: {e}");
+                eprintln!("fleck: --toggle-all failed: {e}");
                 FAILED
             }
         },
         Err(e) => {
-            eprintln!("tack: no running daemon: {e}");
+            eprintln!("fleck: no running daemon: {e}");
             FAILED
         }
     }
@@ -178,12 +178,12 @@ async fn cli_quit() -> i32 {
             // the same as success rather than reporting a spurious error.
             Ok(()) | Err(zbus::Error::InputOutput(_)) => OK,
             Err(e) => {
-                eprintln!("tack: --quit failed: {e}");
+                eprintln!("fleck: --quit failed: {e}");
                 FAILED
             }
         },
         Err(e) => {
-            eprintln!("tack: no running daemon: {e}");
+            eprintln!("fleck: no running daemon: {e}");
             FAILED
         }
     }
@@ -201,7 +201,7 @@ fn run_cli(args: &[String], store: &Store) -> Option<i32> {
     }
     let arg = |name: &str| {
         args.get(1).cloned().unwrap_or_else(|| {
-            eprintln!("tack: {name} requires a uuid");
+            eprintln!("fleck: {name} requires a uuid");
             std::process::exit(FAILED);
         })
     };
@@ -288,26 +288,44 @@ mod tests {
     }
 }
 
-fn notes_dir() -> std::path::PathBuf {
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            let home = std::env::var_os("HOME").expect("HOME is set");
-            std::path::PathBuf::from(home).join(".local/share")
-        });
-    base.join("tack/notes")
+fn xdg_data_home() -> std::path::PathBuf {
+    std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| {
+        let home = std::env::var_os("HOME").expect("HOME is set");
+        std::path::PathBuf::from(home).join(".local/share")
+    })
 }
 
-/// `$XDG_STATE_HOME/tack/windows.toml`, falling back to
-/// `$HOME/.local/state/tack/windows.toml`.
+fn xdg_state_home() -> std::path::PathBuf {
+    std::env::var_os("XDG_STATE_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| {
+        let home = std::env::var_os("HOME").expect("HOME is set");
+        std::path::PathBuf::from(home).join(".local/state")
+    })
+}
+
+/// Renames `$XDG_DATA_HOME/fleck` to `$XDG_DATA_HOME/fleck` and
+/// `$XDG_STATE_HOME/fleck` to `$XDG_STATE_HOME/fleck` when a pre-rename
+/// install left notes/state behind and nothing has claimed the new names
+/// yet. Must run before `notes_dir()`/`window_state_path()` are used to
+/// load anything, or a user's existing notes would appear to have vanished.
+fn migrate_from_tack() {
+    sticky_notes_core::migrate_dir(
+        &xdg_data_home().join(sticky_notes_core::migrate::OLD_DIR_NAME),
+        &xdg_data_home().join("fleck"),
+    );
+    sticky_notes_core::migrate_dir(
+        &xdg_state_home().join(sticky_notes_core::migrate::OLD_DIR_NAME),
+        &xdg_state_home().join("fleck"),
+    );
+}
+
+fn notes_dir() -> std::path::PathBuf {
+    xdg_data_home().join("fleck/notes")
+}
+
+/// `$XDG_STATE_HOME/fleck/windows.toml`, falling back to
+/// `$HOME/.local/state/fleck/windows.toml`.
 fn window_state_path() -> std::path::PathBuf {
-    let base = std::env::var_os("XDG_STATE_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            let home = std::env::var_os("HOME").expect("HOME is set");
-            std::path::PathBuf::from(home).join(".local/state")
-        });
-    base.join("tack/windows.toml")
+    xdg_state_home().join("fleck/windows.toml")
 }
 
 /// Every note window - the main one included - opens at this size unless
@@ -315,6 +333,11 @@ fn window_state_path() -> std::path::PathBuf {
 const DEFAULT_WINDOW_SIZE: cosmic::iced::Size = cosmic::iced::Size::new(512.0, 768.0);
 
 fn main() -> cosmic::iced::Result {
+    // Must run before anything below reads notes_dir()/window_state_path(),
+    // so a pre-rename (Fleck) install's notes and window state are in place
+    // by the time they're loaded.
+    migrate_from_tack();
+
     let store = Store::new(notes_dir());
 
     // `--list`/`--show`/etc: connect to a running daemon, make the one
@@ -330,7 +353,7 @@ fn main() -> cosmic::iced::Result {
     let window_state = match WindowState::load(&state_path) {
         Ok(state) => state,
         Err(e) => {
-            eprintln!("tack: failed to read window state {}: {e}", state_path.display());
+            eprintln!("fleck: failed to read window state {}: {e}", state_path.display());
             WindowState::default()
         }
     };
@@ -353,7 +376,7 @@ fn main() -> cosmic::iced::Result {
     let (dbus_tx, dbus_rx) = mpsc::channel::<dbus::Request>(16);
     let connection = zbus::block_on(async {
         zbus::connection::Builder::session()?
-            .serve_at(dbus::OBJECT_PATH, dbus::TackInterface::new(dbus_tx))?
+            .serve_at(dbus::OBJECT_PATH, dbus::FleckInterface::new(dbus_tx))?
             .name(dbus::SERVICE_NAME)?
             .build()
             .await
@@ -366,7 +389,7 @@ fn main() -> cosmic::iced::Result {
             // isn't reachable at all). Either way, this process has no
             // business loading notes or opening windows - ask whoever does
             // own it to show the list, then get out of the way.
-            eprintln!("tack: {} is already owned: {e}", dbus::SERVICE_NAME);
+            eprintln!("fleck: {} is already owned: {e}", dbus::SERVICE_NAME);
             // Bounded: a running instance that's wedged (compositor stuck,
             // deadlocked, whatever) must not hang this process - and every
             // future relaunch - forever waiting on a reply that never
@@ -382,12 +405,12 @@ fn main() -> cosmic::iced::Result {
                 {
                     Ok(Ok(())) => OK,
                     Ok(Err(e)) => {
-                        eprintln!("tack: failed to ask the running instance to show the list: {e}");
+                        eprintln!("fleck: failed to ask the running instance to show the list: {e}");
                         FAILED
                     }
                     Err(_) => {
                         eprintln!(
-                            "tack: the running instance did not respond within {}s - it may be stuck",
+                            "fleck: the running instance did not respond within {}s - it may be stuck",
                             RELAUNCH_TIMEOUT.as_secs()
                         );
                         FAILED
@@ -402,9 +425,9 @@ fn main() -> cosmic::iced::Result {
     // app the instant the *main* window closes, even if other note windows
     // are still open (`Core::exit_on_main_window_closed`, on by default).
     // The main window is the notes list, not special beyond being first -
-    // `Tack` itself decides when to exit, once every window (list and
+    // `Fleck` itself decides when to exit, once every window (list and
     // notes) is gone.
-    cosmic::app::run::<app::Tack>(
+    cosmic::app::run::<app::Fleck>(
         cosmic::app::Settings::default().exit_on_close(false).size(DEFAULT_WINDOW_SIZE),
         app::Flags { store, window_state, state_path, dbus_connection: connection, dbus_rx },
     )
