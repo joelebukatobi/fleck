@@ -1,6 +1,7 @@
 mod app;
 mod dbus;
 mod ruled;
+mod undo;
 // Retained for upcoming design work (the WCAG contrast checker will be
 // wanted then); nothing renders from it right now, which leaves several of
 // its pub items unused.

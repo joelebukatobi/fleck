@@ -19,6 +19,7 @@ use uuid::Uuid;
 use crate::dbus;
 use crate::palette::Colour;
 use crate::ruled::RuledLines;
+use crate::undo::{EditKind, UndoHistory};
 
 /// Size of the note body's text, in logical pixels.
 const BODY_TEXT_SIZE: f32 = 14.0;
@@ -37,11 +38,22 @@ const BODY_PADDING: f32 = 8.0;
 
 /// The minimum height to give the note body's editor+canvas stack, given the
 /// finite viewport height `responsive` reports for it: the viewport height,
-/// floored to a whole pixel, so a short note's content is at most
-/// viewport-tall (filling it with ruled lines) while a long note is free to
-/// grow past it and scroll.
+/// floored to a whole pixel and with the editor's own vertical padding
+/// subtracted, so a short note's content is at most viewport-tall (filling
+/// it with ruled lines) while a long note is free to grow past it and
+/// scroll.
 ///
-/// Flooring matters: `responsive` can report a fractional viewport height
+/// Subtracting the padding matters just as much as flooring: the editor's
+/// `Shrink` layout takes `max(text height, min_height)` and then adds
+/// `padding.y()` (top + bottom) *on top* of that (see `text_editor.rs`
+/// ~686-697 in the pinned iced fork). Passing the bare viewport height
+/// through as `min_height` therefore makes the editor's outer height
+/// `viewport + 2 * BODY_PADDING` - always taller than the viewport, so the
+/// `scrollable` around it always saw an overflow and always showed a
+/// scrollbar, even for a note that fits. Subtracting `2 * BODY_PADDING`
+/// first cancels that back out.
+///
+/// Flooring matters too: `responsive` can report a fractional viewport height
 /// (e.g. 767.6). Passing that straight through as `min_height` makes the
 /// editor's content exactly as tall as the viewport, and whether that
 /// counts as "overflowing" the `scrollable` around it then comes down to
@@ -77,10 +89,39 @@ fn note_window_settings(size: Size) -> window::Settings {
 
 fn body_min_height(viewport_height: f32) -> f32 {
     if viewport_height.is_finite() {
-        viewport_height.floor()
+        // The editor's `Shrink` layout adds `padding.y()` (top + bottom) on
+        // top of whatever `min_height` it's given (see `text_editor.rs`
+        // ~686-697 in the pinned iced fork), so passing the raw viewport
+        // through here makes the editor's *outer* height
+        // `viewport + 2 * BODY_PADDING` - always taller than the viewport,
+        // which is exactly why the scrollable always saw an overflow and
+        // showed a scrollbar even for a note that fits. Subtracting the
+        // padding first cancels that back out, so `min_height + padding`
+        // lands at (at most) the viewport height. Clamped at zero: a
+        // viewport shorter than the padding must not go negative.
+        (viewport_height.floor() - 2.0 * BODY_PADDING).max(0.0)
     } else {
         0.0
     }
+}
+
+/// Classifies a `text_editor::Action` for `WindowNote::history`: `None` for
+/// actions that don't change the text (cursor moves, selections, clicks,
+/// scrolling...), otherwise the `undo::EditKind` to record it under and
+/// whether it must force a new undo group - see `undo`'s module docs for
+/// the coalescing rule this implements. Paste, Enter, indent/unindent and a
+/// whitespace character all force a boundary; an ordinary character or a
+/// deletion may coalesce into the current group.
+fn edit_kind(action: &text_editor::Action) -> Option<(EditKind, bool)> {
+    let text_editor::Action::Edit(edit) = action else {
+        return None;
+    };
+    Some(match edit {
+        text_editor::Edit::Insert(c) => (EditKind::Insert, c.is_whitespace()),
+        text_editor::Edit::Enter | text_editor::Edit::Paste(_) => (EditKind::Insert, true),
+        text_editor::Edit::Indent | text_editor::Edit::Unindent => (EditKind::Insert, true),
+        text_editor::Edit::Backspace | text_editor::Edit::Delete => (EditKind::Delete, false),
+    })
 }
 
 /// How long to wait after the last keystroke before writing a note to disk.
@@ -189,6 +230,12 @@ pub enum Message {
     NoteClosed(window::Id),
     CloseRequested(window::Id),
     BodyAction(window::Id, text_editor::Action),
+    /// Ctrl+Z, intercepted before the editor's own key handling (see
+    /// `key_binding` in `view_window`) so it never falls through to
+    /// inserting a literal "z".
+    Undo(window::Id),
+    /// Ctrl+Shift+Z or Ctrl+Y, intercepted the same way as `Undo`.
+    Redo(window::Id),
     WindowResized(window::Id, Size),
     AutosaveTick,
     /// The user picked a note from the notes list: open it, close the list.
@@ -244,6 +291,10 @@ struct WindowNote {
     input_id: id::Id,
     content: text_editor::Content,
     last_title: String,
+    /// Undo/redo history for this window's session, seeded with the note's
+    /// text at the moment the window opened - undo can never reach past
+    /// that (see `undo::UndoHistory::new`).
+    history: UndoHistory,
 }
 
 /// Cloneable, `Hash`-able handle on the D-Bus request receiver, so it can be
@@ -449,6 +500,7 @@ impl Tack {
         let input_id = id::Id::unique();
         let body = self.notes.get(&uuid).map(|note| note.body.as_str()).unwrap_or("");
         let content = text_editor::Content::with_text(body);
+        let history = UndoHistory::new(body);
         let title = self
             .notes
             .get(&uuid)
@@ -456,7 +508,7 @@ impl Tack {
             .unwrap_or_else(|| sticky_notes_core::UNNAMED.to_string());
         self.windows.insert(
             id,
-            WindowNote { uuid, input_id, content, last_title: title.clone() },
+            WindowNote { uuid, input_id, content, last_title: title.clone(), history },
         );
         self.set_window_title(title, id)
     }
@@ -749,6 +801,47 @@ impl Tack {
             }
         }
     }
+
+    /// Writes `text` into the note behind `uuid`'s body and marks it dirty,
+    /// exactly as a normal body edit does - shared by `BodyAction` (a live
+    /// keystroke) and `apply_history_step` (an undo/redo), so autosave
+    /// picks up either the same way.
+    fn sync_body(&mut self, uuid: Uuid, text: String) {
+        if let Some(note) = self.notes.get_mut(&uuid) {
+            note.body = text;
+            self.dirty.insert(uuid, Instant::now());
+        }
+    }
+
+    /// Runs `step` (`UndoHistory::undo` or `::redo`) against window `id`'s
+    /// history and, if it returned a text, replaces the editor's `Content`
+    /// with it and syncs `note.body`/dirty via `sync_body`.
+    ///
+    /// `Content` has no API to overwrite its text in place - only
+    /// `with_text` (fresh content) or `perform` (single edits) - so the
+    /// whole `Content` is rebuilt from the recorded snapshot. `with_text`
+    /// leaves the cursor at the document start, which reads worse than
+    /// where the user was editing, so the cursor is moved to the document
+    /// end afterwards - the closest `Content`/`Action` affords to "the
+    /// point of the change" without tracking cursor offsets per snapshot.
+    fn apply_history_step(
+        &mut self,
+        id: window::Id,
+        step: fn(&mut UndoHistory) -> Option<&str>,
+    ) -> Task<Message> {
+        let Some(window) = self.windows.get_mut(&id) else {
+            return Task::none();
+        };
+        let Some(text) = step(&mut window.history) else {
+            return Task::none();
+        };
+        let text = text.to_string();
+        window.content = text_editor::Content::with_text(&text);
+        window.content.perform(text_editor::Action::Move(text_editor::Motion::DocumentEnd));
+        let uuid = window.uuid;
+        self.sync_body(uuid, text);
+        Task::none()
+    }
 }
 
 /// Forwards each incoming D-Bus call (already received on `rx.0`, built in
@@ -1012,15 +1105,18 @@ impl cosmic::Application for Tack {
                 let Some(window) = self.windows.get_mut(&id) else {
                     return Task::none();
                 };
+                let edit = edit_kind(&action);
                 window.content.perform(action);
                 let uuid = window.uuid;
                 let text = window.content.text();
-                if let Some(note) = self.notes.get_mut(&uuid) {
-                    note.body = text;
-                    self.dirty.insert(uuid, Instant::now());
+                if let Some((kind, force_boundary)) = edit {
+                    window.history.record(text.clone(), kind, force_boundary);
                 }
+                self.sync_body(uuid, text);
                 Task::none()
             }
+            Message::Undo(id) => self.apply_history_step(id, UndoHistory::undo),
+            Message::Redo(id) => self.apply_history_step(id, UndoHistory::redo),
             Message::WindowResized(id, size) => {
                 // Recorded in memory only - `flush_window_state` (driven by
                 // the same autosave tick as note saves) is what actually
@@ -1123,6 +1219,32 @@ impl cosmic::Application for Tack {
             let editor = text_editor::text_editor(content)
                 .on_action(move |action| Message::BodyAction(id, action))
                 .id(input_id.clone())
+                // Intercepts Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y *before* the
+                // editor's own default key handling
+                // (`Binding::from_key_press`, called below as a fallback
+                // for every other key) ever sees them - so Ctrl+Z can never
+                // fall through to inserting a literal "z" or moving the
+                // cursor. iced's `text_editor` has no undo/redo of its own
+                // (see `undo`'s module docs); `Message::Undo`/`Redo` drive
+                // the per-window `UndoHistory` built in `daemon/src/undo.rs`.
+                .key_binding(move |press| {
+                    let combo = press.key.to_latin(press.physical_key);
+                    if press.modifiers.command() {
+                        match combo {
+                            Some('z') if press.modifiers.shift() => {
+                                return Some(text_editor::Binding::Custom(Message::Redo(id)));
+                            }
+                            Some('z') => {
+                                return Some(text_editor::Binding::Custom(Message::Undo(id)));
+                            }
+                            Some('y') => {
+                                return Some(text_editor::Binding::Custom(Message::Redo(id)));
+                            }
+                            _ => {}
+                        }
+                    }
+                    text_editor::Binding::from_key_press(press)
+                })
                 .padding(BODY_PADDING)
                 .size(BODY_TEXT_SIZE)
                 .line_height(LineHeight::Absolute(Pixels(BODY_LINE_HEIGHT)))
@@ -1201,8 +1323,8 @@ mod tests {
     use sticky_notes_core::{Frontmatter, FORMAT_VERSION};
 
     #[test]
-    fn body_min_height_passes_through_a_finite_viewport() {
-        assert_eq!(body_min_height(600.0), 600.0);
+    fn body_min_height_passes_through_a_finite_viewport_minus_padding() {
+        assert_eq!(body_min_height(600.0), 600.0 - 2.0 * BODY_PADDING);
     }
 
     #[test]
@@ -1222,7 +1344,32 @@ mod tests {
 
     #[test]
     fn body_min_height_floors_a_fractional_viewport_to_a_whole_pixel() {
-        assert_eq!(body_min_height(767.6), 767.0);
+        assert_eq!(body_min_height(767.6), 767.0 - 2.0 * BODY_PADDING);
+    }
+
+    /// The bug Fix 1 guards against: the editor's `Shrink` layout adds
+    /// `padding.y()` on top of `min_height`, so the min height passed in
+    /// must already have the padding subtracted, or the editor's outer
+    /// height (min height + padding) always exceeds the viewport and the
+    /// scrollable always shows a scrollbar - even for a note that fits.
+    #[test]
+    fn body_min_height_plus_padding_never_exceeds_a_whole_viewport() {
+        let viewport = 768.0;
+        let outer_height = body_min_height(viewport) + 2.0 * BODY_PADDING;
+        assert!(outer_height <= viewport, "outer height {outer_height} exceeds viewport {viewport}");
+    }
+
+    #[test]
+    fn body_min_height_plus_padding_never_exceeds_a_fractional_viewport() {
+        let viewport = 767.6;
+        let outer_height = body_min_height(viewport) + 2.0 * BODY_PADDING;
+        assert!(outer_height <= viewport, "outer height {outer_height} exceeds viewport {viewport}");
+    }
+
+    #[test]
+    fn body_min_height_clamps_to_zero_when_viewport_is_smaller_than_the_padding() {
+        let viewport = BODY_PADDING; // smaller than 2 * BODY_PADDING
+        assert_eq!(body_min_height(viewport), 0.0);
     }
 
     #[test]
@@ -1449,6 +1596,7 @@ mod tests {
                 input_id: id::Id::unique(),
                 content: text_editor::Content::new(),
                 last_title: String::new(),
+                history: UndoHistory::new(""),
             },
         );
 
@@ -1479,6 +1627,7 @@ mod tests {
                 input_id: id::Id::unique(),
                 content: text_editor::Content::new(),
                 last_title: String::new(),
+                history: UndoHistory::new(""),
             },
         );
         app.closing_for_hide.insert(id);
@@ -1507,6 +1656,7 @@ mod tests {
                 input_id: id::Id::unique(),
                 content: text_editor::Content::new(),
                 last_title: String::new(),
+                history: UndoHistory::new(""),
             },
         );
 
@@ -1630,6 +1780,7 @@ mod tests {
                 input_id: id::Id::unique(),
                 content: text_editor::Content::new(),
                 last_title: String::new(),
+                history: UndoHistory::new(""),
             },
         );
 
@@ -1662,6 +1813,7 @@ mod tests {
                 input_id: id::Id::unique(),
                 content: text_editor::Content::new(),
                 last_title: String::new(),
+                history: UndoHistory::new(""),
             },
         );
         app.intent_visible.show(uuid);
