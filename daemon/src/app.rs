@@ -266,6 +266,9 @@ fn relative_time(elapsed: Duration) -> String {
 /// place for the design pass to change spacing and corner radius.
 const LIST_PANEL_PADDING: u16 = 8;
 const SEARCH_PADDING_X: u16 = 8;
+/// Inset around the search bar's magnifier (top, right, bottom). The left
+/// side is 0 so the icon lines up with the card titles.
+const SEARCH_ICON_INSET: u16 = 8;
 const SEARCH_RADIUS: f32 = 4.0;
 const CARD_RADIUS: f32 = 4.0;
 /// Padding of the card's content section (preview lines, then time) -
@@ -1240,12 +1243,27 @@ impl Tack {
         let search = widget::search_input("Search notes", self.search.clone())
             .id(self.search_input_id.clone())
             .on_input(Message::SearchChanged)
-            .on_clear(Message::SearchChanged(String::new()))
+            // Our own clear button in place of libcosmic's `on_clear`, which
+            // hardcodes COSMIC's `edit-clear-symbolic`. Mirrors `on_clear`
+            // exactly (button::custom, Button::Icon, 8 px padding) with the
+            // Phosphor `x`, so the x keeps its 16 px inset from the right edge.
+            .trailing_icon(
+                widget::icon(crate::icons::x())
+                    .size(16)
+                    .apply(widget::button::custom)
+                    .class(cosmic::theme::Button::Icon)
+                    .on_press(Message::SearchChanged(String::new()))
+                    .padding(8)
+                    .into(),
+            )
             .leading_icon(
                 widget::icon(crate::icons::magnifying_glass())
                     .size(16)
                     .apply(widget::container)
-                    .padding(8)
+                    // No left inset: libcosmic already places this icon after
+                    // the bar's own padding, so a left inset here pushed the
+                    // magnifier 8 px right of the card titles below.
+                    .padding([SEARCH_ICON_INSET, SEARCH_ICON_INSET, SEARCH_ICON_INSET, 0])
                     .into(),
             )
             .padding([0, SEARCH_PADDING_X])

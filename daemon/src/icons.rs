@@ -11,6 +11,7 @@ const PLUS: &[u8] = include_bytes!("../../data/icons/phosphor/plus-bold.svg");
 const PENCIL_SIMPLE: &[u8] = include_bytes!("../../data/icons/phosphor/pencil-simple-bold.svg");
 const TRASH: &[u8] = include_bytes!("../../data/icons/phosphor/trash-bold.svg");
 const MAGNIFYING_GLASS: &[u8] = include_bytes!("../../data/icons/phosphor/magnifying-glass-bold.svg");
+const X: &[u8] = include_bytes!("../../data/icons/phosphor/x-bold.svg");
 
 /// The `+` new-note button in the list window header. Replaces `list-add-symbolic`.
 pub fn plus() -> widget::icon::Handle {
@@ -33,8 +34,19 @@ pub fn magnifying_glass() -> widget::icon::Handle {
     widget::icon::from_svg_bytes(MAGNIFYING_GLASS).symbolic(true)
 }
 
+/// The search bar's clear button. Replaces libcosmic's `edit-clear-symbolic`.
+pub fn x() -> widget::icon::Handle {
+    widget::icon::from_svg_bytes(X).symbolic(true)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn x_icon_is_an_svg_and_symbolic() {
+        assert!(X.starts_with(b"<svg"), "x-bold.svg must be an SVG");
+        assert!(x().symbolic, "the clear icon must be symbolic so it takes the theme colour");
+    }
+
     use super::*;
 
     fn is_valid_svg(bytes: &[u8]) -> bool {
