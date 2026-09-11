@@ -298,6 +298,10 @@ const CARD_PRESS_DARKEN_FACTOR: f32 = 0.90;
 /// extent, embedded via `Scrollbar::spacing` (see `view_list`) so it only
 /// takes up space while a scrollbar is actually shown.
 const SCROLLBAR_GAP: f32 = 4.0;
+/// Inset at the top and bottom of the card list's scrollbar track. libcosmic's
+/// `widget::scrollable` defaults this to 8 px; 0 lets the thumb run the full
+/// height of the list.
+const SCROLLBAR_PADDING: f32 = 0.0;
 /// The list scrollbar's rail thickness - reserved layout space, constant
 /// regardless of hover, so the cards never shift width when the scroller
 /// widens (see `SCROLLBAR_SCROLLER_WIDTH_HOVER`).
@@ -1146,6 +1150,7 @@ impl Tack {
             .spacing(SCROLLBAR_GAP)
             .scrollbar_width(SCROLLBAR_WIDTH)
             .scroller_width(scroller_width)
+            .scrollbar_padding(SCROLLBAR_PADDING)
             // `Minimal` leaves the track transparent, so only the thumb shows;
             // `Permanent` (the default) paints the track at its full 8 px.
             .class(cosmic::style::iced::Scrollable::Minimal);

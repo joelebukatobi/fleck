@@ -77,5 +77,7 @@ Modelled on the Windows Sticky Notes list window.
     itself is the clickable surface, so the effect lines up with its edges.
   - The card list's scrollbar is slim until the mouse is over it, then widens,
     like other COSMIC apps.
+  - The scrollbar thumb runs the full height of the list, with no inset at the
+    top or bottom.
   - At least 4 px between the cards and the scrollbar at its widest. With no
     scrollbar, cards run full width, lined up with the search bar.
