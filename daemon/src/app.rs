@@ -541,6 +541,15 @@ pub enum Message {
     RenameSave,
     /// Escape (or losing focus) in the active rename text input: discard it.
     RenameCancel,
+    /// The user pressed a card's trash button: ask for confirmation before
+    /// deleting `Uuid`. A no-op while the restore dialog is showing.
+    DeleteStart(Uuid),
+    /// "Delete" on the confirmation dialog: delete the pending note through
+    /// `delete_note`.
+    DeleteConfirm,
+    /// "Cancel" on the confirmation dialog (or the dialog closing another
+    /// way): leave the note untouched.
+    DeleteCancel,
     /// The mouse entered or left the notes list's scrollable area - tracked
     /// only to widen the scrollbar's scroller on hover
     /// (`SCROLLBAR_SCROLLER_WIDTH_HOVER`) without ever changing the
@@ -661,6 +670,11 @@ pub struct Tack {
     rename: RenameState,
     /// Stable id for the (single, at most one at a time) rename text input.
     rename_input_id: id::Id,
+    /// The note a "Delete note?" confirmation is currently pending for, if
+    /// any - set by pressing a card's trash button, cleared by confirming
+    /// or cancelling. `dialog()` renders the confirmation from this alone;
+    /// deletion itself always goes through `delete_note`.
+    pending_delete: Option<Uuid>,
     /// Content rendered by `view_window` when a window id has no entry in
     /// `windows` (or its note has already been deleted). Never actually
     /// edited; it exists purely so every `view_window` return builds the
@@ -987,6 +1001,14 @@ impl Tack {
         (existed, close_task)
     }
 
+    /// Whether the restore-session dialog (offered only right after launch,
+    /// while there's something to restore and it hasn't been dismissed) is
+    /// currently showing - the precedence check both `dialog()` and
+    /// `DeleteStart` use to keep at most one dialog on screen at a time.
+    fn restore_dialog_active(&self) -> bool {
+        !self.restore_dismissed && !self.restore_candidates.is_empty()
+    }
+
     /// Opens the notes-list window, or raises it if one is already open.
     fn show_list(&mut self) -> Task<Message> {
         if let Some(id) = self.list_window {
@@ -1018,9 +1040,12 @@ impl Tack {
     }
 
     /// One note's card: its name (or, in rename mode, a text input in its
-    /// place) with a rename control beside it, a couple of lines of body
-    /// preview, and a relative last-edited time. Clicking anywhere but the
-    /// rename control opens the note.
+    /// place) with rename and delete controls beside it, a couple of lines
+    /// of body preview, and a relative last-edited time. Clicking anywhere
+    /// but those controls opens the note - each is a nested `button` inside
+    /// the card's own button, so iced's event dispatch hands the press to
+    /// whichever is deepest (the control) first and never lets it also
+    /// reach the card's own `on_press`, same as the existing rename pencil.
     fn view_card(&self, note: &Note) -> Element<'_, Message> {
         let uuid = note.frontmatter.uuid;
         let editing = self.rename.is_editing(uuid);
@@ -1040,7 +1065,7 @@ impl Tack {
             widget::text::heading(display_name(note).to_string()).width(Length::Fill).into()
         };
 
-        let heading_row = widget::Row::with_capacity(2)
+        let heading_row = widget::Row::with_capacity(3)
             .spacing(CARD_HEADING_ROW_SPACING)
             .align_y(Alignment::Center)
             .push(title)
@@ -1048,6 +1073,11 @@ impl Tack {
                 widget::button::icon(widget::icon::from_name("edit-symbolic"))
                     .extra_small()
                     .on_press(Message::RenameStart(uuid)),
+            )
+            .push(
+                widget::button::icon(widget::icon::from_name("user-trash-symbolic"))
+                    .extra_small()
+                    .on_press(Message::DeleteStart(uuid)),
             );
 
         let heading = widget::container(heading_row)
@@ -1407,6 +1437,7 @@ impl cosmic::Application for Tack {
             search_input_id: id::Id::unique(),
             rename: RenameState::default(),
             rename_input_id: id::Id::unique(),
+            pending_delete: None,
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
             closing_for_hide: HashSet::new(),
@@ -1633,6 +1664,28 @@ impl cosmic::Application for Tack {
                 self.rename = RenameState::Idle;
                 Task::none()
             }
+            Message::DeleteStart(uuid) => {
+                // The restore dialog takes precedence - see
+                // `restore_dialog_active`'s doc comment.
+                if self.restore_dialog_active() {
+                    return Task::none();
+                }
+                // Trash on any card cancels an in-progress rename on any
+                // card first, without saving it - the card's structure
+                // (button vs. text input) must never change while a second
+                // dialog is also appearing.
+                self.rename = RenameState::Idle;
+                self.pending_delete = Some(uuid);
+                Task::none()
+            }
+            Message::DeleteConfirm => match self.pending_delete.take() {
+                Some(uuid) => self.delete_note(uuid).1,
+                None => Task::none(),
+            },
+            Message::DeleteCancel => {
+                self.pending_delete = None;
+                Task::none()
+            }
             Message::ListScrollHover(hovered) => {
                 self.list_scroll_hovered = hovered;
                 Task::none()
@@ -1680,20 +1733,33 @@ impl cosmic::Application for Tack {
     /// it replaces - Reopen opens every candidate and closes the list, No
     /// thanks just dismisses the dialog.
     fn dialog(&self) -> Option<Element<'_, Message>> {
-        if self.restore_dismissed || self.restore_candidates.is_empty() {
-            return None;
+        if self.restore_dialog_active() {
+            let count = self.restore_candidates.len();
+            return Some(
+                widget::dialog()
+                    .title("Reopen notes?")
+                    .body(format!("Reopen {count} notes from last time?"))
+                    .primary_action(
+                        widget::button::suggested("Reopen").on_press(Message::ReopenSession),
+                    )
+                    .secondary_action(
+                        widget::button::standard("No thanks").on_press(Message::DismissRestore),
+                    )
+                    .into(),
+            );
         }
-        let count = self.restore_candidates.len();
+
+        // Only one dialog at a time: the restore dialog (above) takes
+        // precedence, since it can only ever be showing right after launch,
+        // before there has been any chance to press a card's trash button.
+        let uuid = self.pending_delete?;
+        let name = self.notes.get(&uuid).map(display_name).unwrap_or("");
         Some(
             widget::dialog()
-                .title("Reopen notes?")
-                .body(format!("Reopen {count} notes from last time?"))
-                .primary_action(
-                    widget::button::suggested("Reopen").on_press(Message::ReopenSession),
-                )
-                .secondary_action(
-                    widget::button::standard("No thanks").on_press(Message::DismissRestore),
-                )
+                .title("Delete note?")
+                .body(format!("\"{name}\" will be deleted. This can't be undone."))
+                .primary_action(widget::button::destructive("Delete").on_press(Message::DeleteConfirm))
+                .secondary_action(widget::button::standard("Cancel").on_press(Message::DeleteCancel))
                 .into(),
         )
     }
@@ -1994,6 +2060,7 @@ mod tests {
             search_input_id: id::Id::unique(),
             rename: RenameState::default(),
             rename_input_id: id::Id::unique(),
+            pending_delete: None,
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
             closing_for_hide: HashSet::new(),
@@ -2694,6 +2761,147 @@ mod tests {
         app.delete_note_data(id);
 
         assert!(!app.mtimes.contains_key(&id));
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn delete_start_sets_pending_delete_without_deleting_anything() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-delete-start-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let id = note.frontmatter.uuid;
+        app.notes.insert(id, note);
+
+        let _ = app.update(Message::DeleteStart(id));
+
+        assert_eq!(app.pending_delete, Some(id));
+        assert!(app.notes.contains_key(&id), "pressing trash must not delete by itself");
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn delete_confirm_deletes_through_the_shared_path() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-delete-confirm-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let id = note.frontmatter.uuid;
+        app.store.save(&note).unwrap();
+        let path = app.store.path(id);
+        assert!(path.exists());
+        app.notes.insert(id, note);
+        app.window_state.sizes.insert(id, (600, 900));
+        app.pending_delete = Some(id);
+
+        let _ = app.update(Message::DeleteConfirm);
+
+        assert!(!app.notes.contains_key(&id), "note must be gone from memory");
+        assert!(!path.exists(), "note file must be gone from disk");
+        assert!(
+            !app.window_state.sizes.contains_key(&id),
+            "saved window size must be gone"
+        );
+        assert_eq!(app.pending_delete, None);
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn delete_cancel_leaves_everything_intact() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-delete-cancel-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let id = note.frontmatter.uuid;
+        app.notes.insert(id, note);
+        app.pending_delete = Some(id);
+
+        let _ = app.update(Message::DeleteCancel);
+
+        assert!(app.notes.contains_key(&id), "cancel must not delete the note");
+        assert_eq!(app.pending_delete, None);
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn delete_confirm_closes_the_notes_open_window() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-delete-window-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let id = note.frontmatter.uuid;
+        app.notes.insert(id, note);
+        let window_id = window::Id::unique();
+        app.windows.insert(
+            window_id,
+            WindowNote {
+                uuid: id,
+                input_id: id::Id::unique(),
+                content: text_editor::Content::new(),
+                last_title: String::new(),
+                history: UndoHistory::new(""),
+            },
+        );
+        app.pending_delete = Some(id);
+
+        let _ = app.update(Message::DeleteConfirm);
+
+        assert!(
+            app.closing_for_hide.contains(&window_id),
+            "the note's open window must be closed by the shared delete_note path"
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn delete_start_is_a_no_op_while_the_restore_dialog_is_showing() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-delete-restore-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let id = note.frontmatter.uuid;
+        app.notes.insert(id, note);
+        app.restore_candidates = BTreeSet::from([Uuid::new_v4()]);
+        assert!(app.restore_dialog_active());
+
+        let _ = app.update(Message::DeleteStart(id));
+
+        assert_eq!(
+            app.pending_delete, None,
+            "trash must not open a second dialog on top of the restore dialog"
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn delete_start_cancels_an_in_progress_rename_without_saving() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-delete-rename-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let mut renaming_note = sample_note();
+        renaming_note.frontmatter.name = "Original".to_string();
+        let renaming_id = renaming_note.frontmatter.uuid;
+        app.notes.insert(renaming_id, renaming_note);
+        let other_note = sample_note();
+        let other_id = other_note.frontmatter.uuid;
+        app.notes.insert(other_id, other_note);
+        app.rename = RenameState::start(renaming_id, "Original");
+        let _ = app.update(Message::RenameInput("Discarded".to_string()));
+
+        let _ = app.update(Message::DeleteStart(other_id));
+
+        assert_eq!(app.rename, RenameState::Idle, "trash must cancel the in-progress rename");
+        assert_eq!(
+            app.notes[&renaming_id].frontmatter.name, "Original",
+            "the cancelled rename must not be saved"
+        );
+        assert_eq!(app.pending_delete, Some(other_id));
 
         std::fs::remove_dir_all(&tmp).ok();
     }
