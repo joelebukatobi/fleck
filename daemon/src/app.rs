@@ -265,11 +265,22 @@ fn relative_time(elapsed: Duration) -> String {
 /// Layout constants for the notes list panel (`view_list`/`view_card`) - one
 /// place for the design pass to change spacing and corner radius.
 const LIST_PANEL_PADDING: u16 = 8;
-const SEARCH_PADDING_X: u16 = 16;
+const SEARCH_PADDING_X: u16 = 8;
 const SEARCH_RADIUS: f32 = 4.0;
 const CARD_RADIUS: f32 = 4.0;
+/// Padding of the card's content section (preview lines, then time) -
+/// repurposed from the old single-container card padding now that the card
+/// has two padded sections instead of one.
 const CARD_PADDING: u16 = 8;
+/// Padding inside the card's heading strip (title + rename pencil).
+const CARD_HEADING_PADDING: u16 = 8;
+/// Gap between the heading strip and the content section below it.
+const CARD_HEADING_GAP: u16 = 8;
 const CARD_SPACING: u16 = 8;
+/// How much darker the card heading strip is than the card itself: each
+/// channel is scaled down by this factor, so `1.0` would be no change and
+/// `0.0` would be black.
+const HEADING_DARKEN_FACTOR: f32 = 0.85;
 
 /// Builds one state closure of the search bar's style: the theme's `Search`
 /// appearance for `state` (active/hovered/focused/error/disabled), with the
@@ -295,6 +306,34 @@ fn card_container_style(theme: &cosmic::Theme) -> cosmic::iced::widget::containe
     );
     style.border.radius = CARD_RADIUS.into();
     style
+}
+
+/// Scales a colour's channels down by `HEADING_DARKEN_FACTOR`, leaving alpha
+/// untouched. A pure scale-down of already non-negative channels can never
+/// produce a negative channel, so black stays black instead of clipping.
+fn darken(color: Color) -> Color {
+    Color {
+        r: color.r * HEADING_DARKEN_FACTOR,
+        g: color.g * HEADING_DARKEN_FACTOR,
+        b: color.b * HEADING_DARKEN_FACTOR,
+        a: color.a,
+    }
+}
+
+/// The card heading strip's style: the card's own background (see
+/// `card_container_style`) darkened by `darken`, rounded only at the top
+/// (`CARD_RADIUS`) so it follows the card's rounded top edge while its
+/// bottom edge - where it meets the content section - stays square.
+fn card_heading_style(theme: &cosmic::Theme) -> cosmic::iced::widget::container::Style {
+    let card = card_container_style(theme);
+    cosmic::iced::widget::container::Style {
+        background: card.background.map(|background| match background {
+            cosmic::iced::Background::Color(c) => cosmic::iced::Background::Color(darken(c)),
+            other => other,
+        }),
+        border: Border { radius: cosmic::iced::border::top(CARD_RADIUS), ..Border::default() },
+        ..card
+    }
 }
 
 /// Whether the notes list's rename control is currently editing `uuid`'s
@@ -876,7 +915,10 @@ impl Tack {
         let uuid = note.frontmatter.uuid;
         let editing = self.rename.is_editing(uuid);
 
-        let name_row: Element<'_, Message> = if editing {
+        // The title swaps for a text input in rename mode, but stays in the
+        // same slot of the same heading row - the pencil button next to it
+        // never moves or disappears, so the row's shape never changes.
+        let title: Element<'_, Message> = if editing {
             widget::text_input("", self.rename.text())
                 .id(self.rename_input_id.clone())
                 .on_input(Message::RenameInput)
@@ -885,29 +927,41 @@ impl Tack {
                 .width(Length::Fill)
                 .into()
         } else {
-            widget::Row::with_capacity(2)
-                .spacing(8)
-                .align_y(Alignment::Center)
-                .push(widget::text::heading(display_name(note).to_string()).width(Length::Fill))
-                .push(
-                    widget::button::icon(widget::icon::from_name("edit-symbolic"))
-                        .extra_small()
-                        .on_press(Message::RenameStart(uuid)),
-                )
-                .into()
+            widget::text::heading(display_name(note).to_string()).width(Length::Fill).into()
         };
 
-        let mut body_col = widget::Column::with_capacity(2 + PREVIEW_LINES).push(name_row);
+        let heading_row = widget::Row::with_capacity(2)
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .push(title)
+            .push(
+                widget::button::icon(widget::icon::from_name("edit-symbolic"))
+                    .extra_small()
+                    .on_press(Message::RenameStart(uuid)),
+            );
+
+        let heading = widget::container(heading_row)
+            .class(cosmic::theme::Container::custom(card_heading_style))
+            .padding(CARD_HEADING_PADDING)
+            .width(Length::Fill);
+
+        let mut content_col = widget::Column::with_capacity(1 + PREVIEW_LINES).spacing(4);
         for line in preview_lines(note, PREVIEW_LINES) {
-            body_col = body_col.push(widget::text::body(line));
+            content_col = content_col.push(widget::text::body(line));
         }
         let elapsed =
             SystemTime::now().duration_since(self.note_mtime(uuid)).unwrap_or(Duration::ZERO);
-        body_col = body_col.push(widget::text::caption(relative_time(elapsed)));
+        content_col = content_col.push(widget::text::caption(relative_time(elapsed)));
 
-        let card = widget::container(body_col.spacing(4))
+        let content = widget::container(content_col).padding(CARD_PADDING).width(Length::Fill);
+
+        let card_body = widget::Column::with_capacity(2)
+            .spacing(CARD_HEADING_GAP)
+            .push(heading)
+            .push(content);
+
+        let card = widget::container(card_body)
             .class(cosmic::theme::Container::custom(card_container_style))
-            .padding(CARD_PADDING)
             .width(Length::Fill);
 
         if editing {
@@ -1686,6 +1740,36 @@ mod tests {
         let viewport = 767.6;
         let outer_height = body_min_height(viewport) + 2.0 * BODY_PADDING;
         assert!(outer_height <= viewport, "outer height {outer_height} exceeds viewport {viewport}");
+    }
+
+    /// Relative luminance (sRGB weights), used only to compare two colours'
+    /// perceived brightness in these tests.
+    fn luminance(c: Color) -> f32 {
+        0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+    }
+
+    #[test]
+    fn darken_reduces_luminance_for_light_mid_and_dark_colors() {
+        for c in
+            [Color::from_rgb(0.9, 0.9, 0.9), Color::from_rgb(0.5, 0.5, 0.5), Color::from_rgb(0.15, 0.15, 0.15)]
+        {
+            let d = darken(c);
+            assert!(luminance(d) < luminance(c), "{d:?} should be darker than {c:?}");
+        }
+    }
+
+    #[test]
+    fn darken_preserves_alpha() {
+        let c = Color::from_rgba(0.5, 0.4, 0.3, 0.42);
+        assert_eq!(darken(c).a, 0.42);
+    }
+
+    #[test]
+    fn darken_keeps_pure_black_black_not_negative() {
+        let black = Color::from_rgb(0.0, 0.0, 0.0);
+        let d = darken(black);
+        assert_eq!(d, black);
+        assert!(d.r >= 0.0 && d.g >= 0.0 && d.b >= 0.0);
     }
 
     #[test]
