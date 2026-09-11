@@ -60,6 +60,21 @@ const BODY_PADDING: f32 = 8.0;
 /// mean "this editor is infinitely tall", i.e. the exact failure this
 /// arrangement exists to avoid. So a non-finite `viewport_height` falls back
 /// to no minimum (`0.0`) rather than passing infinity into layout.
+/// Settings for every window opened with `window::open`.
+///
+/// `window::open` starts from iced's defaults, not from the settings libcosmic
+/// gives its own main window (`iced_settings` in libcosmic's `app/mod.rs`).
+/// The main window never flickered and note windows always did, so this
+/// mirrors libcosmic's main-window setup: a transparent surface under the
+/// opaque theme background, plus the application id. Decorations stay
+/// server-side - a client-side header made the flicker far worse.
+fn note_window_settings(size: Size) -> window::Settings {
+    let mut settings = window::Settings { size, ..window::Settings::default() };
+    settings.transparent = true;
+    settings.platform_specific.application_id = <Tack as cosmic::Application>::APP_ID.to_string();
+    settings
+}
+
 fn body_min_height(viewport_height: f32) -> f32 {
     if viewport_height.is_finite() {
         viewport_height.floor()
@@ -464,7 +479,7 @@ impl Tack {
         self.intent_visible.show(uuid);
         let (w, h) = window_size_for(uuid, &self.window_state.sizes);
         let settings =
-            window::Settings { size: Size::new(w as f32, h as f32), ..window::Settings::default() };
+            note_window_settings(Size::new(w as f32, h as f32));
         let (id, spawn) = window::open(settings);
         let registered = self.register_window(id, uuid);
         let opened = spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)));
@@ -607,10 +622,7 @@ impl Tack {
         if let Some(id) = self.list_window {
             return window::gain_focus(id);
         }
-        let settings = window::Settings {
-            size: Size::new(DEFAULT_WINDOW_SIZE.0 as f32, DEFAULT_WINDOW_SIZE.1 as f32),
-            ..window::Settings::default()
-        };
+        let settings = note_window_settings(Size::new(DEFAULT_WINDOW_SIZE.0 as f32, DEFAULT_WINDOW_SIZE.1 as f32));
         let (id, spawn) = window::open(settings);
         self.list_window = Some(id);
         spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)))
