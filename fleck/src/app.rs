@@ -13,7 +13,7 @@ use cosmic::iced::{event, window, Alignment, Border, Color, Length, Pixels, Size
 use cosmic::prelude::*;
 use cosmic::widget;
 use cosmic::widget::text_editor;
-use sticky_notes_core::{display_name, is_disposable, Note, Store, WindowState};
+use fleck_core::{display_name, is_disposable, Note, Store, WindowState};
 use uuid::Uuid;
 
 use crate::dbus;
@@ -160,7 +160,7 @@ pub struct Flags {
 /// The window title for a note: its explicit name, or its first non-empty
 /// body line, or a sensible fallback for a note with no content yet.
 fn window_title(note: &Note) -> String {
-    sticky_notes_core::display_name(note).to_string()
+    fleck_core::display_name(note).to_string()
 }
 
 /// Whether a window's title needs to be re-sent to the compositor: only
@@ -207,7 +207,7 @@ fn matches_search(query: &str, name: &str, body: &str) -> bool {
 /// The first `max_lines` non-empty lines of a note's body to show as a
 /// card's preview. If the note has no explicit name, `display_name` falls
 /// back to showing the first non-empty line as the name (see
-/// `sticky_notes_core::display_name`/`title`) - so that line is skipped
+/// `fleck_core::display_name`/`title`) - so that line is skipped
 /// here to avoid repeating it in the preview.
 fn preview_lines(note: &Note, max_lines: usize) -> Vec<String> {
     let lines: Vec<&str> = note.body.lines().collect();
@@ -734,7 +734,7 @@ pub struct Fleck {
     core: Core,
     store: Store,
     /// Per-note window size, persisted to `state_path`. The only parts of
-    /// `sticky_notes_core::geometry::WindowState` this app wires up -
+    /// `fleck_core::geometry::WindowState` this app wires up -
     /// `placements`/`minimized` stay unused (no window position is ever
     /// persisted or restored).
     window_state: WindowState,
@@ -755,7 +755,7 @@ pub struct Fleck {
     /// `VisibilityIntent`.
     intent_visible: VisibilityIntent,
     /// Notes offered by the restore bar on this launch: the survivors (from
-    /// `sticky_notes_core::restorable`) of whatever was open at last quit.
+    /// `fleck_core::restorable`) of whatever was open at last quit.
     /// Consumed (cleared) once the user picks "Reopen"; `restore_dismissed`
     /// tracks "No thanks" instead, since the bar's count stays meaningful
     /// even after being dismissed if shown again is never needed here.
@@ -906,7 +906,7 @@ impl Fleck {
             .notes
             .get(&uuid)
             .map(window_title)
-            .unwrap_or_else(|| sticky_notes_core::UNNAMED.to_string());
+            .unwrap_or_else(|| fleck_core::UNNAMED.to_string());
         if !title_needs_update(&title, &window.last_title) {
             return Task::none();
         }
@@ -948,7 +948,7 @@ impl Fleck {
             .notes
             .get(&uuid)
             .map(window_title)
-            .unwrap_or_else(|| sticky_notes_core::UNNAMED.to_string());
+            .unwrap_or_else(|| fleck_core::UNNAMED.to_string());
         self.windows.insert(
             id,
             WindowNote { uuid, input_id, content, last_title: title.clone(), history },
@@ -1371,7 +1371,7 @@ impl Fleck {
                     .map(|(uuid, note)| {
                         (
                             uuid.to_string(),
-                            sticky_notes_core::display_name(note).to_string(),
+                            fleck_core::display_name(note).to_string(),
                             self.is_visible(*uuid),
                         )
                     })
@@ -1553,7 +1553,7 @@ impl cosmic::Application for Fleck {
         // The survivors of whatever was open at last quit - notes deleted
         // since then are silently dropped. Empty means no restore bar.
         let existing: BTreeSet<Uuid> = notes.keys().copied().collect();
-        let restore_candidates = sticky_notes_core::restorable(&window_state.open_at_quit, &existing);
+        let restore_candidates = fleck_core::restorable(&window_state.open_at_quit, &existing);
 
         // The main window is the notes list, not a note - every note opens
         // as a secondary window (`window::open`), including the ones
@@ -1975,7 +1975,7 @@ impl cosmic::Application for Fleck {
                 // fall through to inserting a literal "z" or moving the
                 // cursor. iced's `text_editor` has no undo/redo of its own
                 // (see `undo`'s module docs); `Message::Undo`/`Redo` drive
-                // the per-window `UndoHistory` built in `daemon/src/undo.rs`.
+                // the per-window `UndoHistory` built in `fleck/src/undo.rs`.
                 .key_binding(move |press| {
                     let combo = press.key.to_latin(press.physical_key);
                     if press.modifiers.command() {
@@ -2069,7 +2069,7 @@ impl cosmic::Application for Fleck {
 mod tests {
     use super::*;
     use cosmic::Application;
-    use sticky_notes_core::{Frontmatter, FORMAT_VERSION};
+    use fleck_core::{Frontmatter, FORMAT_VERSION};
 
     #[test]
     fn body_min_height_passes_through_a_finite_viewport_minus_padding() {

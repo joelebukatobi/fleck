@@ -13,7 +13,7 @@ mod palette;
 use std::time::Duration;
 
 use cosmic::iced::futures::channel::mpsc;
-use sticky_notes_core::{Store, WindowState};
+use fleck_core::{Store, WindowState};
 
 /// How long a losing-the-name-race relaunch waits for the running instance
 /// to answer `ShowList()` before giving up. Long enough for a normal
@@ -309,12 +309,12 @@ fn xdg_state_home() -> std::path::PathBuf {
 /// yet. Must run before `notes_dir()`/`window_state_path()` are used to
 /// load anything, or a user's existing notes would appear to have vanished.
 fn migrate_from_tack() {
-    sticky_notes_core::migrate_dir(
-        &xdg_data_home().join(sticky_notes_core::migrate::OLD_DIR_NAME),
+    fleck_core::migrate_dir(
+        &xdg_data_home().join(fleck_core::migrate::OLD_DIR_NAME),
         &xdg_data_home().join("fleck"),
     );
-    sticky_notes_core::migrate_dir(
-        &xdg_state_home().join(sticky_notes_core::migrate::OLD_DIR_NAME),
+    fleck_core::migrate_dir(
+        &xdg_state_home().join(fleck_core::migrate::OLD_DIR_NAME),
         &xdg_state_home().join("fleck"),
     );
 }

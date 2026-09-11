@@ -9,7 +9,7 @@ name = "fleck"
 path = "src/main.rs"
 
 [dependencies]
-sticky-notes-core = { path = "../core" }
+fleck-core = { path = "../core" }
 libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "d4d71fd", features = ["winit", "wayland", "tokio", "applet"] }
 serde.workspace = true
 uuid.workspace = true
