@@ -97,3 +97,12 @@ Modelled on the Windows Sticky Notes list window.
 - Dialogs over the notes list are 75% of the list window's width.
 - The list behind a dialog is not dimmed or blurred.
 
+## Icons
+
+- Tack uses its own bundled icons from **Phosphor** (MIT), not the system icon theme,
+  so they look the same whatever COSMIC's icon theme is set to.
+- **Bold** weight — the closest to COSMIC's own icons. COSMIC's measure 2 px thick at
+  16 px; Phosphor bold is 1.5 px, regular would be 1 px.
+- Icons follow the theme's text colour, so they work in light and dark mode.
+- Tack's own app icon, for the panel list and the app library, comes with the design pass.
+
