@@ -1,5 +1,6 @@
 [package]
 name = "fleck-core"
+description = "Note storage and window state for Fleck, with no GUI dependencies"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

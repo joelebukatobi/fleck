@@ -1,5 +1,6 @@
 [package]
 name = "fleck"
+description = "Sticky notes for the COSMIC desktop"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
