@@ -95,7 +95,9 @@ impl UndoHistory {
         let boundary = force_boundary
             || self.group_started_at.is_none()
             || self.group_kind != Some(kind)
-            || self.group_started_at.is_some_and(|started| now.duration_since(started) > COALESCE_PAUSE);
+            || self
+                .group_started_at
+                .is_some_and(|started| now.duration_since(started) > COALESCE_PAUSE);
 
         // A new edit - whether it starts a group or joins one - always
         // invalidates whatever was undone before it.
@@ -175,7 +177,11 @@ mod tests {
         h.record("h", EditKind::Insert, false);
         h.record("he", EditKind::Insert, false);
         h.record("hel", EditKind::Insert, false);
-        assert_eq!(h.undo(), Some(""), "the whole burst of typing must undo in one step");
+        assert_eq!(
+            h.undo(),
+            Some(""),
+            "the whole burst of typing must undo in one step"
+        );
     }
 
     #[test]
@@ -224,6 +230,10 @@ mod tests {
         assert_eq!(h.text(), "4");
         assert_eq!(h.undo(), Some("3"));
         assert_eq!(h.undo(), Some("2"));
-        assert_eq!(h.undo(), None, "the oldest entries (\"0\", \"1\") must have been evicted");
+        assert_eq!(
+            h.undo(),
+            None,
+            "the oldest entries (\"0\", \"1\") must have been evicted"
+        );
     }
 }

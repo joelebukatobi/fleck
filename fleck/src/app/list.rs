@@ -56,9 +56,9 @@ pub(super) fn preview_lines(note: &Note, max_lines: usize) -> Vec<String> {
 }
 
 pub(super) const MINUTE: Duration = Duration::from_secs(60);
-pub(super) const HOUR: Duration = Duration::from_secs(60 * 60);
-pub(super) const DAY: Duration = Duration::from_secs(24 * 60 * 60);
-pub(super) const WEEK: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+pub(super) const HOUR: Duration = Duration::from_hours(1);
+pub(super) const DAY: Duration = Duration::from_hours(24);
+pub(super) const WEEK: Duration = Duration::from_hours(168);
 
 /// Formats how long ago a note was last edited, from the elapsed time since
 /// its file's mtime. No date/time crate: relative phrasing needs no
@@ -80,9 +80,9 @@ pub(super) fn relative_time(elapsed: Duration) -> String {
     } else if elapsed < DAY {
         ago(elapsed.as_secs() / 3600, "hour")
     } else if elapsed < WEEK {
-        ago(elapsed.as_secs() / 86400, "day")
+        ago(elapsed.as_secs() / 86_400, "day")
     } else {
-        ago(elapsed.as_secs() / 604800, "week")
+        ago(elapsed.as_secs() / 604_800, "week")
     }
 }
 
@@ -164,12 +164,18 @@ pub(super) const SCROLLBAR_SCROLLER_WIDTH_HOVER: f32 = 8.0;
 pub(super) enum RenameState {
     #[default]
     Idle,
-    Editing { uuid: Uuid, text: String },
+    Editing {
+        uuid: Uuid,
+        text: String,
+    },
 }
 
 impl RenameState {
     pub(super) fn start(uuid: Uuid, current_name: &str) -> Self {
-        RenameState::Editing { uuid, text: current_name.to_string() }
+        RenameState::Editing {
+            uuid,
+            text: current_name.to_string(),
+        }
     }
 
     pub(super) fn is_editing(&self, uuid: Uuid) -> bool {
@@ -186,7 +192,10 @@ impl RenameState {
     /// Updates the in-progress text, a no-op if nothing is being edited.
     pub(super) fn with_input(self, new_text: String) -> Self {
         match self {
-            RenameState::Editing { uuid, .. } => RenameState::Editing { uuid, text: new_text },
+            RenameState::Editing { uuid, .. } => RenameState::Editing {
+                uuid,
+                text: new_text,
+            },
             RenameState::Idle => RenameState::Idle,
         }
     }
@@ -198,7 +207,10 @@ impl Fleck {
     /// loaded from disk at `init` or written by `create_note`, both of
     /// which populate `mtimes`).
     pub(super) fn note_mtime(&self, uuid: Uuid) -> SystemTime {
-        self.mtimes.get(&uuid).copied().unwrap_or(SystemTime::UNIX_EPOCH)
+        self.mtimes
+            .get(&uuid)
+            .copied()
+            .unwrap_or(SystemTime::UNIX_EPOCH)
     }
 
     /// One note's card: its name (or, in rename mode, a text input in its
@@ -224,7 +236,9 @@ impl Fleck {
                 .width(Length::Fill)
                 .into()
         } else {
-            widget::text::heading(display_name(note).to_string()).width(Length::Fill).into()
+            widget::text::heading(display_name(note).to_string())
+                .width(Length::Fill)
+                .into()
         };
 
         let heading_row = widget::Row::with_capacity(2)
@@ -238,14 +252,24 @@ impl Fleck {
                     .push(
                         widget::button::icon(crate::icons::pencil_simple())
                             .extra_small()
-                            .padding([CARD_ACTION_PADDING, CARD_ACTION_INNER_PADDING, CARD_ACTION_PADDING, CARD_ACTION_PADDING])
+                            .padding([
+                                CARD_ACTION_PADDING,
+                                CARD_ACTION_INNER_PADDING,
+                                CARD_ACTION_PADDING,
+                                CARD_ACTION_PADDING,
+                            ])
                             .on_press(Message::RenameStart(uuid))
                             .class(icon_button_class(IconHoverRole::Accent)),
                     )
                     .push(
                         widget::button::icon(crate::icons::trash())
                             .extra_small()
-                            .padding([CARD_ACTION_PADDING, CARD_ACTION_PADDING, CARD_ACTION_PADDING, CARD_ACTION_INNER_PADDING])
+                            .padding([
+                                CARD_ACTION_PADDING,
+                                CARD_ACTION_PADDING,
+                                CARD_ACTION_PADDING,
+                                CARD_ACTION_INNER_PADDING,
+                            ])
                             .on_press(Message::DeleteStart(uuid))
                             .class(icon_button_class(IconHoverRole::Destructive)),
                     ),
@@ -253,18 +277,27 @@ impl Fleck {
 
         let heading = widget::container(heading_row)
             .class(cosmic::theme::Container::custom(card_heading_style))
-            .padding([CARD_HEADING_PADDING_Y, CARD_HEADING_PADDING_RIGHT, CARD_HEADING_PADDING_Y, CARD_HEADING_PADDING_X])
+            .padding([
+                CARD_HEADING_PADDING_Y,
+                CARD_HEADING_PADDING_RIGHT,
+                CARD_HEADING_PADDING_Y,
+                CARD_HEADING_PADDING_X,
+            ])
             .width(Length::Fill);
 
-        let mut content_col = widget::Column::with_capacity(1 + PREVIEW_LINES).spacing(CARD_CONTENT_SPACING);
+        let mut content_col =
+            widget::Column::with_capacity(1 + PREVIEW_LINES).spacing(CARD_CONTENT_SPACING);
         for line in preview_lines(note, PREVIEW_LINES) {
             content_col = content_col.push(widget::text::body(line));
         }
-        let elapsed =
-            SystemTime::now().duration_since(self.note_mtime(uuid)).unwrap_or(Duration::ZERO);
+        let elapsed = SystemTime::now()
+            .duration_since(self.note_mtime(uuid))
+            .unwrap_or(Duration::ZERO);
         content_col = content_col.push(widget::text::caption(relative_time(elapsed)));
 
-        let content = widget::container(content_col).padding(CARD_PADDING).width(Length::Fill);
+        let content = widget::container(content_col)
+            .padding(CARD_PADDING)
+            .width(Length::Fill);
 
         let card_body = widget::Column::with_capacity(2)
             .spacing(CARD_HEADING_GAP)
@@ -283,7 +316,8 @@ impl Fleck {
         if editing {
             // Mid-rename, the card isn't a pick target - the text input
             // already owns clicks/focus here.
-            card.class(cosmic::theme::Container::custom(card_container_style)).into()
+            card.class(cosmic::theme::Container::custom(card_container_style))
+                .into()
         } else {
             // No padding: libcosmic buttons default to 5 px, which inset the card from
             // the search bar and drew the hover state 5 px outside the card.
@@ -307,7 +341,8 @@ impl Fleck {
             .filter(|n| matches_search(&self.search, display_name(n), &n.body))
             .collect();
         notes.sort_by(|a, b| {
-            self.note_mtime(b.frontmatter.uuid).cmp(&self.note_mtime(a.frontmatter.uuid))
+            self.note_mtime(b.frontmatter.uuid)
+                .cmp(&self.note_mtime(a.frontmatter.uuid))
         });
 
         let search = widget::search_input("Search notes", self.search.clone())
@@ -340,11 +375,21 @@ impl Fleck {
             )
             .padding([0, SEARCH_PADDING_X])
             .style(cosmic::theme::TextInput::Custom {
-                active: search_input_style(<cosmic::Theme as cosmic::widget::text_input::StyleSheet>::active),
-                error: search_input_style(<cosmic::Theme as cosmic::widget::text_input::StyleSheet>::error),
-                hovered: search_input_style(<cosmic::Theme as cosmic::widget::text_input::StyleSheet>::hovered),
-                focused: search_input_style(<cosmic::Theme as cosmic::widget::text_input::StyleSheet>::focused),
-                disabled: search_input_style(<cosmic::Theme as cosmic::widget::text_input::StyleSheet>::disabled),
+                active: search_input_style(
+                    <cosmic::Theme as cosmic::widget::text_input::StyleSheet>::active,
+                ),
+                error: search_input_style(
+                    <cosmic::Theme as cosmic::widget::text_input::StyleSheet>::error,
+                ),
+                hovered: search_input_style(
+                    <cosmic::Theme as cosmic::widget::text_input::StyleSheet>::hovered,
+                ),
+                focused: search_input_style(
+                    <cosmic::Theme as cosmic::widget::text_input::StyleSheet>::focused,
+                ),
+                disabled: search_input_style(
+                    <cosmic::Theme as cosmic::widget::text_input::StyleSheet>::disabled,
+                ),
             });
 
         let mut cards = widget::Column::with_capacity(notes.len()).spacing(CARD_SPACING);
@@ -398,6 +443,7 @@ impl Fleck {
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)] // exact pixel values are the point of these tests
 mod tests {
     use super::*;
     use fleck_core::{Frontmatter, FORMAT_VERSION};
@@ -457,19 +503,28 @@ mod tests {
         let note = note_named("", "Groceries\nmilk\neggs\nbread\n");
         // "Groceries" is what display_name already shows as the title -
         // must not be repeated as the first preview line.
-        assert_eq!(preview_lines(&note, 2), vec!["milk".to_string(), "eggs".to_string()]);
+        assert_eq!(
+            preview_lines(&note, 2),
+            vec!["milk".to_string(), "eggs".to_string()]
+        );
     }
 
     #[test]
     fn preview_keeps_the_first_line_for_a_named_note() {
         let note = note_named("Shopping List", "Groceries\nmilk\neggs\n");
-        assert_eq!(preview_lines(&note, 2), vec!["Groceries".to_string(), "milk".to_string()]);
+        assert_eq!(
+            preview_lines(&note, 2),
+            vec!["Groceries".to_string(), "milk".to_string()]
+        );
     }
 
     #[test]
     fn preview_skips_blank_lines() {
         let note = note_named("", "Groceries\n\n\nmilk\neggs\n");
-        assert_eq!(preview_lines(&note, 2), vec!["milk".to_string(), "eggs".to_string()]);
+        assert_eq!(
+            preview_lines(&note, 2),
+            vec!["milk".to_string(), "eggs".to_string()]
+        );
     }
 
     #[test]
@@ -493,28 +548,37 @@ mod tests {
     #[test]
     fn relative_time_minutes_boundary() {
         assert_eq!(relative_time(Duration::from_secs(60)), "1 min ago");
-        assert_eq!(relative_time(Duration::from_secs(4 * 60)), "4 min ago");
-        assert_eq!(relative_time(Duration::from_secs(59 * 60 + 59)), "59 min ago");
+        assert_eq!(relative_time(Duration::from_mins(4)), "4 min ago");
+        assert_eq!(
+            relative_time(Duration::from_secs(59 * 60 + 59)),
+            "59 min ago"
+        );
     }
 
     #[test]
     fn relative_time_hours_boundary() {
-        assert_eq!(relative_time(Duration::from_secs(60 * 60)), "1 hour ago");
-        assert_eq!(relative_time(Duration::from_secs(2 * 60 * 60)), "2 hours ago");
-        assert_eq!(relative_time(Duration::from_secs(23 * 60 * 60 + 3599)), "23 hours ago");
+        assert_eq!(relative_time(Duration::from_hours(1)), "1 hour ago");
+        assert_eq!(relative_time(Duration::from_hours(2)), "2 hours ago");
+        assert_eq!(
+            relative_time(Duration::from_secs(23 * 60 * 60 + 3599)),
+            "23 hours ago"
+        );
     }
 
     #[test]
     fn relative_time_days_boundary() {
-        assert_eq!(relative_time(Duration::from_secs(24 * 60 * 60)), "1 day ago");
-        assert_eq!(relative_time(Duration::from_secs(3 * 24 * 60 * 60)), "3 days ago");
-        assert_eq!(relative_time(Duration::from_secs(6 * 24 * 60 * 60 + 86399)), "6 days ago");
+        assert_eq!(relative_time(Duration::from_hours(24)), "1 day ago");
+        assert_eq!(relative_time(Duration::from_hours(72)), "3 days ago");
+        assert_eq!(
+            relative_time(Duration::from_secs(6 * 24 * 60 * 60 + 86399)),
+            "6 days ago"
+        );
     }
 
     #[test]
     fn relative_time_weeks_boundary() {
-        assert_eq!(relative_time(Duration::from_secs(7 * 24 * 60 * 60)), "1 week ago");
-        assert_eq!(relative_time(Duration::from_secs(3 * 7 * 24 * 60 * 60)), "3 weeks ago");
+        assert_eq!(relative_time(Duration::from_hours(168)), "1 week ago");
+        assert_eq!(relative_time(Duration::from_hours(504)), "3 weeks ago");
     }
 
     #[test]
@@ -535,7 +599,10 @@ mod tests {
         let uuid = Uuid::new_v4();
         let other = Uuid::new_v4();
         let state = RenameState::start(uuid, "");
-        assert!(!state.is_editing(other), "only one card may be in rename mode at a time");
+        assert!(
+            !state.is_editing(other),
+            "only one card may be in rename mode at a time"
+        );
     }
 
     #[test]

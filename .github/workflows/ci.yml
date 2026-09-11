@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Format, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev \
+            libfontconfig-dev libexpat1-dev libfreetype6-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+
+  desktop-entries:
+    name: Validate desktop entries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y desktop-file-utils
+      # COSMIC panel applets use the unregistered "COSMIC" category, so those
+      # two messages are expected; anything else fails the job.
+      - run: |
+          output="$(desktop-file-validate data/*.desktop || true)"
+          output="$(printf '%s\n' "$output" | grep -v 'unregistered value "COSMIC"' \
+            | grep -v 'does not contain a registered main category' | grep -v '^$' || true)"
+          if [ -n "$output" ]; then printf '%s\n' "$output"; exit 1; fi

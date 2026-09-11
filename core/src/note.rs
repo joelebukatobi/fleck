@@ -37,7 +37,10 @@ pub fn parse(text: &str) -> Result<Note, ParseError> {
     let body = after.strip_prefix("\n+++\n").unwrap_or("");
     let frontmatter: Frontmatter =
         toml::from_str(fm_text).map_err(|e| ParseError::InvalidFrontmatter(e.to_string()))?;
-    Ok(Note { frontmatter, body: unescape_fences(body) })
+    Ok(Note {
+        frontmatter,
+        body: unescape_fences(body),
+    })
 }
 /// A body line of exactly `+++` would otherwise read back as the frontmatter
 /// fence, truncating the note. Escape it on write, undo it on read.
@@ -74,7 +77,13 @@ fn transform_fence_lines(
     transform: impl Fn(&str) -> String,
 ) -> String {
     body.split('\n')
-        .map(|line| if matches(line) { transform(line) } else { line.to_string() })
+        .map(|line| {
+            if matches(line) {
+                transform(line)
+            } else {
+                line.to_string()
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -85,7 +94,11 @@ pub fn serialize(note: &Note) -> String {
 }
 
 pub fn title(note: &Note) -> &str {
-    note.body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("")
+    note.body
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
 }
 
 /// Fallback display name for a note with no explicit name and no body text.
@@ -94,15 +107,15 @@ pub const UNNAMED: &str = "New note";
 /// The name to show for a note: the explicit `frontmatter.name` when set,
 /// otherwise the first non-empty body line (`title`), otherwise `UNNAMED`.
 pub fn display_name(note: &Note) -> &str {
-    if !note.frontmatter.name.is_empty() {
-        &note.frontmatter.name
-    } else {
+    if note.frontmatter.name.is_empty() {
         let title = title(note);
         if title.is_empty() {
             UNNAMED
         } else {
             title
         }
+    } else {
+        &note.frontmatter.name
     }
 }
 

@@ -35,7 +35,9 @@ pub(super) fn search_input_style(
 /// A card's style: the theme's `Card` appearance with the radius replaced
 /// by `CARD_RADIUS` instead of the theme's `radius_s`. Every other field -
 /// background, text/icon colours - stays exactly what the theme gives it.
-pub(super) fn card_container_style(theme: &cosmic::Theme) -> cosmic::iced::widget::container::Style {
+pub(super) fn card_container_style(
+    theme: &cosmic::Theme,
+) -> cosmic::iced::widget::container::Style {
     let mut style = <cosmic::Theme as cosmic::iced::widget::container::Catalog>::style(
         theme,
         &cosmic::theme::Container::Card,
@@ -48,7 +50,12 @@ pub(super) fn card_container_style(theme: &cosmic::Theme) -> cosmic::iced::widge
 /// pure scale-down of already non-negative channels can never produce a
 /// negative channel, so black stays black instead of clipping.
 pub(super) fn darken(color: Color, factor: f32) -> Color {
-    Color { r: color.r * factor, g: color.g * factor, b: color.b * factor, a: color.a }
+    Color {
+        r: color.r * factor,
+        g: color.g * factor,
+        b: color.b * factor,
+        a: color.a,
+    }
 }
 
 /// Mixes a colour's channels towards white by `factor`, leaving alpha
@@ -79,9 +86,12 @@ pub(super) fn card_heading_style(theme: &cosmic::Theme) -> cosmic::iced::widget:
             cosmic::iced::Background::Color(c) => {
                 cosmic::iced::Background::Color(darken(c, HEADING_DARKEN_FACTOR))
             }
-            other => other,
+            gradient @ cosmic::iced::Background::Gradient(_) => gradient,
         }),
-        border: Border { radius: cosmic::iced::border::top(CARD_RADIUS), ..Border::default() },
+        border: Border {
+            radius: cosmic::iced::border::top(CARD_RADIUS),
+            ..Border::default()
+        },
         ..card
     }
 }
@@ -102,7 +112,11 @@ pub(super) fn card_color(theme: &cosmic::Theme) -> Color {
 /// itself for the resting state, `lighten`/`darken`d for hover/press. `focused`
 /// draws the same accent outline `cosmic`'s own button styles draw for a
 /// Tab-focused button, so keyboard focus stays visible.
-pub(super) fn card_button_style(theme: &cosmic::Theme, focused: bool, background: Color) -> cosmic::widget::button::Style {
+pub(super) fn card_button_style(
+    theme: &cosmic::Theme,
+    focused: bool,
+    background: Color,
+) -> cosmic::widget::button::Style {
     let card = card_container_style(theme);
     let mut style = cosmic::widget::button::Style {
         background: Some(cosmic::iced::Background::Color(background)),
@@ -131,10 +145,18 @@ pub(super) fn card_button_class() -> cosmic::theme::Button {
         active: Box::new(|focused, theme| card_button_style(theme, focused, card_color(theme))),
         disabled: Box::new(|theme| card_button_style(theme, false, card_color(theme))),
         hovered: Box::new(|focused, theme| {
-            card_button_style(theme, focused, lighten(card_color(theme), CARD_HOVER_LIGHTEN_FACTOR))
+            card_button_style(
+                theme,
+                focused,
+                lighten(card_color(theme), CARD_HOVER_LIGHTEN_FACTOR),
+            )
         }),
         pressed: Box::new(|focused, theme| {
-            card_button_style(theme, focused, darken(card_color(theme), CARD_PRESS_DARKEN_FACTOR))
+            card_button_style(
+                theme,
+                focused,
+                darken(card_color(theme), CARD_PRESS_DARKEN_FACTOR),
+            )
         }),
     }
 }
@@ -191,28 +213,32 @@ pub(super) fn icon_button_class(role: IconHoverRole) -> cosmic::theme::Button {
             ))
         }),
         disabled: Box::new(|theme| {
-            no_background(<cosmic::Theme as cosmic::widget::button::Catalog>::disabled(
-                theme,
-                &cosmic::theme::Button::Icon,
-            ))
+            no_background(
+                <cosmic::Theme as cosmic::widget::button::Catalog>::disabled(
+                    theme,
+                    &cosmic::theme::Button::Icon,
+                ),
+            )
         }),
         hovered: Box::new(move |focused, theme| {
-            let mut style = no_background(<cosmic::Theme as cosmic::widget::button::Catalog>::hovered(
-                theme,
-                focused,
-                false,
-                &cosmic::theme::Button::Icon,
-            ));
+            let mut style =
+                no_background(<cosmic::Theme as cosmic::widget::button::Catalog>::hovered(
+                    theme,
+                    focused,
+                    false,
+                    &cosmic::theme::Button::Icon,
+                ));
             style.icon_color = Some(icon_hover_color(role, theme));
             style
         }),
         pressed: Box::new(move |focused, theme| {
-            let mut style = no_background(<cosmic::Theme as cosmic::widget::button::Catalog>::pressed(
-                theme,
-                focused,
-                false,
-                &cosmic::theme::Button::Icon,
-            ));
+            let mut style =
+                no_background(<cosmic::Theme as cosmic::widget::button::Catalog>::pressed(
+                    theme,
+                    focused,
+                    false,
+                    &cosmic::theme::Button::Icon,
+                ));
             style.icon_color = Some(icon_hover_color(role, theme));
             style
         }),
@@ -220,6 +246,7 @@ pub(super) fn icon_button_class(role: IconHoverRole) -> cosmic::theme::Button {
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)] // exact pixel values are the point of these tests
 mod tests {
     use super::*;
 
@@ -227,7 +254,10 @@ mod tests {
     fn icon_hover_color_maps_trash_to_destructive() {
         let theme = cosmic::Theme::dark();
         let expected: Color = theme.cosmic().destructive.base.into();
-        assert_eq!(icon_hover_color(IconHoverRole::Destructive, &theme), expected);
+        assert_eq!(
+            icon_hover_color(IconHoverRole::Destructive, &theme),
+            expected
+        );
     }
 
     #[test]
@@ -255,11 +285,16 @@ mod tests {
 
     #[test]
     fn darken_reduces_luminance_for_light_mid_and_dark_colors() {
-        for c in
-            [Color::from_rgb(0.9, 0.9, 0.9), Color::from_rgb(0.5, 0.5, 0.5), Color::from_rgb(0.15, 0.15, 0.15)]
-        {
+        for c in [
+            Color::from_rgb(0.9, 0.9, 0.9),
+            Color::from_rgb(0.5, 0.5, 0.5),
+            Color::from_rgb(0.15, 0.15, 0.15),
+        ] {
             let d = darken(c, HEADING_DARKEN_FACTOR);
-            assert!(luminance(d) < luminance(c), "{d:?} should be darker than {c:?}");
+            assert!(
+                luminance(d) < luminance(c),
+                "{d:?} should be darker than {c:?}"
+            );
         }
     }
 
@@ -283,11 +318,16 @@ mod tests {
     /// never push a channel past 1.0).
     #[test]
     fn lighten_increases_luminance_for_light_mid_and_dark_colors() {
-        for c in
-            [Color::from_rgb(0.9, 0.9, 0.9), Color::from_rgb(0.5, 0.5, 0.5), Color::from_rgb(0.15, 0.15, 0.15)]
-        {
+        for c in [
+            Color::from_rgb(0.9, 0.9, 0.9),
+            Color::from_rgb(0.5, 0.5, 0.5),
+            Color::from_rgb(0.15, 0.15, 0.15),
+        ] {
             let l = lighten(c, CARD_HOVER_LIGHTEN_FACTOR);
-            assert!(luminance(l) > luminance(c), "{l:?} should be lighter than {c:?}");
+            assert!(
+                luminance(l) > luminance(c),
+                "{l:?} should be lighter than {c:?}"
+            );
         }
     }
 

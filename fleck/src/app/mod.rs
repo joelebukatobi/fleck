@@ -239,6 +239,7 @@ impl std::hash::Hash for DbusRx {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)] // independent state flags, not a mode
 pub struct Fleck {
     core: Core,
     store: Store,
@@ -414,8 +415,7 @@ impl Fleck {
         let title = self
             .notes
             .get(&uuid)
-            .map(window_title)
-            .unwrap_or_else(|| fleck_core::UNNAMED.to_string());
+            .map_or_else(|| fleck_core::UNNAMED.to_string(), window_title);
         if !title_needs_update(&title, &window.last_title) {
             return Task::none();
         }
@@ -450,17 +450,22 @@ impl Fleck {
         // usable with `widget::text_input::focus`, which matches on the id
         // itself rather than its name.
         let input_id = id::Id::unique();
-        let body = self.notes.get(&uuid).map(|note| note.body.as_str()).unwrap_or("");
+        let body = self.notes.get(&uuid).map_or("", |note| note.body.as_str());
         let content = text_editor::Content::with_text(body);
         let history = UndoHistory::new(body);
         let title = self
             .notes
             .get(&uuid)
-            .map(window_title)
-            .unwrap_or_else(|| fleck_core::UNNAMED.to_string());
+            .map_or_else(|| fleck_core::UNNAMED.to_string(), window_title);
         self.windows.insert(
             id,
-            WindowNote { uuid, input_id, content, last_title: title.clone(), history },
+            WindowNote {
+                uuid,
+                input_id,
+                content,
+                last_title: title.clone(),
+                history,
+            },
         );
         self.set_window_title(title, id)
     }
@@ -482,8 +487,7 @@ impl Fleck {
     fn open_window_for(&mut self, uuid: Uuid) -> Task<Message> {
         self.intent_visible.show(uuid);
         let (w, h) = window_size_for(uuid, &self.window_state.sizes);
-        let settings =
-            note_window_settings(Size::new(w as f32, h as f32));
+        let settings = note_window_settings(Size::new(w as f32, h as f32));
         let (id, spawn) = window::open(settings);
         let registered = self.register_window(id, uuid);
         let opened = spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)));
@@ -514,11 +518,19 @@ impl Fleck {
         if !self.intent_visible.hide(uuid) {
             return Task::none();
         }
-        let Some(id) = self.windows.iter().find(|(_, w)| w.uuid == uuid).map(|(id, _)| *id)
+        let Some(id) = self
+            .windows
+            .iter()
+            .find(|(_, w)| w.uuid == uuid)
+            .map(|(id, _)| *id)
         else {
             return Task::none();
         };
-        let flush = if self.dirty.contains_key(&uuid) { self.flush(&[uuid]) } else { Task::none() };
+        let flush = if self.dirty.contains_key(&uuid) {
+            self.flush(&[uuid])
+        } else {
+            Task::none()
+        };
         self.closing_for_hide.insert(id);
         Task::batch([flush, window::close(id)])
     }
@@ -549,7 +561,13 @@ impl Fleck {
         let show = next_all_visible(&visible);
         let tasks = uuids
             .into_iter()
-            .map(|id| if show { self.show_note(id) } else { self.hide_note(id) })
+            .map(|id| {
+                if show {
+                    self.show_note(id)
+                } else {
+                    self.hide_note(id)
+                }
+            })
             .collect::<Vec<_>>();
         (show, Task::batch(tasks))
     }
@@ -611,14 +629,18 @@ impl Fleck {
         if !self.notes.contains_key(&uuid) {
             return (false, Task::none());
         }
-        let close_task =
-            match self.windows.iter().find(|(_, w)| w.uuid == uuid).map(|(id, _)| *id) {
-                Some(id) => {
-                    self.closing_for_hide.insert(id);
-                    window::close(id)
-                }
-                None => Task::none(),
-            };
+        let close_task = match self
+            .windows
+            .iter()
+            .find(|(_, w)| w.uuid == uuid)
+            .map(|(id, _)| *id)
+        {
+            Some(id) => {
+                self.closing_for_hide.insert(id);
+                window::close(id)
+            }
+            None => Task::none(),
+        };
         let existed = self.delete_note_data(uuid);
         (existed, close_task)
     }
@@ -636,7 +658,10 @@ impl Fleck {
         if let Some(id) = self.list_window {
             return window::gain_focus(id);
         }
-        let settings = note_window_settings(Size::new(DEFAULT_WINDOW_SIZE.0 as f32, DEFAULT_WINDOW_SIZE.1 as f32));
+        let settings = note_window_settings(Size::new(
+            DEFAULT_WINDOW_SIZE.0 as f32,
+            DEFAULT_WINDOW_SIZE.1 as f32,
+        ));
         let (id, spawn) = window::open(settings);
         self.list_window = Some(id);
         spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)))
@@ -740,8 +765,10 @@ impl Fleck {
     /// writes it through `Store::save` and, if the note's window is open,
     /// re-syncs its title. An empty name is allowed: `display_name` already
     /// falls back to the first body line for one.
-    fn rename_note(&mut self, uuid: Uuid, name: String) {
-        let Some(note) = self.notes.get_mut(&uuid) else { return };
+    fn rename_note(&mut self, uuid: Uuid, name: &str) {
+        let Some(note) = self.notes.get_mut(&uuid) else {
+            return;
+        };
         note.frontmatter.name = name.trim().to_string();
         self.dirty.insert(uuid, Instant::now());
     }
@@ -781,7 +808,9 @@ impl Fleck {
         };
         let text = text.to_string();
         window.content = text_editor::Content::with_text(&text);
-        window.content.perform(text_editor::Action::Move(text_editor::Motion::DocumentEnd));
+        window
+            .content
+            .perform(text_editor::Action::Move(text_editor::Motion::DocumentEnd));
         let uuid = window.uuid;
         self.sync_body(uuid, text);
         Task::none()
@@ -812,7 +841,11 @@ fn dbus_worker(rx: &DbusRx) -> impl Stream<Item = Message> {
         };
 
         while let Some(request) = receiver.next().await {
-            if output.send(Message::Dbus(DbusRequest::new(request))).await.is_err() {
+            if output
+                .send(Message::Dbus(DbusRequest::new(request)))
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -835,7 +868,13 @@ impl cosmic::Application for Fleck {
     }
 
     fn init(core: Core, flags: Flags) -> (Self, Task<Message>) {
-        let Flags { store, window_state, state_path, dbus_connection, dbus_rx } = flags;
+        let Flags {
+            store,
+            window_state,
+            state_path,
+            dbus_connection,
+            dbus_rx,
+        } = flags;
         let mut notes = HashMap::new();
         match store.list() {
             Ok(loaded) => {
@@ -928,6 +967,7 @@ impl cosmic::Application for Fleck {
         Subscription::batch(subscriptions)
     }
 
+    #[allow(clippy::too_many_lines)] // one arm per message
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::NewNote => {
@@ -952,8 +992,10 @@ impl cosmic::Application for Fleck {
             }
             Message::ReopenSession => {
                 let candidates = std::mem::take(&mut self.restore_candidates);
-                let shows: Vec<Task<Message>> =
-                    candidates.into_iter().map(|uuid| self.show_note(uuid)).collect();
+                let shows: Vec<Task<Message>> = candidates
+                    .into_iter()
+                    .map(|uuid| self.show_note(uuid))
+                    .collect();
                 let mut tasks = shows;
                 tasks.push(self.close_list());
                 Task::batch(tasks)
@@ -1033,7 +1075,7 @@ impl cosmic::Application for Fleck {
             }
             Message::CloseRequested(id) => {
                 if let Some(uuid) = self.windows.get(&id).map(|w| w.uuid) {
-                    let disposable = self.notes.get(&uuid).map(is_disposable).unwrap_or(false);
+                    let disposable = self.notes.get(&uuid).is_some_and(is_disposable);
                     if disposable {
                         // The window is already on its way out via
                         // `window::close` below - `delete_note_data` never
@@ -1102,7 +1144,9 @@ impl cosmic::Application for Fleck {
             }
             Message::RenameStart(uuid) => {
                 let current = self.notes.get(&uuid).map(|n| n.frontmatter.name.clone());
-                let Some(current) = current else { return Task::none() };
+                let Some(current) = current else {
+                    return Task::none();
+                };
                 self.rename = RenameState::start(uuid, &current);
                 widget::text_input::focus(self.rename_input_id.clone())
             }
@@ -1112,7 +1156,7 @@ impl cosmic::Application for Fleck {
             }
             Message::RenameSave => {
                 if let RenameState::Editing { uuid, text } = std::mem::take(&mut self.rename) {
-                    self.rename_note(uuid, text);
+                    self.rename_note(uuid, &text);
                 }
                 Task::none()
             }
@@ -1211,14 +1255,18 @@ impl cosmic::Application for Fleck {
         // precedence, since it can only ever be showing right after launch,
         // before there has been any chance to press a card's trash button.
         let uuid = self.pending_delete?;
-        let name = self.notes.get(&uuid).map(display_name).unwrap_or("");
+        let name = self.notes.get(&uuid).map_or("", display_name);
         Some(
             widget::dialog()
                 .title("Delete note?")
-                    .width(Length::Fixed(dialog_width(self.list_window_width)))
+                .width(Length::Fixed(dialog_width(self.list_window_width)))
                 .body(format!("\"{name}\" will be deleted. This can't be undone."))
-                .primary_action(widget::button::destructive("Delete").on_press(Message::DeleteConfirm))
-                .secondary_action(widget::button::standard("Cancel").on_press(Message::DeleteCancel))
+                .primary_action(
+                    widget::button::destructive("Delete").on_press(Message::DeleteConfirm),
+                )
+                .secondary_action(
+                    widget::button::standard("Cancel").on_press(Message::DeleteCancel),
+                )
                 .into(),
         )
     }
@@ -1245,13 +1293,13 @@ mod tests {
     use cosmic::Application;
     use fleck_core::{Frontmatter, FORMAT_VERSION};
 
-
     fn make_fleck(store: Store) -> Fleck {
         Fleck {
             core: Core::default(),
             store,
             window_state: WindowState::default(),
-            state_path: std::env::temp_dir().join(format!("fleck-test-windows-{}.toml", Uuid::new_v4())),
+            state_path: std::env::temp_dir()
+                .join(format!("fleck-test-windows-{}.toml", Uuid::new_v4())),
             window_state_dirty: false,
             windows: HashMap::new(),
             list_window: None,
@@ -1421,7 +1469,8 @@ mod tests {
 
     #[test]
     fn delete_note_data_returns_false_for_unknown_note() {
-        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-missing-{}", Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("fleck-test-delete-missing-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
         let mut app = make_fleck(store);
 
@@ -1479,7 +1528,8 @@ mod tests {
         // Hide-all closes note windows through the same `closing_for_hide`
         // path as a single hide - `NoteClosed` must skip the snapshot
         // entirely for those, not just skip the exit.
-        let tmp = std::env::temp_dir().join(format!("fleck-test-hideall-session-{}", Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("fleck-test-hideall-session-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
         let mut app = make_fleck(store);
         app.window_state.open_at_quit = BTreeSet::from([Uuid::new_v4()]);
@@ -1500,7 +1550,10 @@ mod tests {
 
         let _ = app.update(Message::NoteClosed(id));
 
-        assert_eq!(app.window_state.open_at_quit, previous, "hide-all must not overwrite the saved session");
+        assert_eq!(
+            app.window_state.open_at_quit, previous,
+            "hide-all must not overwrite the saved session"
+        );
         assert!(!app.session_snapshotted);
 
         std::fs::remove_dir_all(&tmp).ok();
@@ -1559,7 +1612,10 @@ mod tests {
 
         let _ = app.update(Message::NewNote);
         let uuid = *app.notes.keys().next().expect("NewNote must create a note");
-        assert!(app.is_visible(uuid), "the new note must be intent-visible as soon as it's created");
+        assert!(
+            app.is_visible(uuid),
+            "the new note must be intent-visible as soon as it's created"
+        );
 
         // Simulate the compositor actually finishing the close that
         // `Message::NewNote`'s `close_list()` requested.
@@ -1569,7 +1625,10 @@ mod tests {
             !app.session_snapshotted,
             "must not exit when the just-created note is still intent-visible"
         );
-        assert!(app.is_visible(uuid), "the new note must still be reported visible");
+        assert!(
+            app.is_visible(uuid),
+            "the new note must still be reported visible"
+        );
 
         std::fs::remove_dir_all(&tmp).ok();
     }
@@ -1587,13 +1646,22 @@ mod tests {
 
         let (uuid, _task) = app.create_note();
         let uuid = uuid.expect("note creation must succeed");
-        assert!(app.is_visible(uuid), "create_note must mark the note intent-visible");
+        assert!(
+            app.is_visible(uuid),
+            "create_note must mark the note intent-visible"
+        );
 
         let _ = app.hide_note(uuid);
-        assert!(!app.is_visible(uuid), "a newly created note must be hideable");
+        assert!(
+            !app.is_visible(uuid),
+            "a newly created note must be hideable"
+        );
 
         let _ = app.show_note(uuid);
-        assert!(app.is_visible(uuid), "showing it again must make it visible");
+        assert!(
+            app.is_visible(uuid),
+            "showing it again must make it visible"
+        );
 
         // A second show on an already-visible note must be a no-op at the
         // intent level - `show_note`'s guard is what stops a second
@@ -1611,7 +1679,8 @@ mod tests {
 
     #[test]
     fn closing_the_list_with_nothing_visible_exits_and_snapshots() {
-        let tmp = std::env::temp_dir().join(format!("fleck-test-list-close-exit-{}", Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("fleck-test-list-close-exit-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
         let mut app = make_fleck(store);
         let list_id = window::Id::unique();
@@ -1619,7 +1688,10 @@ mod tests {
 
         let _ = app.update(Message::NoteClosed(list_id));
 
-        assert!(app.session_snapshotted, "closing the list with nothing intent-visible must exit");
+        assert!(
+            app.session_snapshotted,
+            "closing the list with nothing intent-visible must exit"
+        );
         assert!(app.list_window.is_none());
 
         std::fs::remove_dir_all(&tmp).ok();
@@ -1685,12 +1757,21 @@ mod tests {
         app.intent_visible.show(uuid);
 
         let _ = app.hide_note(uuid);
-        assert!(!app.is_visible(uuid), "hide_note itself must mark it hidden synchronously");
+        assert!(
+            !app.is_visible(uuid),
+            "hide_note itself must mark it hidden synchronously"
+        );
 
         let _ = app.update(Message::NoteClosed(id));
 
-        assert!(!app.is_visible(uuid), "a hide-close must leave the note hidden, not visible");
-        assert!(!app.session_snapshotted, "a hide must never trigger the exit path");
+        assert!(
+            !app.is_visible(uuid),
+            "a hide-close must leave the note hidden, not visible"
+        );
+        assert!(
+            !app.session_snapshotted,
+            "a hide must never trigger the exit path"
+        );
         assert!(!app.windows.contains_key(&id));
 
         std::fs::remove_dir_all(&tmp).ok();
@@ -1715,8 +1796,14 @@ mod tests {
     /// list open needs a live app.
     #[test]
     fn pick_note_closes_list_only_when_the_note_existed() {
-        assert!(pick_note_closes_list(true), "an existing note's pick must still close the list");
-        assert!(!pick_note_closes_list(false), "a vanished note must not close the list");
+        assert!(
+            pick_note_closes_list(true),
+            "an existing note's pick must still close the list"
+        );
+        assert!(
+            !pick_note_closes_list(false),
+            "a vanished note must not close the list"
+        );
     }
 
     /// `update`'s `PickNote` arm must consult exactly this predicate (not
@@ -1745,7 +1832,6 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-
     #[test]
     fn rename_save_writes_the_new_name_and_marks_the_note_dirty() {
         let tmp = std::env::temp_dir().join(format!("fleck-test-rename-{}", Uuid::new_v4()));
@@ -1760,8 +1846,15 @@ mod tests {
         let _ = app.update(Message::RenameSave);
 
         assert_eq!(app.notes[&uuid].frontmatter.name, "Shopping List");
-        assert!(app.dirty.contains_key(&uuid), "a saved rename must be flushed like any other edit");
-        assert_eq!(app.rename, RenameState::Idle, "saving must leave rename mode");
+        assert!(
+            app.dirty.contains_key(&uuid),
+            "a saved rename must be flushed like any other edit"
+        );
+        assert_eq!(
+            app.rename,
+            RenameState::Idle,
+            "saving must leave rename mode"
+        );
 
         std::fs::remove_dir_all(&tmp).ok();
     }
@@ -1780,7 +1873,10 @@ mod tests {
         let _ = app.update(Message::RenameInput(String::new()));
         let _ = app.update(Message::RenameSave);
 
-        assert_eq!(app.notes[&uuid].frontmatter.name, "", "an empty name must be allowed");
+        assert_eq!(
+            app.notes[&uuid].frontmatter.name, "",
+            "an empty name must be allowed"
+        );
 
         std::fs::remove_dir_all(&tmp).ok();
     }
@@ -1819,7 +1915,10 @@ mod tests {
 
         let _ = app.flush(&[id]);
 
-        assert!(app.mtimes.contains_key(&id), "a successful save must populate the mtime cache");
+        assert!(
+            app.mtimes.contains_key(&id),
+            "a successful save must populate the mtime cache"
+        );
 
         std::fs::remove_dir_all(&tmp).ok();
     }
@@ -1853,14 +1952,18 @@ mod tests {
         let _ = app.update(Message::DeleteStart(id));
 
         assert_eq!(app.pending_delete, Some(id));
-        assert!(app.notes.contains_key(&id), "pressing trash must not delete by itself");
+        assert!(
+            app.notes.contains_key(&id),
+            "pressing trash must not delete by itself"
+        );
 
         std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
     fn delete_confirm_deletes_through_the_shared_path() {
-        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-confirm-{}", Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("fleck-test-delete-confirm-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
         let mut app = make_fleck(store);
         let note = sample_note();
@@ -1874,7 +1977,10 @@ mod tests {
 
         let _ = app.update(Message::DeleteConfirm);
 
-        assert!(!app.notes.contains_key(&id), "note must be gone from memory");
+        assert!(
+            !app.notes.contains_key(&id),
+            "note must be gone from memory"
+        );
         assert!(!path.exists(), "note file must be gone from disk");
         assert!(
             !app.window_state.sizes.contains_key(&id),
@@ -1897,7 +2003,10 @@ mod tests {
 
         let _ = app.update(Message::DeleteCancel);
 
-        assert!(app.notes.contains_key(&id), "cancel must not delete the note");
+        assert!(
+            app.notes.contains_key(&id),
+            "cancel must not delete the note"
+        );
         assert_eq!(app.pending_delete, None);
 
         std::fs::remove_dir_all(&tmp).ok();
@@ -1936,7 +2045,8 @@ mod tests {
 
     #[test]
     fn delete_start_is_a_no_op_while_the_restore_dialog_is_showing() {
-        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-restore-{}", Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("fleck-test-delete-restore-{}", Uuid::new_v4()));
         let store = Store::new(&tmp);
         let mut app = make_fleck(store);
         let note = sample_note();
@@ -1972,7 +2082,11 @@ mod tests {
 
         let _ = app.update(Message::DeleteStart(other_id));
 
-        assert_eq!(app.rename, RenameState::Idle, "trash must cancel the in-progress rename");
+        assert_eq!(
+            app.rename,
+            RenameState::Idle,
+            "trash must cancel the in-progress rename"
+        );
         assert_eq!(
             app.notes[&renaming_id].frontmatter.name, "Original",
             "the cancelled rename must not be saved"
@@ -2016,7 +2130,10 @@ mod visibility_tests {
         intent.show(uuid);
         intent.hide(uuid);
         intent.show(uuid);
-        assert!(intent.is_visible(uuid), "a show right after a hide must leave the note visible");
+        assert!(
+            intent.is_visible(uuid),
+            "a show right after a hide must leave the note visible"
+        );
     }
 
     #[test]
@@ -2024,7 +2141,10 @@ mod visibility_tests {
         let uuid = Uuid::new_v4();
         let mut intent = VisibilityIntent::default();
         assert!(intent.show(uuid), "first show is a real change");
-        assert!(!intent.show(uuid), "second show must report no change - no duplicate window");
+        assert!(
+            !intent.show(uuid),
+            "second show must report no change - no duplicate window"
+        );
         assert!(intent.is_visible(uuid));
     }
 

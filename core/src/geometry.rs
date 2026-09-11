@@ -109,9 +109,8 @@ impl WindowState {
     /// A missing or unreadable state file yields empty state. Window positions
     /// are worth losing; startup is not.
     pub fn load(path: &Path) -> std::io::Result<Self> {
-        let text = match std::fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(_) => return Ok(Self::default()),
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return Ok(Self::default());
         };
         Ok(toml::from_str(&text).unwrap_or_default())
     }
@@ -170,11 +169,22 @@ mod tests {
     }
 
     fn info(name: &str, serial: Option<&str>, w: u32, h: u32, primary: bool) -> OutputInfo {
-        OutputInfo { id: output(name, serial), width: w, height: h, primary }
+        OutputInfo {
+            id: output(name, serial),
+            width: w,
+            height: h,
+            primary,
+        }
     }
 
     fn placement(on: OutputId) -> Placement {
-        Placement { output: on, x: 0.5, y: 0.25, w: 0.2, h: 0.1 }
+        Placement {
+            output: on,
+            x: 0.5,
+            y: 0.25,
+            w: 0.2,
+            h: 0.1,
+        }
     }
 
     #[test]
@@ -205,9 +215,21 @@ mod tests {
     #[test]
     fn clamps_a_note_that_would_fall_off_a_smaller_display() {
         let outputs = vec![info("eDP-1", Some("LAP001"), 1000, 1000, true)];
-        let p = Placement { output: output("eDP-1", Some("LAP001")), x: 0.95, y: 0.95, w: 0.2, h: 0.2 };
+        let p = Placement {
+            output: output("eDP-1", Some("LAP001")),
+            x: 0.95,
+            y: 0.95,
+            w: 0.2,
+            h: 0.2,
+        };
         let r = resolve(&p, &outputs).unwrap();
-        assert_eq!((r.x + r.w as i32, r.y + r.h as i32), (1000, 1000));
+        assert_eq!(
+            (
+                r.x + i32::try_from(r.w).unwrap(),
+                r.y + i32::try_from(r.h).unwrap()
+            ),
+            (1000, 1000)
+        );
     }
 
     #[test]
@@ -228,7 +250,9 @@ mod tests {
         let id = uuid::Uuid::from_u128(3);
 
         let mut state = WindowState::default();
-        state.placements.insert(id, placement(output("DP-1", Some("ABC123"))));
+        state
+            .placements
+            .insert(id, placement(output("DP-1", Some("ABC123"))));
         state.minimized.insert(id);
         state.save(&path).unwrap();
 

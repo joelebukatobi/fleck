@@ -298,7 +298,12 @@ mod tests {
     fn ignores_backup_and_non_markdown_files() {
         let dir = tempfile::tempdir().unwrap();
         write_note(dir.path(), Uuid::from_u128(1), "fine\n");
-        std::fs::write(dir.path().join("00000000-0000-0000-0000-000000000001.md.bak"), "x").unwrap();
+        std::fs::write(
+            dir.path()
+                .join("00000000-0000-0000-0000-000000000001.md.bak"),
+            "x",
+        )
+        .unwrap();
         std::fs::write(dir.path().join("notes.txt"), "x").unwrap();
         assert_eq!(Store::new(dir.path()).list().unwrap().len(), 1);
     }

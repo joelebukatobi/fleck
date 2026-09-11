@@ -35,7 +35,10 @@ pub(super) const BODY_PADDING: f32 = 8.0;
 /// opaque theme background, plus the application id. Decorations stay
 /// server-side - a client-side header made the flicker far worse.
 pub(super) fn note_window_settings(size: Size) -> window::Settings {
-    let mut settings = window::Settings { size, ..window::Settings::default() };
+    let mut settings = window::Settings {
+        size,
+        ..window::Settings::default()
+    };
     settings.transparent = true;
     settings.platform_specific.application_id = <Fleck as cosmic::Application>::APP_ID.to_string();
     settings
@@ -108,8 +111,10 @@ pub(super) fn edit_kind(action: &text_editor::Action) -> Option<(EditKind, bool)
     };
     Some(match edit {
         text_editor::Edit::Insert(c) => (EditKind::Insert, c.is_whitespace()),
-        text_editor::Edit::Enter | text_editor::Edit::Paste(_) => (EditKind::Insert, true),
-        text_editor::Edit::Indent | text_editor::Edit::Unindent => (EditKind::Insert, true),
+        text_editor::Edit::Enter
+        | text_editor::Edit::Paste(_)
+        | text_editor::Edit::Indent
+        | text_editor::Edit::Unindent => (EditKind::Insert, true),
         text_editor::Edit::Backspace | text_editor::Edit::Delete => (EditKind::Delete, false),
     })
 }
@@ -198,7 +203,10 @@ impl Fleck {
                         // in `ruled::RuledLines` about why that canvas fill
                         // has to exist at all.
                         background: Color::TRANSPARENT.into(),
-                        border: Border { width: 0.0, ..Border::default() },
+                        border: Border {
+                            width: 0.0,
+                            ..Border::default()
+                        },
                         placeholder,
                         value,
                         selection: Color::from(theme.cosmic().accent.base),
@@ -221,7 +229,10 @@ impl Fleck {
             // (`Length::Fill`) matches the editor's resolved size exactly
             // while still rendering first, i.e. behind the (transparent)
             // text.
-            let stack = Stack::new().push(editor).push_under(lines).width(Length::Fill);
+            let stack = Stack::new()
+                .push(editor)
+                .push_under(lines)
+                .width(Length::Fill);
 
             // The `scrollable` lives *inside* `responsive`, wrapping the
             // editor+canvas stack: for a short note the stack is exactly
@@ -232,28 +243,32 @@ impl Fleck {
             // as a unit - if the editor scrolled *internally* instead, the
             // canvas would stay fixed while the text moved, breaking the
             // line alignment.
-            widget::scrollable(stack).width(Length::Fill).height(Length::Fill).into()
+            widget::scrollable(stack)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
         })
         .width(Length::Fill)
         .height(Length::Fill);
 
         widget::container(body)
-        // An explicit opaque background is a rendering requirement, not
-        // decoration: `view_window` is used directly for every secondary
-        // note window with nothing else wrapping it (see `Cosmic::view` in
-        // libcosmic), so if this container's background were left at its
-        // default (`Container::Transparent`), the whole window would render
-        // transparent - the desktop showing through, stale frames smearing,
-        // exactly the failure mode this task's brief warns about.
-        .class(cosmic::theme::Container::WindowBackground)
-        .padding(12)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+            // An explicit opaque background is a rendering requirement, not
+            // decoration: `view_window` is used directly for every secondary
+            // note window with nothing else wrapping it (see `Cosmic::view` in
+            // libcosmic), so if this container's background were left at its
+            // default (`Container::Transparent`), the whole window would render
+            // transparent - the desktop showing through, stale frames smearing,
+            // exactly the failure mode this task's brief warns about.
+            .class(cosmic::theme::Container::WindowBackground)
+            .padding(12)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)] // exact pixel values are the point of these tests
 mod tests {
     use super::*;
 
@@ -291,14 +306,20 @@ mod tests {
     fn body_min_height_plus_padding_never_exceeds_a_whole_viewport() {
         let viewport = 768.0;
         let outer_height = body_min_height(viewport) + 2.0 * BODY_PADDING;
-        assert!(outer_height <= viewport, "outer height {outer_height} exceeds viewport {viewport}");
+        assert!(
+            outer_height <= viewport,
+            "outer height {outer_height} exceeds viewport {viewport}"
+        );
     }
 
     #[test]
     fn body_min_height_plus_padding_never_exceeds_a_fractional_viewport() {
         let viewport = 767.6;
         let outer_height = body_min_height(viewport) + 2.0 * BODY_PADDING;
-        assert!(outer_height <= viewport, "outer height {outer_height} exceeds viewport {viewport}");
+        assert!(
+            outer_height <= viewport,
+            "outer height {outer_height} exceeds viewport {viewport}"
+        );
     }
 
     #[test]

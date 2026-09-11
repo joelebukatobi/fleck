@@ -77,7 +77,11 @@ fn unknown_note(uuid: Uuid) -> fdo::Error {
 impl FleckInterface {
     async fn list_notes(&self) -> fdo::Result<Vec<(String, String, bool)>> {
         let (tx, rx) = oneshot::channel();
-        self.requests.clone().send(Request::ListNotes(tx)).await.map_err(|_| dead_app())?;
+        self.requests
+            .clone()
+            .send(Request::ListNotes(tx))
+            .await
+            .map_err(|_| dead_app())?;
         rx.await.map_err(|_| dead_app())
     }
 
@@ -88,7 +92,11 @@ impl FleckInterface {
     ) -> fdo::Result<()> {
         let uuid = parse_uuid(uuid)?;
         let (tx, rx) = oneshot::channel();
-        self.requests.clone().send(Request::ShowNote(uuid, tx)).await.map_err(|_| dead_app())?;
+        self.requests
+            .clone()
+            .send(Request::ShowNote(uuid, tx))
+            .await
+            .map_err(|_| dead_app())?;
         if rx.await.map_err(|_| dead_app())? {
             let _ = emitter.notes_changed().await;
             Ok(())
@@ -104,7 +112,11 @@ impl FleckInterface {
     ) -> fdo::Result<()> {
         let uuid = parse_uuid(uuid)?;
         let (tx, rx) = oneshot::channel();
-        self.requests.clone().send(Request::HideNote(uuid, tx)).await.map_err(|_| dead_app())?;
+        self.requests
+            .clone()
+            .send(Request::HideNote(uuid, tx))
+            .await
+            .map_err(|_| dead_app())?;
         if rx.await.map_err(|_| dead_app())? {
             let _ = emitter.notes_changed().await;
             Ok(())
@@ -118,13 +130,19 @@ impl FleckInterface {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> fdo::Result<String> {
         let (tx, rx) = oneshot::channel();
-        self.requests.clone().send(Request::NewNote(tx)).await.map_err(|_| dead_app())?;
+        self.requests
+            .clone()
+            .send(Request::NewNote(tx))
+            .await
+            .map_err(|_| dead_app())?;
         match rx.await.map_err(|_| dead_app())? {
             Some(uuid) => {
                 let _ = emitter.notes_changed().await;
                 Ok(uuid.to_string())
             }
-            None => Err(fdo::Error::Failed("fleck: failed to create note".to_string())),
+            None => Err(fdo::Error::Failed(
+                "fleck: failed to create note".to_string(),
+            )),
         }
     }
 
@@ -135,7 +153,11 @@ impl FleckInterface {
     ) -> fdo::Result<()> {
         let uuid = parse_uuid(uuid)?;
         let (tx, rx) = oneshot::channel();
-        self.requests.clone().send(Request::DeleteNote(uuid, tx)).await.map_err(|_| dead_app())?;
+        self.requests
+            .clone()
+            .send(Request::DeleteNote(uuid, tx))
+            .await
+            .map_err(|_| dead_app())?;
         if rx.await.map_err(|_| dead_app())? {
             let _ = emitter.notes_changed().await;
             Ok(())
@@ -149,7 +171,11 @@ impl FleckInterface {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> fdo::Result<bool> {
         let (tx, rx) = oneshot::channel();
-        self.requests.clone().send(Request::ToggleAll(tx)).await.map_err(|_| dead_app())?;
+        self.requests
+            .clone()
+            .send(Request::ToggleAll(tx))
+            .await
+            .map_err(|_| dead_app())?;
         let visible = rx.await.map_err(|_| dead_app())?;
         let _ = emitter.notes_changed().await;
         Ok(visible)
@@ -157,12 +183,20 @@ impl FleckInterface {
 
     async fn show_list(&self) -> fdo::Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.requests.clone().send(Request::ShowList(tx)).await.map_err(|_| dead_app())?;
+        self.requests
+            .clone()
+            .send(Request::ShowList(tx))
+            .await
+            .map_err(|_| dead_app())?;
         rx.await.map_err(|_| dead_app())
     }
 
     async fn quit(&self) -> fdo::Result<()> {
-        self.requests.clone().send(Request::Quit).await.map_err(|_| dead_app())
+        self.requests
+            .clone()
+            .send(Request::Quit)
+            .await
+            .map_err(|_| dead_app())
     }
 
     #[zbus(signal)]

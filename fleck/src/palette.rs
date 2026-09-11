@@ -53,6 +53,7 @@ impl Colour {
         }
     }
 
+    #[allow(clippy::unused_self)] // same shape as `background`, which does use the colour
     pub fn text(self, dark: bool) -> (u8, u8, u8) {
         if dark {
             (0xF2, 0xF2, 0xF2)
@@ -65,7 +66,7 @@ impl Colour {
 /// WCAG 2.1 relative luminance and contrast ratio.
 fn relative_luminance((r, g, b): (u8, u8, u8)) -> f32 {
     fn channel(v: u8) -> f32 {
-        let v = v as f32 / 255.0;
+        let v = f32::from(v) / 255.0;
         if v <= 0.03928 {
             v / 12.92
         } else {

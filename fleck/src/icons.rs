@@ -10,7 +10,8 @@ use cosmic::widget;
 const PLUS: &[u8] = include_bytes!("../../data/icons/phosphor/plus-bold.svg");
 const PENCIL_SIMPLE: &[u8] = include_bytes!("../../data/icons/phosphor/pencil-simple-bold.svg");
 const TRASH: &[u8] = include_bytes!("../../data/icons/phosphor/trash-bold.svg");
-const MAGNIFYING_GLASS: &[u8] = include_bytes!("../../data/icons/phosphor/magnifying-glass-bold.svg");
+const MAGNIFYING_GLASS: &[u8] =
+    include_bytes!("../../data/icons/phosphor/magnifying-glass-bold.svg");
 const X: &[u8] = include_bytes!("../../data/icons/phosphor/x-bold.svg");
 const NOTE_PENCIL: &[u8] = include_bytes!("../../data/icons/phosphor/note-pencil-bold.svg");
 
@@ -50,7 +51,10 @@ mod tests {
     #[test]
     fn x_icon_is_an_svg_and_symbolic() {
         assert!(X.starts_with(b"<svg"), "x-bold.svg must be an SVG");
-        assert!(x().symbolic, "the clear icon must be symbolic so it takes the theme colour");
+        assert!(
+            x().symbolic,
+            "the clear icon must be symbolic so it takes the theme colour"
+        );
     }
 
     use super::*;

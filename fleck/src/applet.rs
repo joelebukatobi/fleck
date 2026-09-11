@@ -55,7 +55,10 @@ enum ShowListOutcome {
 /// opposed to any other failure (session bus down, call timed out, Fleck
 /// replied with an error), which just gets logged.
 fn is_not_running(err: &zbus::fdo::Error) -> bool {
-    matches!(err, zbus::fdo::Error::ServiceUnknown(_) | zbus::fdo::Error::NameHasNoOwner(_))
+    matches!(
+        err,
+        zbus::fdo::Error::ServiceUnknown(_) | zbus::fdo::Error::NameHasNoOwner(_)
+    )
 }
 
 async fn try_show_list() -> ShowListOutcome {
@@ -160,9 +163,9 @@ impl cosmic::Application for FleckApplet {
             // the same tokio-backed one the app uses - zbus's `tokio`
             // feature needs a tokio reactor present) so a wedged Fleck blocks
             // only this task, never the UI thread.
-            Message::Clicked => {
-                Task::perform(handle_click(), |()| cosmic::Action::App(Message::ClickHandled))
-            }
+            Message::Clicked => Task::perform(handle_click(), |()| {
+                cosmic::Action::App(Message::ClickHandled)
+            }),
             Message::ClickHandled => Task::none(),
         }
     }
@@ -206,9 +209,15 @@ mod tests {
 
     #[test]
     fn other_dbus_errors_are_not_treated_as_not_running() {
-        assert!(!is_not_running(&zbus::fdo::Error::Failed("fleck: broken".to_string())));
-        assert!(!is_not_running(&zbus::fdo::Error::AccessDenied("nope".to_string())));
-        assert!(!is_not_running(&zbus::fdo::Error::Timeout("slow".to_string())));
+        assert!(!is_not_running(&zbus::fdo::Error::Failed(
+            "fleck: broken".to_string()
+        )));
+        assert!(!is_not_running(&zbus::fdo::Error::AccessDenied(
+            "nope".to_string()
+        )));
+        assert!(!is_not_running(&zbus::fdo::Error::Timeout(
+            "slow".to_string()
+        )));
     }
 
     /// Was `sibling_path_is_computed_from_applets_own_directory` /
@@ -225,6 +234,10 @@ mod tests {
             command.get_program(),
             std::env::current_exe().expect("current_exe").as_os_str()
         );
-        assert_eq!(command.get_args().count(), 0, "must not pass --applet or any other flag");
+        assert_eq!(
+            command.get_args().count(),
+            0,
+            "must not pass --applet or any other flag"
+        );
     }
 }

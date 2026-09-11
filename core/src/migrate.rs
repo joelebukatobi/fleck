@@ -79,7 +79,10 @@ mod tests {
         migrate_dir(&old, &new);
 
         assert!(!old.exists());
-        assert_eq!(std::fs::read_to_string(new.join("notes").join("one.md")).unwrap(), "hello");
+        assert_eq!(
+            std::fs::read_to_string(new.join("notes").join("one.md")).unwrap(),
+            "hello"
+        );
     }
 
     #[test]

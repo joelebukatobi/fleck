@@ -91,7 +91,10 @@ impl<Message> canvas::Program<Message, Theme> for RuledLines {
             let stroke = canvas::Stroke {
                 style: canvas::Style::Solid(Color::from(container.divider)),
                 width: 1.0,
-                line_dash: canvas::LineDash { segments: &dash, offset: 0 },
+                line_dash: canvas::LineDash {
+                    segments: &dash,
+                    offset: 0,
+                },
                 ..canvas::Stroke::default()
             };
 
@@ -106,13 +109,18 @@ impl<Message> canvas::Program<Message, Theme> for RuledLines {
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)] // exact pixel values are the point of these tests
 mod tests {
     use super::*;
 
     #[test]
     fn first_line_accounts_for_padding() {
         let offsets = line_offsets(200.0, 24.0, 8.0);
-        assert_eq!(offsets[0], 8.0 + 24.0, "first rule sits one line below the padded top");
+        assert_eq!(
+            offsets[0],
+            8.0 + 24.0,
+            "first rule sits one line below the padded top"
+        );
     }
 
     #[test]
@@ -128,7 +136,10 @@ mod tests {
     #[test]
     fn spacing_is_exactly_the_line_height() {
         let offsets = line_offsets(200.0, 24.0, 8.0);
-        assert!(offsets.len() > 2, "need at least a few lines to check spacing between them");
+        assert!(
+            offsets.len() > 2,
+            "need at least a few lines to check spacing between them"
+        );
         for pair in offsets.windows(2) {
             assert_eq!(pair[1] - pair[0], 24.0);
         }
@@ -138,8 +149,13 @@ mod tests {
     fn enough_lines_are_produced_to_fill_the_height() {
         let height = 100.0;
         let offsets = line_offsets(height, 24.0, 8.0);
-        let last = *offsets.last().expect("a positive height produces at least one line");
-        assert!(last >= height, "last line {last} must reach all the way to {height}");
+        let last = *offsets
+            .last()
+            .expect("a positive height produces at least one line");
+        assert!(
+            last >= height,
+            "last line {last} must reach all the way to {height}"
+        );
         // Not merely "enough", but no more than necessary: the line before
         // it must not already have reached the bottom, or this would also
         // pass for an implementation that pads with extra unneeded lines.

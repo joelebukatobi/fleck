@@ -59,7 +59,10 @@ async fn cli_list() -> i32 {
         Ok(proxy) => match proxy.list_notes().await {
             Ok(notes) => {
                 for (uuid, name, visible) in notes {
-                    println!("{uuid}\t{name}\t{}", if visible { "visible" } else { "hidden" });
+                    println!(
+                        "{uuid}\t{name}\t{}",
+                        if visible { "visible" } else { "hidden" }
+                    );
                 }
                 OK
             }
@@ -241,66 +244,47 @@ pub fn now_rfc3339() -> String {
 /// dependency) using the days-since-epoch civil calendar conversion from
 /// Howard Hinnant's `chrono-Compatible Low-Level Date Algorithms`.
 fn rfc3339_from_unix_secs(secs: u64) -> String {
-    let days = (secs / 86_400) as i64;
+    let days = (secs / 86_400).cast_signed();
     let time_of_day = secs % 86_400;
-    let (hour, minute, second) = (time_of_day / 3600, (time_of_day / 60) % 60, time_of_day % 60);
+    let (hour, minute, second) = (
+        time_of_day / 3600,
+        (time_of_day / 60) % 60,
+        time_of_day % 60,
+    );
 
     // civil_from_days: days since 1970-01-01 -> (year, month, day).
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let doe = (z - era * 146_097) as u64; // [0, 146096]
     let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
-    let year = yoe as i64 + era * 400;
+    let year = yoe.cast_signed() + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
     let mp = (5 * doy + 2) / 153; // [0, 11]
     let day = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
     let month = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
     let year = if month <= 2 { year + 1 } else { year };
 
-    format!(
-        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Expected values verified with `date -u -d @<secs> +%Y-%m-%dT%H:%M:%SZ`.
-    #[test]
-    fn rfc3339_from_unix_secs_matches_known_dates() {
-        assert_eq!(rfc3339_from_unix_secs(0), "1970-01-01T00:00:00Z");
-        assert_eq!(
-            rfc3339_from_unix_secs(951_782_400),
-            "2000-02-29T00:00:00Z",
-            "leap year, century divisible by 400"
-        );
-        assert_eq!(
-            rfc3339_from_unix_secs(4_107_542_400),
-            "2100-03-01T00:00:00Z",
-            "century NOT a leap year"
-        );
-        assert_eq!(
-            rfc3339_from_unix_secs(1_704_067_199),
-            "2023-12-31T23:59:59Z",
-            "year boundary"
-        );
-        assert_eq!(rfc3339_from_unix_secs(1_709_164_800), "2024-02-29T00:00:00Z");
-    }
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
 fn xdg_data_home() -> std::path::PathBuf {
-    std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| {
-        let home = std::env::var_os("HOME").expect("HOME is set");
-        std::path::PathBuf::from(home).join(".local/share")
-    })
+    std::env::var_os("XDG_DATA_HOME").map_or_else(
+        || {
+            let home = std::env::var_os("HOME").expect("HOME is set");
+            std::path::PathBuf::from(home).join(".local/share")
+        },
+        std::path::PathBuf::from,
+    )
 }
 
 fn xdg_state_home() -> std::path::PathBuf {
-    std::env::var_os("XDG_STATE_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| {
-        let home = std::env::var_os("HOME").expect("HOME is set");
-        std::path::PathBuf::from(home).join(".local/state")
-    })
+    std::env::var_os("XDG_STATE_HOME").map_or_else(
+        || {
+            let home = std::env::var_os("HOME").expect("HOME is set");
+            std::path::PathBuf::from(home).join(".local/state")
+        },
+        std::path::PathBuf::from,
+    )
 }
 
 /// Renames `$XDG_DATA_HOME/fleck` to `$XDG_DATA_HOME/fleck` and
@@ -338,7 +322,10 @@ const DEFAULT_WINDOW_SIZE: cosmic::iced::Size = cosmic::iced::Size::new(512.0, 7
 fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn,fleck=info"));
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .try_init();
 }
 
 fn main() -> cosmic::iced::Result {
@@ -446,7 +433,45 @@ fn main() -> cosmic::iced::Result {
     // `Fleck` itself decides when to exit, once every window (list and
     // notes) is gone.
     cosmic::app::run::<app::Fleck>(
-        cosmic::app::Settings::default().exit_on_close(false).size(DEFAULT_WINDOW_SIZE),
-        app::Flags { store, window_state, state_path, dbus_connection: connection, dbus_rx },
+        cosmic::app::Settings::default()
+            .exit_on_close(false)
+            .size(DEFAULT_WINDOW_SIZE),
+        app::Flags {
+            store,
+            window_state,
+            state_path,
+            dbus_connection: connection,
+            dbus_rx,
+        },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Expected values verified with `date -u -d @<secs> +%Y-%m-%dT%H:%M:%SZ`.
+    #[test]
+    fn rfc3339_from_unix_secs_matches_known_dates() {
+        assert_eq!(rfc3339_from_unix_secs(0), "1970-01-01T00:00:00Z");
+        assert_eq!(
+            rfc3339_from_unix_secs(951_782_400),
+            "2000-02-29T00:00:00Z",
+            "leap year, century divisible by 400"
+        );
+        assert_eq!(
+            rfc3339_from_unix_secs(4_107_542_400),
+            "2100-03-01T00:00:00Z",
+            "century NOT a leap year"
+        );
+        assert_eq!(
+            rfc3339_from_unix_secs(1_704_067_199),
+            "2023-12-31T23:59:59Z",
+            "year boundary"
+        );
+        assert_eq!(
+            rfc3339_from_unix_secs(1_709_164_800),
+            "2024-02-29T00:00:00Z"
+        );
+    }
 }
