@@ -282,9 +282,17 @@ const CARD_HEADING_PADDING_X: u16 = 8;
 const CARD_HEADING_GAP: u16 = 4;
 /// Gap between a card's title and its rename pencil, within the heading row.
 const CARD_HEADING_ROW_SPACING: u16 = 8;
-/// Gap between the pencil and trash buttons. 0 because each button's own
-/// 8 px padding already puts their icons 16 px apart.
+/// Gap between the pencil and trash buttons. 0: their facing paddings
+/// (`CARD_ACTION_INNER_PADDING`) set the distance between the icons.
 const CARD_ACTION_SPACING: u16 = 0;
+/// Padding on the outer sides of the rename and delete buttons (top, bottom,
+/// and the side away from the other button). Matches libcosmic's own
+/// `extra_small` icon-button padding, so the delete icon stays 8 px from the
+/// card's right edge.
+const CARD_ACTION_PADDING: u16 = 8;
+/// Padding on the side where the rename and delete buttons face each other.
+/// 4 + 4 puts their icons 8 px apart.
+const CARD_ACTION_INNER_PADDING: u16 = 4;
 /// Right padding of the card heading. 0 so the trash icon, inside its own
 /// 8 px button padding, sits 8 px from the card's right edge.
 const CARD_HEADING_PADDING_RIGHT: u16 = 0;
@@ -1181,12 +1189,14 @@ impl Fleck {
                     .push(
                         widget::button::icon(crate::icons::pencil_simple())
                             .extra_small()
+                            .padding([CARD_ACTION_PADDING, CARD_ACTION_INNER_PADDING, CARD_ACTION_PADDING, CARD_ACTION_PADDING])
                             .on_press(Message::RenameStart(uuid))
                             .class(icon_button_class(IconHoverRole::Accent)),
                     )
                     .push(
                         widget::button::icon(crate::icons::trash())
                             .extra_small()
+                            .padding([CARD_ACTION_PADDING, CARD_ACTION_PADDING, CARD_ACTION_PADDING, CARD_ACTION_INNER_PADDING])
                             .on_press(Message::DeleteStart(uuid))
                             .class(icon_button_class(IconHoverRole::Destructive)),
                     ),
