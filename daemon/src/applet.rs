@@ -1,31 +1,35 @@
-//! `cosmic-ext-applet-fleck`: a single icon in the COSMIC panel. Clicking it
-//! asks the running `fleck` instance (`io.github.joelebukatobi.Fleck` on the
-//! session bus) to show its notes list window; if nothing owns that name,
-//! it starts `fleck` instead. No popup, no menu - see docs/ux.md "Panel
-//! applet".
+//! The COSMIC panel applet, run via `fleck --applet`: a single icon in the
+//! panel. Clicking it asks the running `fleck` instance
+//! (`io.github.joelebukatobi.Fleck` on the session bus) to show its notes
+//! list window; if nothing owns that name, it starts `fleck` (itself, with
+//! no `--applet` flag). No popup, no menu - see docs/ux.md "Panel applet".
+//!
+//! Formerly the separate `cosmic-ext-applet-fleck` binary/crate; merged into
+//! `fleck` so only one binary (and one statically-linked copy of libcosmic)
+//! ships. Entered from `main()` via `run()`, before any of the app's own
+//! startup (data-dir migration, D-Bus name acquisition, note store, window
+//! state) runs.
 
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use cosmic::app::{Core, Task};
 use cosmic::Element;
 
-mod icons;
+use crate::icons;
 
 /// Separate from Fleck's own id (`io.github.joelebukatobi.Fleck`) - this is a
-/// different program.
+/// different program, even though it now lives in the same binary.
 const APP_ID: &str = "io.github.joelebukatobi.FleckApplet";
 
-/// Mirrors `daemon/src/main.rs`'s `RELAUNCH_TIMEOUT`: long enough for a
-/// normal D-Bus round trip, short enough that a wedged Fleck doesn't freeze
-/// the panel.
+/// Mirrors `main.rs`'s `RELAUNCH_TIMEOUT`: long enough for a normal D-Bus
+/// round trip, short enough that a wedged Fleck doesn't freeze the panel.
 const CLICK_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Client-side view of the `io.github.joelebukatobi.Fleck` service. Mirrors
-/// the (private) `Fleck` proxy trait in `daemon/src/main.rs`, trimmed to the
-/// one method this applet calls - not shared from `daemon` because the
-/// daemon's copy isn't `pub` and a four-line proxy trait isn't worth
-/// threading a new public export through `daemon`/`core` for.
+/// the (private) `Fleck` proxy trait in `main.rs`, trimmed to the one method
+/// this applet calls - not shared from there because that copy isn't `pub`
+/// and a four-line proxy trait isn't worth threading a shared export through
+/// for.
 #[zbus::proxy(
     default_service = "io.github.joelebukatobi.Fleck",
     default_path = "/io/github/joelebukatobi/Fleck",
@@ -80,38 +84,44 @@ async fn try_show_list() -> ShowListOutcome {
     }
 }
 
-/// The sibling `fleck` binary's path, computed from the applet's own path -
-/// in development both land in `target/release/`, packaged both land in
-/// `/usr/bin`, so this works in either case without depending on `$PATH`.
-fn sibling_binary_path(applet_exe: &Path, name: &str) -> PathBuf {
-    match applet_exe.parent() {
-        Some(dir) => dir.join(name),
-        None => PathBuf::from(name),
-    }
+/// Builds the command that starts the app: this same executable
+/// (`std::env::current_exe()`), with no `--applet` flag, so it runs as the
+/// app rather than re-entering the applet.
+fn app_command() -> std::io::Result<std::process::Command> {
+    let exe = std::env::current_exe()?;
+    Ok(std::process::Command::new(exe))
 }
 
-/// Spawns `fleck` detached (never awaited) next to this binary. Logs and
-/// gives up on any failure rather than crashing the applet.
-fn spawn_fleck() {
-    let exe = match std::env::current_exe() {
-        Ok(exe) => exe,
+/// Spawns the app (this executable, no `--applet`) detached from the
+/// applet's process group - it must keep running if the applet exits - and
+/// reaps it on a background thread so it never lingers as a zombie. The
+/// thread only waits on the child; it does not block the applet's UI.
+fn spawn_app() {
+    let mut command = match app_command() {
+        Ok(command) => command,
         Err(e) => {
-            eprintln!("cosmic-ext-applet-fleck: couldn't determine own path: {e}");
+            eprintln!("fleck --applet: couldn't determine own path: {e}");
             return;
         }
     };
-    let fleck = sibling_binary_path(&exe, "fleck");
-    if let Err(e) = std::process::Command::new(&fleck).spawn() {
-        eprintln!("cosmic-ext-applet-fleck: failed to start {}: {e}", fleck.display());
+    match command.spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(e) => {
+            eprintln!("fleck --applet: failed to start the app: {e}");
+        }
     }
 }
 
 async fn handle_click() {
     match try_show_list().await {
         ShowListOutcome::Shown => {}
-        ShowListOutcome::NotRunning => spawn_fleck(),
+        ShowListOutcome::NotRunning => spawn_app(),
         ShowListOutcome::Failed(msg) => {
-            eprintln!("cosmic-ext-applet-fleck: ShowList failed: {msg}");
+            eprintln!("fleck --applet: ShowList failed: {msg}");
         }
     }
 }
@@ -147,7 +157,7 @@ impl cosmic::Application for FleckApplet {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             // Run over the applet's own executor (cosmic::executor::Default,
-            // the same tokio-backed one the daemon uses - zbus's `tokio`
+            // the same tokio-backed one the app uses - zbus's `tokio`
             // feature needs a tokio reactor present) so a wedged Fleck blocks
             // only this task, never the UI thread.
             Message::Clicked => {
@@ -170,7 +180,9 @@ impl cosmic::Application for FleckApplet {
     }
 }
 
-fn main() -> cosmic::iced::Result {
+/// Entry point for `fleck --applet`, called from `main()` before anything
+/// else runs.
+pub fn run() -> cosmic::iced::Result {
     cosmic::applet::run::<FleckApplet>(())
 }
 
@@ -199,23 +211,20 @@ mod tests {
         assert!(!is_not_running(&zbus::fdo::Error::Timeout("slow".to_string())));
     }
 
+    /// Was `sibling_path_is_computed_from_applets_own_directory` /
+    /// `sibling_path_falls_back_to_bare_name_with_no_parent` when the applet
+    /// spawned a sibling `fleck` binary next to itself. Now it spawns its
+    /// own executable, so the thing worth asserting is that the spawn
+    /// target is `current_exe()` with no arguments (in particular, no
+    /// `--applet`, which would re-enter the applet instead of starting the
+    /// app).
     #[test]
-    fn sibling_path_is_computed_from_applets_own_directory() {
+    fn spawn_target_is_current_exe_with_no_applet_flag() {
+        let command = app_command().expect("current_exe should resolve in tests");
         assert_eq!(
-            sibling_binary_path(Path::new("/usr/bin/cosmic-ext-applet-fleck"), "fleck"),
-            PathBuf::from("/usr/bin/fleck")
+            command.get_program(),
+            std::env::current_exe().expect("current_exe").as_os_str()
         );
-        assert_eq!(
-            sibling_binary_path(
-                Path::new("/home/user/project/target/release/cosmic-ext-applet-fleck"),
-                "fleck"
-            ),
-            PathBuf::from("/home/user/project/target/release/fleck")
-        );
-    }
-
-    #[test]
-    fn sibling_path_falls_back_to_bare_name_with_no_parent() {
-        assert_eq!(sibling_binary_path(Path::new("cosmic-ext-applet-fleck"), "fleck"), PathBuf::from("fleck"));
+        assert_eq!(command.get_args().count(), 0, "must not pass --applet or any other flag");
     }
 }

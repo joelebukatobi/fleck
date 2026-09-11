@@ -92,7 +92,8 @@ Modelled on the Windows Sticky Notes list window.
 
 ## Panel applet
 
-- An icon that lives permanently in the COSMIC top panel.
+- An icon that lives permanently in the COSMIC top panel: `fleck --applet`, the
+  same program as the app, not a separate binary.
 - Clicking it opens the full notes list window — the same as launching Fleck from
   the app library. No popup of its own.
 - If Fleck isn't running, clicking it starts Fleck.

@@ -1,4 +1,5 @@
 mod app;
+mod applet;
 mod dbus;
 mod icons;
 mod ruled;
@@ -333,6 +334,13 @@ fn window_state_path() -> std::path::PathBuf {
 const DEFAULT_WINDOW_SIZE: cosmic::iced::Size = cosmic::iced::Size::new(512.0, 768.0);
 
 fn main() -> cosmic::iced::Result {
+    // `--applet` dispatches to the panel icon and nothing else: no
+    // data-directory migration, no D-Bus name acquisition, no note store,
+    // no window state. Checked before any of that runs.
+    if std::env::args().nth(1).as_deref() == Some("--applet") {
+        return applet::run();
+    }
+
     // Must run before anything below reads notes_dir()/window_state_path(),
     // so a pre-rename (Fleck) install's notes and window state are in place
     // by the time they're loaded.

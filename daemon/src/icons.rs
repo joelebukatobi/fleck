@@ -12,6 +12,7 @@ const PENCIL_SIMPLE: &[u8] = include_bytes!("../../data/icons/phosphor/pencil-si
 const TRASH: &[u8] = include_bytes!("../../data/icons/phosphor/trash-bold.svg");
 const MAGNIFYING_GLASS: &[u8] = include_bytes!("../../data/icons/phosphor/magnifying-glass-bold.svg");
 const X: &[u8] = include_bytes!("../../data/icons/phosphor/x-bold.svg");
+const NOTE_PENCIL: &[u8] = include_bytes!("../../data/icons/phosphor/note-pencil-bold.svg");
 
 /// The `+` new-note button in the list window header. Replaces `list-add-symbolic`.
 pub fn plus() -> widget::icon::Handle {
@@ -39,6 +40,11 @@ pub fn x() -> widget::icon::Handle {
     widget::icon::from_svg_bytes(X).symbolic(true)
 }
 
+/// The panel applet icon (`fleck --applet`). Replaces `accessories-text-editor-symbolic`.
+pub fn note_pencil() -> widget::icon::Handle {
+    widget::icon::from_svg_bytes(NOTE_PENCIL).symbolic(true)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -55,7 +61,7 @@ mod tests {
 
     #[test]
     fn embedded_svgs_are_non_empty_and_well_formed() {
-        for bytes in [PLUS, PENCIL_SIMPLE, TRASH, MAGNIFYING_GLASS] {
+        for bytes in [PLUS, PENCIL_SIMPLE, TRASH, MAGNIFYING_GLASS, NOTE_PENCIL] {
             assert!(!bytes.is_empty());
             assert!(is_valid_svg(bytes));
         }
@@ -67,5 +73,6 @@ mod tests {
         assert!(pencil_simple().symbolic);
         assert!(trash().symbolic);
         assert!(magnifying_glass().symbolic);
+        assert!(note_pencil().symbolic);
     }
 }

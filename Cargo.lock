@@ -955,15 +955,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cosmic-ext-applet-fleck"
-version = "0.1.0"
-dependencies = [
- "libcosmic",
- "tokio",
- "zbus",
-]
-
-[[package]]
 name = "cosmic-freedesktop-icons"
 version = "0.4.0"
 source = "git+https://github.com/pop-os/freedesktop-icons#ab4c57b8e416c6af9297cb04d101889896fd9a92"
