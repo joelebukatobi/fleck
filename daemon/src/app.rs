@@ -93,6 +93,18 @@ fn window_title(note: &Note) -> String {
     sticky_notes_core::display_name(note).to_string()
 }
 
+/// Whether note windows should use compositor-drawn server-side decorations
+/// (`window::Settings.decorations: true`, no in-window header bar) instead
+/// of the client-side header this app draws itself. Governed by the
+/// `TACK_SSD` environment variable, read once at startup (`Tack::init`) and
+/// held fixed for the life of the process - see `Tack::ssd` - so a window
+/// never switches layouts mid-run. `"1"` means SSD, today's behaviour, kept
+/// as an A/B baseline to compare against; anything else - unset, `"0"`, or
+/// garbage - means the new client-side header.
+fn use_server_side_decorations(value: Option<&str>) -> bool {
+    value == Some("1")
+}
+
 /// Whether a window's title needs to be re-sent to the compositor: only
 /// when the computed display name differs from the title last actually set.
 /// Keeping this as a pure comparison (rather than inline in `update`) is
@@ -172,6 +184,15 @@ pub enum Message {
     DismissRestore,
     /// A D-Bus call came in and is waiting on `self` to act on it.
     Dbus(DbusRequest),
+    /// The in-window header bar (client-side decorations, see `Tack::ssd`)
+    /// was dragged, or had its minimise/maximise control pressed. Close goes
+    /// through `CloseRequested` instead - the existing message every other
+    /// close path already uses - rather than a fourth variant here, so the
+    /// header's close button flushes unsaved text and deletes empty notes
+    /// exactly like every other way of closing a note.
+    HeaderDrag(window::Id),
+    HeaderMinimize(window::Id),
+    HeaderMaximize(window::Id),
 }
 
 /// Wraps a `dbus::Request` so it can ride through `Message`, which
@@ -303,6 +324,12 @@ pub struct Tack {
     /// Handle on the D-Bus request receiver built in `main.rs`, threaded
     /// into the subscription - see `DbusRx` and `dbus_subscription`.
     dbus_rx: DbusRx,
+    /// Whether note windows use compositor-drawn server-side decorations
+    /// instead of this app's own client-side header bar - see
+    /// `use_server_side_decorations`. Read once from `TACK_SSD` in `init`
+    /// and never changed afterwards, so every note window opened this run
+    /// gets the same layout.
+    ssd: bool,
 }
 
 impl Tack {
@@ -370,6 +397,21 @@ impl Tack {
             }
         }
         Task::batch(tasks)
+    }
+
+    /// The in-window header bar's title for a note window: its display
+    /// name plus the app name, read fresh every frame (no compositor round
+    /// trip needed, unlike `sync_title`, which is what actually keeps the
+    /// dock/switcher's copy of the title in sync). Falls back to `UNNAMED`
+    /// exactly like `sync_title` does, for a window not yet registered.
+    fn header_title(&self, id: window::Id) -> String {
+        let name = self
+            .windows
+            .get(&id)
+            .and_then(|window| self.notes.get(&window.uuid))
+            .map(window_title)
+            .unwrap_or_else(|| sticky_notes_core::UNNAMED.to_string());
+        format!("{name} | Tack")
     }
 
     /// Re-sends a window's title to the compositor only if its computed
@@ -449,8 +491,11 @@ impl Tack {
     fn open_window_for(&mut self, uuid: Uuid) -> Task<Message> {
         self.intent_visible.show(uuid);
         let (w, h) = window_size_for(uuid, &self.window_state.sizes);
-        let settings =
-            window::Settings { size: Size::new(w as f32, h as f32), ..window::Settings::default() };
+        let settings = window::Settings {
+            size: Size::new(w as f32, h as f32),
+            decorations: self.ssd,
+            ..window::Settings::default()
+        };
         let (id, spawn) = window::open(settings);
         let registered = self.register_window(id, uuid);
         let opened = spawn.map(|id| cosmic::Action::App(Message::NoteOpened(id)));
@@ -822,6 +867,7 @@ impl cosmic::Application for Tack {
             session_snapshotted: false,
             _dbus_connection: Some(dbus_connection),
             dbus_rx: DbusRx(Arc::new(Mutex::new(Some(dbus_rx)))),
+            ssd: use_server_side_decorations(std::env::var("TACK_SSD").ok().as_deref()),
         };
 
         (app, Task::none())
@@ -1014,6 +1060,9 @@ impl cosmic::Application for Tack {
                 Some(request) => self.handle_dbus_request(request),
                 None => Task::none(),
             },
+            Message::HeaderDrag(id) => window::drag(id),
+            Message::HeaderMinimize(id) => window::minimize(id, true),
+            Message::HeaderMaximize(id) => window::toggle_maximize(id),
         }
     }
 
@@ -1152,19 +1201,49 @@ impl cosmic::Application for Tack {
         .width(Length::Fill)
         .height(Length::Fill);
 
-        widget::container(body)
-        // An explicit opaque background is a rendering requirement, not
-        // decoration: `view_window` is used directly for every secondary
-        // note window with nothing else wrapping it (see `Cosmic::view` in
-        // libcosmic), so if this container's background were left at its
-        // default (`Container::Transparent`), the whole window would render
-        // transparent - the desktop showing through, stale frames smearing,
-        // exactly the failure mode this task's brief warns about.
-        .class(cosmic::theme::Container::WindowBackground)
-        .padding(12)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+        let body_container = widget::container(body)
+            // An explicit opaque background is a rendering requirement, not
+            // decoration: `view_window` is used directly for every secondary
+            // note window with nothing else wrapping it (see `Cosmic::view`
+            // in libcosmic), so if this container's background were left at
+            // its default (`Container::Transparent`), the whole window
+            // would render transparent - the desktop showing through, stale
+            // frames smearing, exactly the failure mode this task's brief
+            // warns about.
+            .class(cosmic::theme::Container::WindowBackground)
+            .padding(12)
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        // `self.ssd` is read once at startup (`Tack::init`) and never
+        // changes for the life of the process, so this branch is fixed for
+        // every frame this window ever renders - it never flips the tree
+        // shape mid-run. With SSD (`TACK_SSD=1`), today's behaviour: the
+        // compositor draws the title bar (`decorations: true` in
+        // `open_window_for`) and this is the whole window content, same as
+        // before this change. Otherwise, a libcosmic `header_bar` sits above
+        // it: dragging moves the window, minimise/maximise go straight to
+        // the corresponding `window::` action, and close routes through the
+        // existing `Message::CloseRequested` - not a second close path - so
+        // it still flushes unsaved text and deletes empty notes exactly like
+        // the compositor's own close button and every other close route.
+        if self.ssd {
+            body_container.into()
+        } else {
+            let header = widget::header_bar()
+                .title(self.header_title(id))
+                .on_drag(Message::HeaderDrag(id))
+                .on_close(Message::CloseRequested(id))
+                .on_maximize(Message::HeaderMaximize(id))
+                .on_minimize(Message::HeaderMinimize(id));
+
+            widget::Column::with_capacity(2)
+                .push(header)
+                .push(body_container)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        }
     }
 }
 
@@ -1214,6 +1293,7 @@ mod tests {
             session_snapshotted: false,
             _dbus_connection: None,
             dbus_rx: DbusRx(Arc::new(Mutex::new(None))),
+            ssd: false,
         }
     }
 
@@ -1739,5 +1819,30 @@ mod visibility_tests {
     #[test]
     fn a_note_never_shown_is_not_visible() {
         assert!(!VisibilityIntent::default().is_visible(Uuid::new_v4()));
+    }
+}
+
+#[cfg(test)]
+mod ssd_tests {
+    use super::*;
+
+    #[test]
+    fn unset_env_uses_the_client_side_header() {
+        assert!(!use_server_side_decorations(None));
+    }
+
+    #[test]
+    fn env_1_uses_server_side_decorations() {
+        assert!(use_server_side_decorations(Some("1")));
+    }
+
+    #[test]
+    fn env_0_uses_the_client_side_header() {
+        assert!(!use_server_side_decorations(Some("0")));
+    }
+
+    #[test]
+    fn garbage_env_uses_the_client_side_header() {
+        assert!(!use_server_side_decorations(Some("not-a-flag")));
     }
 }
