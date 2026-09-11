@@ -276,6 +276,10 @@ const CARD_PADDING: u16 = 8;
 const CARD_HEADING_PADDING: u16 = 8;
 /// Gap between the heading strip and the content section below it.
 const CARD_HEADING_GAP: u16 = 8;
+/// Gap between a card's title and its rename pencil, within the heading row.
+const CARD_HEADING_ROW_SPACING: u16 = 8;
+/// Gap between the preview lines and the timestamp in a card's content.
+const CARD_CONTENT_SPACING: u16 = 4;
 const CARD_SPACING: u16 = 8;
 /// How much darker the card heading strip is than the card itself: each
 /// channel is scaled down by this factor, so `1.0` would be no change and
@@ -931,7 +935,7 @@ impl Tack {
         };
 
         let heading_row = widget::Row::with_capacity(2)
-            .spacing(8)
+            .spacing(CARD_HEADING_ROW_SPACING)
             .align_y(Alignment::Center)
             .push(title)
             .push(
@@ -945,7 +949,7 @@ impl Tack {
             .padding(CARD_HEADING_PADDING)
             .width(Length::Fill);
 
-        let mut content_col = widget::Column::with_capacity(1 + PREVIEW_LINES).spacing(4);
+        let mut content_col = widget::Column::with_capacity(1 + PREVIEW_LINES).spacing(CARD_CONTENT_SPACING);
         for line in preview_lines(note, PREVIEW_LINES) {
             content_col = content_col.push(widget::text::body(line));
         }
