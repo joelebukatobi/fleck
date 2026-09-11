@@ -297,6 +297,19 @@ const CARD_PRESS_DARKEN_FACTOR: f32 = 0.90;
 /// Minimum gap between a card's right edge and the scrollbar's widest
 /// extent, embedded via `Scrollbar::spacing` (see `view_list`) so it only
 /// takes up space while a scrollbar is actually shown.
+/// Dialogs over the notes list are this fraction of the list window's width.
+/// libcosmic's own default is a fixed 570 px, wider than the list window.
+const DIALOG_WIDTH_FRACTION: f32 = 0.75;
+
+/// Width for a dialog over a window `window_width` wide.
+fn dialog_width(window_width: f32) -> f32 {
+    if window_width.is_finite() && window_width > 0.0 {
+        window_width * DIALOG_WIDTH_FRACTION
+    } else {
+        DEFAULT_WINDOW_SIZE.0 as f32 * DIALOG_WIDTH_FRACTION
+    }
+}
+
 const SCROLLBAR_GAP: f32 = 4.0;
 /// Inset at the top and bottom of the card list's scrollbar track. libcosmic's
 /// `widget::scrollable` defaults this to 8 px; 0 lets the thumb run the full
@@ -712,6 +725,9 @@ pub struct Tack {
     /// Whether the mouse is currently over the notes list's scrollable
     /// area - see `Message::ListScrollHover`.
     list_scroll_hovered: bool,
+    /// Current width of the notes-list window, for sizing its dialogs.
+    /// libcosmic's core does not track the main window's size.
+    list_window_width: f32,
 }
 
 impl Tack {
@@ -1445,6 +1461,7 @@ impl cosmic::Application for Tack {
             _dbus_connection: Some(dbus_connection),
             dbus_rx: DbusRx(Arc::new(Mutex::new(Some(dbus_rx)))),
             list_scroll_hovered: false,
+            list_window_width: DEFAULT_WINDOW_SIZE.0 as f32,
         };
 
         (app, Task::none())
@@ -1622,6 +1639,9 @@ impl cosmic::Application for Tack {
             Message::Undo(id) => self.apply_history_step(id, UndoHistory::undo),
             Message::Redo(id) => self.apply_history_step(id, UndoHistory::redo),
             Message::WindowResized(id, size) => {
+                if Some(id) == self.core.main_window_id() {
+                    self.list_window_width = size.width;
+                }
                 // Recorded in memory only - `flush_window_state` (driven by
                 // the same autosave tick as note saves) is what actually
                 // writes this to disk, so a resize drag's flood of events
@@ -1738,6 +1758,7 @@ impl cosmic::Application for Tack {
             return Some(
                 widget::dialog()
                     .title("Reopen notes?")
+                    .width(Length::Fixed(dialog_width(self.list_window_width)))
                     .body(format!("Reopen {count} notes from last time?"))
                     .primary_action(
                         widget::button::suggested("Reopen").on_press(Message::ReopenSession),
@@ -1757,6 +1778,7 @@ impl cosmic::Application for Tack {
         Some(
             widget::dialog()
                 .title("Delete note?")
+                    .width(Length::Fixed(dialog_width(self.list_window_width)))
                 .body(format!("\"{name}\" will be deleted. This can't be undone."))
                 .primary_action(widget::button::destructive("Delete").on_press(Message::DeleteConfirm))
                 .secondary_action(widget::button::standard("Cancel").on_press(Message::DeleteCancel))
@@ -1924,6 +1946,21 @@ mod tests {
     }
 
     #[test]
+    fn dialog_width_is_three_quarters_of_the_window() {
+        assert_eq!(dialog_width(512.0), 384.0);
+        assert_eq!(dialog_width(1000.0), 750.0);
+    }
+
+    #[test]
+    fn dialog_width_falls_back_for_nonsense_widths() {
+        let fallback = DEFAULT_WINDOW_SIZE.0 as f32 * DIALOG_WIDTH_FRACTION;
+        assert_eq!(dialog_width(0.0), fallback);
+        assert_eq!(dialog_width(-5.0), fallback);
+        assert_eq!(dialog_width(f32::NAN), fallback);
+        assert_eq!(dialog_width(f32::INFINITY), fallback);
+    }
+
+    #[test]
     fn body_min_height_passes_through_zero() {
         assert_eq!(body_min_height(0.0), 0.0);
     }
@@ -2068,6 +2105,7 @@ mod tests {
             _dbus_connection: None,
             dbus_rx: DbusRx(Arc::new(Mutex::new(None))),
             list_scroll_hovered: false,
+            list_window_width: DEFAULT_WINDOW_SIZE.0 as f32,
         }
     }
 
