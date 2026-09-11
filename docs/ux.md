@@ -73,3 +73,9 @@ Modelled on the Windows Sticky Notes list window.
     8 px padding inside it. Darker is derived from the card's theme colour.
   - 8 px between the heading strip and the card's content.
   - Card content (preview and time): 8 px padding, including top and bottom.
+  - Hovering a card lightens it slightly; pressing darkens it slightly. The card
+    itself is the clickable surface, so the effect lines up with its edges.
+  - The card list's scrollbar is slim until the mouse is over it, then widens,
+    like other COSMIC apps.
+  - At least 4 px between the cards and the scrollbar at its widest. With no
+    scrollbar, cards run full width, lined up with the search bar.
