@@ -43,7 +43,21 @@ impl Store {
                 _ => continue,
             }
             out.push(match std::fs::read_to_string(&path) {
-                Ok(text) => parse(&text),
+                // Saves and deletes always go to `<uuid>.md`, so a note under
+                // any other name (a copy, a restored backup) would shadow the
+                // real file or be shadowed by it. Report it instead.
+                Ok(text) => parse(&text).and_then(|note| {
+                    let uuid = note.frontmatter.uuid;
+                    if path.file_stem().and_then(|s| s.to_str()) == Some(uuid.to_string().as_str())
+                    {
+                        Ok(note)
+                    } else {
+                        Err(ParseError::WrongFileName {
+                            file: path.display().to_string(),
+                            uuid,
+                        })
+                    }
+                }),
                 Err(e) => Err(ParseError::Unreadable(e.to_string())),
             });
         }
@@ -122,6 +136,26 @@ mod tests {
             },
             body: body.into(),
         }
+    }
+
+    #[test]
+    fn a_note_file_not_named_after_its_uuid_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let id = Uuid::from_u128(9);
+        let note = note_with(id, "original\n");
+        store.save(&note).unwrap();
+        std::fs::write(dir.path().join("copy.md"), serialize(&note)).unwrap();
+
+        let results = store.list().unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(results
+            .iter()
+            .any(|r| r.as_ref().is_ok_and(|n| n.frontmatter.uuid == id)));
+        assert!(results
+            .iter()
+            .any(|r| matches!(r, Err(ParseError::WrongFileName { .. }))));
     }
 
     #[test]

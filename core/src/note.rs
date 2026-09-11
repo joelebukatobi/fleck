@@ -25,6 +25,8 @@ pub enum ParseError {
     InvalidFrontmatter(String),
     #[error("could not read note file: {0}")]
     Unreadable(String),
+    #[error("{file} holds note {uuid}, but note files must be named <uuid>.md")]
+    WrongFileName { file: String, uuid: Uuid },
 }
 
 /// The note format version this build writes.
