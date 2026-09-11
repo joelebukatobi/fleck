@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use uuid::Uuid;
 
 use crate::note::{parse, Note, ParseError};
@@ -84,6 +85,13 @@ impl Store {
         };
         self.save(&note)?;
         Ok(note)
+    }
+
+    /// The note file's last-modified time on disk, used to show "last
+    /// edited" in the notes list without adding a second timestamp to the
+    /// note format itself (which only stores `created`).
+    pub fn modified(&self, id: Uuid) -> std::io::Result<SystemTime> {
+        std::fs::metadata(self.path(id))?.modified()
     }
 
     pub fn delete(&self, id: Uuid) -> std::io::Result<()> {
@@ -209,6 +217,42 @@ mod tests {
     fn deleting_a_missing_note_is_not_an_error() {
         let dir = tempfile::tempdir().unwrap();
         Store::new(dir.path()).delete(Uuid::from_u128(99)).unwrap();
+    }
+
+    #[test]
+    fn modified_reports_a_recent_time_for_a_freshly_saved_note() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let id = Uuid::from_u128(7);
+        let before = SystemTime::now();
+        store.save(&note_with(id, "one\n")).unwrap();
+        let after = SystemTime::now();
+
+        let modified = store.modified(id).unwrap();
+
+        assert!(modified >= before && modified <= after, "mtime must fall within the save window");
+    }
+
+    #[test]
+    fn modified_advances_after_a_second_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let id = Uuid::from_u128(7);
+        store.save(&note_with(id, "one\n")).unwrap();
+        let first = store.modified(id).unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        store.save(&note_with(id, "two\n")).unwrap();
+        let second = store.modified(id).unwrap();
+
+        assert!(second >= first);
+    }
+
+    #[test]
+    fn modified_errors_for_a_note_that_was_never_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        assert!(store.modified(Uuid::from_u128(99)).is_err());
     }
 
     fn write_note(dir: &std::path::Path, id: Uuid, body: &str) {

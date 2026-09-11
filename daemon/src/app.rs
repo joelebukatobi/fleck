@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use cosmic::app::{Core, Task};
 use cosmic::iced::core::id;
@@ -9,11 +9,11 @@ use cosmic::iced::core::text::LineHeight;
 use cosmic::iced::futures::channel::mpsc;
 use cosmic::iced::futures::{SinkExt, Stream, StreamExt};
 use cosmic::iced::widget::Stack;
-use cosmic::iced::{event, window, Border, Color, Length, Pixels, Size, Subscription};
+use cosmic::iced::{event, window, Alignment, Border, Color, Length, Pixels, Size, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget;
 use cosmic::widget::text_editor;
-use sticky_notes_core::{is_disposable, Note, Store, WindowState};
+use sticky_notes_core::{display_name, is_disposable, Note, Store, WindowState};
 use uuid::Uuid;
 
 use crate::dbus;
@@ -190,6 +190,113 @@ fn pick_note_closes_list(existed: bool) -> bool {
     existed
 }
 
+/// How many lines of body text a card previews.
+const PREVIEW_LINES: usize = 2;
+
+/// Whether a note matches the notes-list search bar's query: a
+/// case-insensitive substring match against either its display name or its
+/// full body text. An empty query matches everything.
+fn matches_search(query: &str, name: &str, body: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    let query = query.to_lowercase();
+    name.to_lowercase().contains(&query) || body.to_lowercase().contains(&query)
+}
+
+/// The first `max_lines` non-empty lines of a note's body to show as a
+/// card's preview. If the note has no explicit name, `display_name` falls
+/// back to showing the first non-empty line as the name (see
+/// `sticky_notes_core::display_name`/`title`) - so that line is skipped
+/// here to avoid repeating it in the preview.
+fn preview_lines(note: &Note, max_lines: usize) -> Vec<String> {
+    let lines: Vec<&str> = note.body.lines().collect();
+    let start = if note.frontmatter.name.trim().is_empty() {
+        // Skip past (and including) the first non-empty line - the one
+        // `display_name` is already showing as the card's title.
+        match lines.iter().position(|l| !l.trim().is_empty()) {
+            Some(i) => i + 1,
+            None => lines.len(),
+        }
+    } else {
+        0
+    };
+    lines
+        .get(start..)
+        .unwrap_or(&[])
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .take(max_lines)
+        .map(|l| l.trim().to_string())
+        .collect()
+}
+
+const MINUTE: Duration = Duration::from_secs(60);
+const HOUR: Duration = Duration::from_secs(60 * 60);
+const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+const WEEK: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// Formats how long ago a note was last edited, from the elapsed time since
+/// its file's mtime. No date/time crate: relative phrasing needs no
+/// timezone handling, just bucketed arithmetic on a `Duration`.
+fn relative_time(elapsed: Duration) -> String {
+    if elapsed < MINUTE {
+        "just now".to_string()
+    } else if elapsed < HOUR {
+        format!("{} min ago", elapsed.as_secs() / 60)
+    } else if elapsed < DAY {
+        format!("{} hours ago", elapsed.as_secs() / 3600)
+    } else if elapsed < WEEK {
+        format!("{} days ago", elapsed.as_secs() / 86400)
+    } else {
+        format!("{} weeks ago", elapsed.as_secs() / 604800)
+    }
+}
+
+/// The insets libcosmic's own `view_main` already gives the list window's
+/// content on the left and right (see `border_padding`/`main_content_padding`
+/// in libcosmic's `src/app/mod.rs`) - applying the same amount to just the
+/// top and bottom of the notes panel makes the gap around it even on all
+/// four sides, without touching libcosmic's own chrome padding.
+fn list_inset(border_padding: Option<u16>, maximized: bool) -> u16 {
+    border_padding.unwrap_or(if maximized { 8 } else { 7 })
+}
+
+/// Whether the notes list's rename control is currently editing `uuid`'s
+/// card - the pure question a card's view asks to pick between its display
+/// and rename widget tree.
+#[derive(Debug, Clone, Default, PartialEq)]
+enum RenameState {
+    #[default]
+    Idle,
+    Editing { uuid: Uuid, text: String },
+}
+
+impl RenameState {
+    fn start(uuid: Uuid, current_name: &str) -> Self {
+        RenameState::Editing { uuid, text: current_name.to_string() }
+    }
+
+    fn is_editing(&self, uuid: Uuid) -> bool {
+        matches!(self, RenameState::Editing { uuid: u, .. } if *u == uuid)
+    }
+
+    fn text(&self) -> &str {
+        match self {
+            RenameState::Editing { text, .. } => text,
+            RenameState::Idle => "",
+        }
+    }
+
+    /// Updates the in-progress text, a no-op if nothing is being edited.
+    fn with_input(self, new_text: String) -> Self {
+        match self {
+            RenameState::Editing { uuid, .. } => RenameState::Editing { uuid, text: new_text },
+            RenameState::Idle => RenameState::Idle,
+        }
+    }
+}
+
 /// Whether each note is *meant* to be visible, held as explicit intent
 /// rather than derived from `self.windows` (which only updates once the
 /// compositor's asynchronous `Closed` event actually arrives). Updated
@@ -248,6 +355,16 @@ pub enum Message {
     DismissRestore,
     /// A D-Bus call came in and is waiting on `self` to act on it.
     Dbus(DbusRequest),
+    /// The notes-list search bar's text changed.
+    SearchChanged(String),
+    /// The user activated a card's rename control.
+    RenameStart(Uuid),
+    /// A keystroke in the active rename text input.
+    RenameInput(String),
+    /// Enter in the active rename text input: save the new name.
+    RenameSave,
+    /// Escape (or losing focus) in the active rename text input: discard it.
+    RenameCancel,
 }
 
 /// Wraps a `dbus::Request` so it can ride through `Message`, which
@@ -349,6 +466,20 @@ pub struct Tack {
     notes: HashMap<Uuid, Note>,
     /// Notes edited since their last save, and when they were last edited.
     dirty: HashMap<Uuid, Instant>,
+    /// Each note's file mtime on disk, cached so `view_list` doesn't stat
+    /// the filesystem every frame - refreshed whenever a note is loaded,
+    /// created, or actually written by `flush`, and dropped on delete.
+    mtimes: HashMap<Uuid, SystemTime>,
+    /// The notes-list search bar's current query - see `matches_search`.
+    search: String,
+    /// Stable id for the search bar's text input, reused across frames
+    /// (never `Id::new(name)` - see `register_window`'s doc comment on why
+    /// a stable-but-unique id matters for this app's widget tree).
+    search_input_id: id::Id,
+    /// Which card (if any) is in rename mode, and its in-progress text.
+    rename: RenameState,
+    /// Stable id for the (single, at most one at a time) rename text input.
+    rename_input_id: id::Id,
     /// Content rendered by `view_window` when a window id has no entry in
     /// `windows` (or its note has already been deleted). Never actually
     /// edited; it exists purely so every `view_window` return builds the
@@ -438,6 +569,7 @@ impl Tack {
             };
             if saved {
                 self.dirty.remove(id);
+                self.refresh_mtime(*id);
                 let window_ids: Vec<window::Id> = self
                     .windows
                     .iter()
@@ -611,6 +743,7 @@ impl Tack {
             Ok(note) => {
                 let uuid = note.frontmatter.uuid;
                 self.notes.insert(uuid, note);
+                self.refresh_mtime(uuid);
                 (Some(uuid), self.open_window_for(uuid))
             }
             Err(e) => {
@@ -642,6 +775,7 @@ impl Tack {
         }
         self.notes.remove(&uuid);
         self.dirty.remove(&uuid);
+        self.mtimes.remove(&uuid);
         self.intent_visible.hide(uuid);
         if self.window_state.sizes.remove(&uuid).is_some() {
             self.window_state_dirty = true;
@@ -691,41 +825,107 @@ impl Tack {
         }
     }
 
-    /// The notes list: every note's display name (clickable to open it), a
-    /// "New note" button, and - when there's something to offer - the
-    /// restore bar on top. Bare minimum per the task: theme defaults only,
-    /// no rename, no delete.
+    /// A note's cached mtime, or `UNIX_EPOCH` for one never observed on
+    /// disk yet (defensive only - every note in `self.notes` is either
+    /// loaded from disk at `init` or written by `create_note`, both of
+    /// which populate `mtimes`).
+    fn note_mtime(&self, uuid: Uuid) -> SystemTime {
+        self.mtimes.get(&uuid).copied().unwrap_or(SystemTime::UNIX_EPOCH)
+    }
+
+    /// One note's card: its name (or, in rename mode, a text input in its
+    /// place) with a rename control beside it, a couple of lines of body
+    /// preview, and a relative last-edited time. Clicking anywhere but the
+    /// rename control opens the note.
+    fn view_card(&self, note: &Note) -> Element<'_, Message> {
+        let uuid = note.frontmatter.uuid;
+        let editing = self.rename.is_editing(uuid);
+
+        let name_row: Element<'_, Message> = if editing {
+            widget::text_input("", self.rename.text())
+                .id(self.rename_input_id.clone())
+                .on_input(Message::RenameInput)
+                .on_submit(|_| Message::RenameSave)
+                .on_unfocus(Message::RenameCancel)
+                .width(Length::Fill)
+                .into()
+        } else {
+            widget::Row::with_capacity(2)
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .push(widget::text::heading(display_name(note).to_string()).width(Length::Fill))
+                .push(
+                    widget::button::icon(widget::icon::from_name("edit-symbolic"))
+                        .extra_small()
+                        .on_press(Message::RenameStart(uuid)),
+                )
+                .into()
+        };
+
+        let mut body_col = widget::Column::with_capacity(2 + PREVIEW_LINES).push(name_row);
+        for line in preview_lines(note, PREVIEW_LINES) {
+            body_col = body_col.push(widget::text::body(line));
+        }
+        let elapsed =
+            SystemTime::now().duration_since(self.note_mtime(uuid)).unwrap_or(Duration::ZERO);
+        body_col = body_col.push(widget::text::caption(relative_time(elapsed)));
+
+        let card = widget::container(body_col.spacing(4))
+            .class(cosmic::theme::Container::Card)
+            .padding(12)
+            .width(Length::Fill);
+
+        if editing {
+            // Mid-rename, the card isn't a pick target - the text input
+            // already owns clicks/focus here.
+            card.into()
+        } else {
+            widget::button::custom(card)
+                .on_press(Message::PickNote(uuid))
+                .class(cosmic::theme::Button::Text)
+                .width(Length::Fill)
+                .into()
+        }
+    }
+
+    /// The notes list: a search bar filtering the cards below it (most
+    /// recently edited first), each showing a note's name, a body preview,
+    /// and when it was last edited. The restore prompt is a separate modal
+    /// dialog (`Application::dialog`), not part of this view.
     fn view_list(&self) -> Element<'_, Message> {
-        let mut notes: Vec<&Note> = self.notes.values().collect();
+        let mut notes: Vec<&Note> = self
+            .notes
+            .values()
+            .filter(|n| matches_search(&self.search, display_name(n), &n.body))
+            .collect();
         notes.sort_by(|a, b| {
-            sticky_notes_core::display_name(a).cmp(sticky_notes_core::display_name(b))
+            self.note_mtime(b.frontmatter.uuid).cmp(&self.note_mtime(a.frontmatter.uuid))
         });
 
-        let mut content = widget::Column::with_capacity(notes.len() + 2).spacing(8).padding(12);
+        let search = widget::search_input("Search notes", self.search.clone())
+            .id(self.search_input_id.clone())
+            .on_input(Message::SearchChanged)
+            .on_clear(Message::SearchChanged(String::new()));
 
-        if !self.restore_dismissed && !self.restore_candidates.is_empty() {
-            let count = self.restore_candidates.len();
-            let bar = widget::Row::with_capacity(3)
-                .spacing(8)
-                .push(
-                    widget::text::body(format!("Reopen {count} notes from last time?"))
-                        .width(Length::Fill),
-                )
-                .push(widget::button::suggested("Reopen").on_press(Message::ReopenSession))
-                .push(widget::button::standard("No thanks").on_press(Message::DismissRestore));
-            content = content.push(bar);
-        }
-
-        content = content.push(widget::button::suggested("New note").on_press(Message::NewNote));
-
+        let mut cards = widget::Column::with_capacity(notes.len()).spacing(8);
         for note in notes {
-            let uuid = note.frontmatter.uuid;
-            let name = sticky_notes_core::display_name(note).to_string();
-            content = content.push(widget::button::text(name).on_press(Message::PickNote(uuid)));
+            cards = cards.push(self.view_card(note));
         }
 
-        widget::container(widget::scrollable(content).width(Length::Fill).height(Length::Fill))
+        let content = widget::Column::with_capacity(2)
+            .spacing(8)
+            .push(search)
+            .push(widget::scrollable(cards).width(Length::Fill).height(Length::Fill));
+
+        // Equal gap on all four sides: libcosmic's own chrome already
+        // insets the content by `inset` on the left and right (see
+        // `list_inset`'s docs); adding the same amount here, top and
+        // bottom only, closes the gap it otherwise leaves flush at the
+        // bottom.
+        let inset = list_inset(self.core.window.border_padding, self.core.window.is_maximized);
+        widget::container(content)
             .class(cosmic::theme::Container::WindowBackground)
+            .padding([inset, 0, inset, 0])
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -800,6 +1000,28 @@ impl Tack {
                 cosmic::iced::exit()
             }
         }
+    }
+
+    /// Re-reads `uuid`'s file mtime from disk into the cache `view_list`
+    /// reads from - called right after a save actually wrote the file, so
+    /// the cached value never drifts far from what's really on disk. A
+    /// failed read (e.g. the save itself failed) just leaves the cache
+    /// stale rather than erroring.
+    fn refresh_mtime(&mut self, uuid: Uuid) {
+        if let Ok(m) = self.store.modified(uuid) {
+            self.mtimes.insert(uuid, m);
+        }
+    }
+
+    /// Sets `uuid`'s explicit display name and marks it dirty for the next
+    /// autosave flush, exactly like a body edit - `flush` is what actually
+    /// writes it through `Store::save` and, if the note's window is open,
+    /// re-syncs its title. An empty name is allowed: `display_name` already
+    /// falls back to the first body line for one.
+    fn rename_note(&mut self, uuid: Uuid, name: String) {
+        let Some(note) = self.notes.get_mut(&uuid) else { return };
+        note.frontmatter.name = name.trim().to_string();
+        self.dirty.insert(uuid, Instant::now());
     }
 
     /// Writes `text` into the note behind `uuid`'s body and marks it dirty,
@@ -922,6 +1144,11 @@ impl cosmic::Application for Tack {
         // offered for restore, only once the user picks "Reopen".
         let list_window = core.main_window_id();
 
+        let mtimes = notes
+            .keys()
+            .filter_map(|id| store.modified(*id).ok().map(|m| (*id, m)))
+            .collect();
+
         let app = Tack {
             core,
             store,
@@ -935,6 +1162,11 @@ impl cosmic::Application for Tack {
             restore_dismissed: false,
             notes,
             dirty: HashMap::new(),
+            mtimes,
+            search: String::new(),
+            search_input_id: id::Id::unique(),
+            rename: RenameState::default(),
+            rename_input_id: id::Id::unique(),
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
             closing_for_hide: HashSet::new(),
@@ -1136,6 +1368,30 @@ impl cosmic::Application for Tack {
                 Some(request) => self.handle_dbus_request(request),
                 None => Task::none(),
             },
+            Message::SearchChanged(text) => {
+                self.search = text;
+                Task::none()
+            }
+            Message::RenameStart(uuid) => {
+                let current = self.notes.get(&uuid).map(|n| n.frontmatter.name.clone());
+                let Some(current) = current else { return Task::none() };
+                self.rename = RenameState::start(uuid, &current);
+                widget::text_input::focus(self.rename_input_id.clone())
+            }
+            Message::RenameInput(text) => {
+                self.rename = std::mem::take(&mut self.rename).with_input(text);
+                Task::none()
+            }
+            Message::RenameSave => {
+                if let RenameState::Editing { uuid, text } = std::mem::take(&mut self.rename) {
+                    self.rename_note(uuid, text);
+                }
+                Task::none()
+            }
+            Message::RenameCancel => {
+                self.rename = RenameState::Idle;
+                Task::none()
+            }
         }
     }
 
@@ -1153,19 +1409,48 @@ impl cosmic::Application for Tack {
         None
     }
 
-    // `header_start`/`header_center` only reach the *main* window: libcosmic
-    // builds its client-side header (`view_main`, which calls these) solely
-    // for `core.main_window_id()`; every other window id is dispatched
-    // straight to `view_window` with no header of its own layered on top
-    // (`Cosmic::view` in libcosmic's `src/app/cosmic.rs`). The main window
-    // is the notes list now, not a note, so it just gets the app name - no
-    // note title to show, and rename/delete from the list are out of scope
-    // here regardless. Secondary note windows (`window::open`, used for
+    // `header_start`/`header_center`/`dialog` only reach the *main* window:
+    // libcosmic builds its client-side header and dialog overlay
+    // (`view_main`, which calls these) solely for `core.main_window_id()`;
+    // every other window id is dispatched straight to `view_window` with
+    // no header or dialog of its own layered on top (`Cosmic::view` in
+    // libcosmic's `src/app/cosmic.rs`). The main window is the notes list
+    // now, not a note, so this is where the `+` new-note button and the
+    // app name live. Secondary note windows (`window::open`, used for
     // every note) default to `decorations: true`, i.e. a compositor-drawn
     // title bar with no client content slots at all, so they keep whatever
     // title bar the compositor gives them.
     fn header_start(&self) -> Vec<Element<'_, Message>> {
-        vec![widget::text::body("Tack").into()]
+        vec![
+            widget::button::icon(widget::icon::from_name("list-add-symbolic"))
+                .on_press(Message::NewNote)
+                .into(),
+            widget::text::body("Tack").into(),
+        ]
+    }
+
+    /// The restore prompt: a modal dialog overlaying (and dimming) the
+    /// notes list, offered only while there's something to restore and the
+    /// user hasn't already dismissed it this run. Same behaviour as the bar
+    /// it replaces - Reopen opens every candidate and closes the list, No
+    /// thanks just dismisses the dialog.
+    fn dialog(&self) -> Option<Element<'_, Message>> {
+        if self.restore_dismissed || self.restore_candidates.is_empty() {
+            return None;
+        }
+        let count = self.restore_candidates.len();
+        Some(
+            widget::dialog()
+                .title("Reopen notes?")
+                .body(format!("Reopen {count} notes from last time?"))
+                .primary_action(
+                    widget::button::suggested("Reopen").on_press(Message::ReopenSession),
+                )
+                .secondary_action(
+                    widget::button::standard("No thanks").on_press(Message::DismissRestore),
+                )
+                .into(),
+        )
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -1402,6 +1687,11 @@ mod tests {
             restore_dismissed: false,
             notes: HashMap::new(),
             dirty: HashMap::new(),
+            mtimes: HashMap::new(),
+            search: String::new(),
+            search_input_id: id::Id::unique(),
+            rename: RenameState::default(),
+            rename_input_id: id::Id::unique(),
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
             closing_for_hide: HashSet::new(),
@@ -1875,6 +2165,244 @@ mod tests {
             "a pick on a note that doesn't exist must not mark it visible"
         );
         assert!(app.notes.is_empty());
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // --- Notes-list redesign: search, preview, relative time, inset, rename ---
+
+    #[test]
+    fn empty_search_matches_everything() {
+        assert!(matches_search("", "Shopping List", "milk\neggs\n"));
+        assert!(matches_search("", "", ""));
+    }
+
+    #[test]
+    fn search_matches_the_name_case_insensitively() {
+        assert!(matches_search("shop", "Shopping List", "milk\n"));
+        assert!(matches_search("SHOPPING", "Shopping List", "milk\n"));
+    }
+
+    #[test]
+    fn search_matches_the_body_case_insensitively() {
+        assert!(matches_search("milk", "Groceries", "buy Milk and eggs\n"));
+    }
+
+    #[test]
+    fn search_with_no_match_in_name_or_body_excludes_the_note() {
+        assert!(!matches_search("pizza", "Groceries", "milk\neggs\n"));
+    }
+
+    fn note_named(name: &str, body: &str) -> Note {
+        let mut note = sample_note();
+        note.body = body.to_string();
+        note.frontmatter.name = name.to_string();
+        note
+    }
+
+    #[test]
+    fn preview_skips_the_title_line_for_an_unnamed_note() {
+        let note = note_named("", "Groceries\nmilk\neggs\nbread\n");
+        // "Groceries" is what display_name already shows as the title -
+        // must not be repeated as the first preview line.
+        assert_eq!(preview_lines(&note, 2), vec!["milk".to_string(), "eggs".to_string()]);
+    }
+
+    #[test]
+    fn preview_keeps_the_first_line_for_a_named_note() {
+        let note = note_named("Shopping List", "Groceries\nmilk\neggs\n");
+        assert_eq!(preview_lines(&note, 2), vec!["Groceries".to_string(), "milk".to_string()]);
+    }
+
+    #[test]
+    fn preview_skips_blank_lines() {
+        let note = note_named("", "Groceries\n\n\nmilk\neggs\n");
+        assert_eq!(preview_lines(&note, 2), vec!["milk".to_string(), "eggs".to_string()]);
+    }
+
+    #[test]
+    fn preview_is_empty_for_an_unnamed_note_with_only_a_title_line() {
+        let note = note_named("", "Groceries\n");
+        assert!(preview_lines(&note, 2).is_empty());
+    }
+
+    #[test]
+    fn preview_is_empty_for_a_totally_empty_note() {
+        let note = note_named("", "");
+        assert!(preview_lines(&note, 2).is_empty());
+    }
+
+    #[test]
+    fn relative_time_just_now_below_a_minute() {
+        assert_eq!(relative_time(Duration::from_secs(0)), "just now");
+        assert_eq!(relative_time(Duration::from_secs(59)), "just now");
+    }
+
+    #[test]
+    fn relative_time_minutes_boundary() {
+        assert_eq!(relative_time(Duration::from_secs(60)), "1 min ago");
+        assert_eq!(relative_time(Duration::from_secs(4 * 60)), "4 min ago");
+        assert_eq!(relative_time(Duration::from_secs(59 * 60 + 59)), "59 min ago");
+    }
+
+    #[test]
+    fn relative_time_hours_boundary() {
+        assert_eq!(relative_time(Duration::from_secs(60 * 60)), "1 hours ago");
+        assert_eq!(relative_time(Duration::from_secs(2 * 60 * 60)), "2 hours ago");
+        assert_eq!(relative_time(Duration::from_secs(23 * 60 * 60 + 3599)), "23 hours ago");
+    }
+
+    #[test]
+    fn relative_time_days_boundary() {
+        assert_eq!(relative_time(Duration::from_secs(24 * 60 * 60)), "1 days ago");
+        assert_eq!(relative_time(Duration::from_secs(3 * 24 * 60 * 60)), "3 days ago");
+        assert_eq!(relative_time(Duration::from_secs(6 * 24 * 60 * 60 + 86399)), "6 days ago");
+    }
+
+    #[test]
+    fn relative_time_weeks_boundary() {
+        assert_eq!(relative_time(Duration::from_secs(7 * 24 * 60 * 60)), "1 weeks ago");
+        assert_eq!(relative_time(Duration::from_secs(3 * 7 * 24 * 60 * 60)), "3 weeks ago");
+    }
+
+    #[test]
+    fn list_inset_falls_back_by_maximized_state_when_unset() {
+        assert_eq!(list_inset(None, false), 7);
+        assert_eq!(list_inset(None, true), 8);
+    }
+
+    #[test]
+    fn list_inset_prefers_an_explicit_value() {
+        assert_eq!(list_inset(Some(20), false), 20);
+        assert_eq!(list_inset(Some(20), true), 20);
+    }
+
+    #[test]
+    fn rename_state_starts_idle() {
+        assert_eq!(RenameState::default(), RenameState::Idle);
+    }
+
+    #[test]
+    fn rename_state_start_enters_editing_with_the_current_name() {
+        let uuid = Uuid::new_v4();
+        let state = RenameState::start(uuid, "Old name");
+        assert!(state.is_editing(uuid));
+        assert_eq!(state.text(), "Old name");
+    }
+
+    #[test]
+    fn rename_state_only_the_started_note_is_editing() {
+        let uuid = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        let state = RenameState::start(uuid, "");
+        assert!(!state.is_editing(other), "only one card may be in rename mode at a time");
+    }
+
+    #[test]
+    fn rename_state_with_input_updates_text_while_editing() {
+        let uuid = Uuid::new_v4();
+        let state = RenameState::start(uuid, "").with_input("New name".to_string());
+        assert_eq!(state.text(), "New name");
+        assert!(state.is_editing(uuid));
+    }
+
+    #[test]
+    fn rename_state_with_input_is_a_no_op_when_idle() {
+        let state = RenameState::Idle.with_input("typed while idle".to_string());
+        assert_eq!(state, RenameState::Idle);
+    }
+
+    #[test]
+    fn rename_save_writes_the_new_name_and_marks_the_note_dirty() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-rename-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let uuid = note.frontmatter.uuid;
+        app.notes.insert(uuid, note);
+        app.rename = RenameState::start(uuid, "");
+
+        let _ = app.update(Message::RenameInput("Shopping List".to_string()));
+        let _ = app.update(Message::RenameSave);
+
+        assert_eq!(app.notes[&uuid].frontmatter.name, "Shopping List");
+        assert!(app.dirty.contains_key(&uuid), "a saved rename must be flushed like any other edit");
+        assert_eq!(app.rename, RenameState::Idle, "saving must leave rename mode");
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn rename_save_allows_an_empty_name() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-rename-empty-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let mut note = sample_note();
+        note.frontmatter.name = "Old name".to_string();
+        let uuid = note.frontmatter.uuid;
+        app.notes.insert(uuid, note);
+        app.rename = RenameState::start(uuid, "Old name");
+
+        let _ = app.update(Message::RenameInput(String::new()));
+        let _ = app.update(Message::RenameSave);
+
+        assert_eq!(app.notes[&uuid].frontmatter.name, "", "an empty name must be allowed");
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn rename_cancel_discards_the_edit_and_leaves_the_note_untouched() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-rename-cancel-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let mut note = sample_note();
+        note.frontmatter.name = "Original".to_string();
+        let uuid = note.frontmatter.uuid;
+        app.notes.insert(uuid, note);
+        app.rename = RenameState::start(uuid, "Original");
+
+        let _ = app.update(Message::RenameInput("Discarded".to_string()));
+        let _ = app.update(Message::RenameCancel);
+
+        assert_eq!(app.notes[&uuid].frontmatter.name, "Original");
+        assert!(!app.dirty.contains_key(&uuid));
+        assert_eq!(app.rename, RenameState::Idle);
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn flush_refreshes_the_cached_mtime_on_a_successful_save() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-mtime-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let id = note.frontmatter.uuid;
+        app.notes.insert(id, note);
+        app.dirty.insert(id, Instant::now());
+        assert!(!app.mtimes.contains_key(&id));
+
+        let _ = app.flush(&[id]);
+
+        assert!(app.mtimes.contains_key(&id), "a successful save must populate the mtime cache");
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn delete_note_data_removes_the_cached_mtime() {
+        let tmp = std::env::temp_dir().join(format!("tack-test-mtime-delete-{}", Uuid::new_v4()));
+        let store = Store::new(&tmp);
+        let mut app = make_tack(store);
+        let note = sample_note();
+        let id = note.frontmatter.uuid;
+        app.notes.insert(id, note);
+        app.mtimes.insert(id, SystemTime::now());
+
+        app.delete_note_data(id);
+
+        assert!(!app.mtimes.contains_key(&id));
 
         std::fs::remove_dir_all(&tmp).ok();
     }
