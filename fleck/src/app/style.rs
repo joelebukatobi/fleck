@@ -34,16 +34,14 @@ pub(super) fn search_input_style(
     })
 }
 
-/// A note's colour for the current light or dark mode (see
-/// `Colour::background`), as an iced `Color`.
-pub(super) fn note_color(colour: Colour, theme: &cosmic::Theme) -> Color {
-    let (r, g, b) = colour.background(theme.cosmic().is_dark);
+/// A palette RGB triple as an iced `Color`.
+pub(super) fn rgb((r, g, b): (u8, u8, u8)) -> Color {
     Color::from_rgb8(r, g, b)
 }
 
 /// A card's style: the theme's `Card` appearance with the note's colour as
-/// its background and `CARD_RADIUS` corners. Text and icon colours stay the
-/// theme's.
+/// its background, the note's text colour for its text and icons, and
+/// `CARD_RADIUS` corners.
 pub(super) fn card_container_style(
     colour: Colour,
     theme: &cosmic::Theme,
@@ -52,13 +50,15 @@ pub(super) fn card_container_style(
         theme,
         &cosmic::theme::Container::Card,
     );
-    style.background = Some(note_color(colour, theme).into());
+    style.background = Some(rgb(colour.paper()).into());
+    style.text_color = Some(rgb(colour.text()));
+    style.icon_color = Some(rgb(colour.text()));
     style.border.radius = CARD_RADIUS.into();
     style
 }
 
 /// The note window's paper: the theme's window background with the note's
-/// colour as its fill.
+/// colour as its fill and the note's text colour.
 pub(super) fn note_paper_style(
     colour: Colour,
 ) -> impl Fn(&cosmic::Theme) -> cosmic::iced::widget::container::Style {
@@ -67,7 +67,9 @@ pub(super) fn note_paper_style(
             theme,
             &cosmic::theme::Container::WindowBackground,
         );
-        style.background = Some(note_color(colour, theme).into());
+        style.background = Some(rgb(colour.paper()).into());
+        style.text_color = Some(rgb(colour.text()));
+        style.icon_color = Some(rgb(colour.text()));
         style
     }
 }
@@ -81,7 +83,7 @@ pub(super) fn swatch_style(
     move |theme| {
         let cosmic = theme.cosmic();
         cosmic::iced::widget::container::Style {
-            background: Some(note_color(colour, theme).into()),
+            background: Some(rgb(colour.paper()).into()),
             border: Border {
                 radius: CARD_RADIUS.into(),
                 width: if selected { 2.0 } else { 1.0 },
@@ -175,6 +177,8 @@ pub(super) fn card_button_style(
     let card = card_container_style(colour, theme);
     let mut style = cosmic::widget::button::Style {
         background: Some(cosmic::iced::Background::Color(background)),
+        text_color: card.text_color,
+        icon_color: card.icon_color,
         border_radius: card.border.radius,
         border_width: card.border.width,
         border_color: card.border.color,

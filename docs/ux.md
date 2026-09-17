@@ -52,10 +52,13 @@ Modelled on the Windows Sticky Notes list window.
 
 - Classic sticky-note yellow (the default for new notes), plus colours people know
   from Linux: Pop cyan, Ubuntu orange, Debian red, Fedora blue, openSUSE green,
-  Arch blue and Manjaro teal-green.
-- A note's colour fills its paper (behind the lines) and its card in the notes list.
-- Light mode uses a soft tint of the colour, dark mode a deep shade, so COSMIC's
-  own text stays readable (at least 4.5:1 contrast) on every one.
+  Arch blue, Manjaro teal-green and Mint green.
+- A note's colour fills its paper and its card in the notes list, exactly as it is,
+  in light and dark mode alike — no tints or shades.
+- The dotted lines are a darker shade of the note's colour.
+- The note's text is dark or white, whichever reads better on its colour (at least
+  4.5:1 contrast), whatever COSMIC's light or dark mode.
+- The colour dialog shows the swatches three to a row.
 
 ## Window title bar
 

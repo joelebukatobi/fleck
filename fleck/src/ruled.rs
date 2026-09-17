@@ -9,6 +9,8 @@
 //! tested with no widget tree involved at all.
 
 use cosmic::iced::widget::canvas;
+use std::cell::Cell;
+
 use cosmic::iced::{mouse, Color, Point, Rectangle};
 use cosmic::Theme;
 
@@ -44,8 +46,8 @@ pub fn line_offsets(height: f32, line_height: f32, padding_top: f32) -> Vec<f32>
 }
 
 /// Draws the lined-paper background behind a note's body: one dotted
-/// horizontal rule per line, positioned by [`line_offsets`] and coloured
-/// from the current theme. Paints no fill of its own - the window content
+/// horizontal rule per line, positioned by [`line_offsets`] and drawn in
+/// `color` (a darker shade of the note's paper). Paints no fill of its own - the window content
 /// it sits on is already opaque (see `app.rs`'s `view_window`), so this
 /// canvas only ever needs to add the lines.
 pub struct RuledLines {
@@ -55,6 +57,16 @@ pub struct RuledLines {
     /// Must equal the `text_editor`'s own top padding, in pixels - see
     /// `app::BODY_PADDING`.
     pub padding_top: f32,
+    /// The dotted lines' colour.
+    pub color: Color,
+}
+
+/// The canvas's state across views: the tessellated lines, and the colour
+/// they were drawn in, so a colour change redraws them.
+#[derive(Default)]
+pub struct LinesState {
+    cache: canvas::Cache,
+    color: Cell<Option<Color>>,
 }
 
 impl<Message> canvas::Program<Message, Theme> for RuledLines {
@@ -68,13 +80,13 @@ impl<Message> canvas::Program<Message, Theme> for RuledLines {
     // struct itself, because `view_window` rebuilds a fresh `RuledLines`
     // every `view()` call; `State` is what libcosmic keeps alive across
     // views.
-    type State = canvas::Cache;
+    type State = LinesState;
 
     fn draw(
         &self,
-        state: &canvas::Cache,
+        state: &LinesState,
         renderer: &cosmic::Renderer,
-        theme: &Theme,
+        _theme: &Theme,
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry<cosmic::Renderer>> {
@@ -84,25 +96,28 @@ impl<Message> canvas::Program<Message, Theme> for RuledLines {
         // `bounds` the canvas widget reports, whose x/y shifts whenever an
         // ancestor's layout does) avoids spurious cache misses.
         let local_bounds = Rectangle::with_size(bounds.size());
-        let geometry = state.draw_with_bounds(renderer, local_bounds, |frame| {
-            let container = theme.current_container();
+        if state.color.replace(Some(self.color)) != Some(self.color) {
+            state.cache.clear();
+        }
+        let geometry = state
+            .cache
+            .draw_with_bounds(renderer, local_bounds, |frame| {
+                let dash = [1.0_f32, 3.0];
+                let stroke = canvas::Stroke {
+                    style: canvas::Style::Solid(self.color),
+                    width: 1.0,
+                    line_dash: canvas::LineDash {
+                        segments: &dash,
+                        offset: 0,
+                    },
+                    ..canvas::Stroke::default()
+                };
 
-            let dash = [1.0_f32, 3.0];
-            let stroke = canvas::Stroke {
-                style: canvas::Style::Solid(Color::from(container.divider)),
-                width: 1.0,
-                line_dash: canvas::LineDash {
-                    segments: &dash,
-                    offset: 0,
-                },
-                ..canvas::Stroke::default()
-            };
-
-            for y in line_offsets(bounds.height, self.line_height, self.padding_top) {
-                let line = canvas::Path::line(Point::new(0.0, y), Point::new(bounds.width, y));
-                frame.stroke(&line, stroke);
-            }
-        });
+                for y in line_offsets(bounds.height, self.line_height, self.padding_top) {
+                    let line = canvas::Path::line(Point::new(0.0, y), Point::new(bounds.width, y));
+                    frame.stroke(&line, stroke);
+                }
+            });
 
         vec![geometry]
     }

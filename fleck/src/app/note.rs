@@ -10,7 +10,9 @@ use cosmic::widget::text_editor;
 use fleck_core::display_name;
 
 use super::list::dialog_width;
-use super::style::{menu_item_button_class, note_paper_style, swatch_style, text_button_class};
+use super::style::{
+    menu_item_button_class, note_paper_style, rgb, swatch_style, text_button_class,
+};
 use super::theme::AppTheme;
 use super::{Fleck, Message, NoteDialog, DEFAULT_WINDOW_SIZE};
 use crate::palette::Colour;
@@ -50,7 +52,7 @@ const NOTE_PADDING_X: u16 = HEADER_BAR_PADDING_X + MENU_BUTTON_PADDING_X;
 const NOTE_PADDING_Y: u16 = 12;
 const MENU_PADDING: u16 = 4;
 /// The colour dialog's swatch grid.
-const SWATCHES_PER_ROW: usize = 4;
+const SWATCHES_PER_ROW: usize = 3;
 const SWATCH_SIZE: f32 = 32.0;
 const SWATCH_GAP: u16 = 8;
 const SWATCH_LABEL_GAP: u16 = 4;
@@ -189,6 +191,7 @@ impl Fleck {
         // is infinite. Outside the `scrollable`, `responsive` instead sees
         // the real, finite space the window gives the body, which is
         // exactly the height a short note's lines should fill.
+        let colour = self.note_colour(id);
         let body = widget::responsive(move |size| {
             let editor = text_editor::text_editor(content)
                 .on_action(move |action| Message::BodyAction(id, action))
@@ -230,9 +233,8 @@ impl Fleck {
                 .size(BODY_TEXT_SIZE)
                 .line_height(LineHeight::Absolute(Pixels(BODY_LINE_HEIGHT)))
                 .min_height(body_min_height(size.height))
-                .style(|theme: &cosmic::Theme, _status| {
-                    let container = theme.current_container();
-                    let value = Color::from(container.on);
+                .style(move |theme: &cosmic::Theme, _status| {
+                    let value = rgb(colour.text());
                     let mut placeholder = value;
                     placeholder.a *= 0.7;
                     text_editor::Style {
@@ -255,6 +257,7 @@ impl Fleck {
             let lines = widget::canvas(RuledLines {
                 line_height: BODY_LINE_HEIGHT,
                 padding_top: BODY_PADDING,
+                color: rgb(colour.line()),
             })
             .width(Length::Fill)
             .height(Length::Fill);
@@ -458,7 +461,7 @@ impl Fleck {
                 .into(),
             NoteDialog::Colour => {
                 let current = self.note_colour(id);
-                let mut grid = widget::Column::with_capacity(2).spacing(SWATCH_GAP);
+                let mut grid = widget::Column::with_capacity(3).spacing(SWATCH_GAP);
                 for row in Colour::ALL.chunks(SWATCHES_PER_ROW) {
                     let mut swatches = widget::Row::with_capacity(row.len()).spacing(SWATCH_GAP);
                     for &colour in row {

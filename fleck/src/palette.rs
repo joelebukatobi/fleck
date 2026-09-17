@@ -1,7 +1,7 @@
 //! Note colours: classic sticky-note yellow plus colours people know from
-//! Linux distributions. A note's paper and its card take a soft tint of its
-//! colour in light mode and a deep shade in dark mode, so COSMIC's own text
-//! colours stay readable on both.
+//! Linux distributions. A note's paper and its card use the colour exactly as
+//! it is, in light and dark mode alike; its dotted lines use a darker shade,
+//! and its text is dark or white, whichever reads better on that colour.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Colour {
@@ -13,17 +13,18 @@ pub enum Colour {
     OpenSuse,
     Arch,
     Manjaro,
+    Mint,
 }
 
-/// How much of the colour goes into the light-mode tint; the rest is white.
-const LIGHT_MIX: f32 = 0.4;
-/// How much of the colour goes into the dark-mode shade; the rest is `DARK_BASE`.
-const DARK_MIX: f32 = 0.3;
-const DARK_BASE: (u8, u8, u8) = (0x1E, 0x1E, 0x1E);
+/// The dotted lines' brightness relative to the paper: each channel is
+/// scaled by this factor.
+const LINE_SHADE: f32 = 0.7;
+const DARK_TEXT: (u8, u8, u8) = (0x1A, 0x1A, 0x1A);
+const LIGHT_TEXT: (u8, u8, u8) = (0xFF, 0xFF, 0xFF);
 
 impl Colour {
     /// In the order the colour dialog shows them. Yellow first: the default.
-    pub const ALL: [Colour; 8] = [
+    pub const ALL: [Colour; 9] = [
         Colour::Yellow,
         Colour::Pop,
         Colour::Ubuntu,
@@ -32,6 +33,7 @@ impl Colour {
         Colour::OpenSuse,
         Colour::Arch,
         Colour::Manjaro,
+        Colour::Mint,
     ];
 
     /// The name stored in a note's frontmatter.
@@ -45,6 +47,7 @@ impl Colour {
             Colour::OpenSuse => "opensuse",
             Colour::Arch => "arch",
             Colour::Manjaro => "manjaro",
+            Colour::Mint => "mint",
         }
     }
 
@@ -68,12 +71,13 @@ impl Colour {
             Colour::OpenSuse => crate::fl!("colour-opensuse"),
             Colour::Arch => crate::fl!("colour-arch"),
             Colour::Manjaro => crate::fl!("colour-manjaro"),
+            Colour::Mint => crate::fl!("colour-mint"),
         }
     }
 
-    /// The recognisable colour itself: classic sticky-note yellow, or the
-    /// distribution's brand colour.
-    pub fn base(self) -> (u8, u8, u8) {
+    /// The note's paper and card colour: classic sticky-note yellow, or the
+    /// distribution's own colour. The same in light and dark mode.
+    pub fn paper(self) -> (u8, u8, u8) {
         match self {
             Colour::Yellow => (0xF8, 0xE4, 0x8C),
             Colour::Pop => (0x48, 0xB9, 0xC7),
@@ -83,67 +87,73 @@ impl Colour {
             Colour::OpenSuse => (0x73, 0xBA, 0x25),
             Colour::Arch => (0x17, 0x93, 0xD1),
             Colour::Manjaro => (0x35, 0xBF, 0xA4),
+            Colour::Mint => (0x87, 0xCF, 0x3E),
         }
     }
 
-    /// The note's paper and card colour: a soft tint in light mode, a deep
-    /// shade in dark mode.
-    pub fn background(self, dark: bool) -> (u8, u8, u8) {
-        if dark {
-            mix(self.base(), DARK_BASE, DARK_MIX)
+    /// The dotted lines: a darker shade of the paper.
+    pub fn line(self) -> (u8, u8, u8) {
+        let (r, g, b) = self.paper();
+        let shade = |c: u8| (f32::from(c) * LINE_SHADE).round() as u8;
+        (shade(r), shade(g), shade(b))
+    }
+
+    /// The note's text: dark or white, whichever contrasts more with the paper.
+    pub fn text(self) -> (u8, u8, u8) {
+        let paper = self.paper();
+        if contrast_ratio(DARK_TEXT, paper) >= contrast_ratio(LIGHT_TEXT, paper) {
+            DARK_TEXT
         } else {
-            mix(self.base(), (0xFF, 0xFF, 0xFF), LIGHT_MIX)
+            LIGHT_TEXT
         }
     }
 }
 
-/// `amount` of `colour`, the rest `other`, per channel.
-fn mix(colour: (u8, u8, u8), other: (u8, u8, u8), amount: f32) -> (u8, u8, u8) {
-    let channel =
-        |a: u8, b: u8| (f32::from(a) * amount + f32::from(b) * (1.0 - amount)).round() as u8;
-    (
-        channel(colour.0, other.0),
-        channel(colour.1, other.1),
-        channel(colour.2, other.2),
-    )
+/// WCAG 2.1 relative luminance.
+fn relative_luminance((r, g, b): (u8, u8, u8)) -> f32 {
+    fn channel(v: u8) -> f32 {
+        let v = f32::from(v) / 255.0;
+        if v <= 0.03928 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+}
+
+/// WCAG 2.1 contrast ratio between two colours.
+fn contrast_ratio(a: (u8, u8, u8), b: (u8, u8, u8)) -> f32 {
+    let (a, b) = (relative_luminance(a), relative_luminance(b));
+    let (lighter, darker) = if a > b { (a, b) } else { (b, a) };
+    (lighter + 0.05) / (darker + 0.05)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// WCAG 2.1 relative luminance.
-    fn relative_luminance((r, g, b): (u8, u8, u8)) -> f32 {
-        fn channel(v: u8) -> f32 {
-            let v = f32::from(v) / 255.0;
-            if v <= 0.03928 {
-                v / 12.92
-            } else {
-                ((v + 0.055) / 1.055).powf(2.4)
-            }
+    #[test]
+    fn every_colours_text_meets_wcag_aa() {
+        for colour in Colour::ALL {
+            let ratio = contrast_ratio(colour.text(), colour.paper());
+            assert!(
+                ratio >= 4.5,
+                "{colour:?} text has contrast {ratio:.2}, need 4.5"
+            );
         }
-        0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
-    }
-
-    fn contrast_ratio(fg: (u8, u8, u8), bg: (u8, u8, u8)) -> f32 {
-        let (a, b) = (relative_luminance(fg), relative_luminance(bg));
-        let (lighter, darker) = if a > b { (a, b) } else { (b, a) };
-        (lighter + 0.05) / (darker + 0.05)
     }
 
     #[test]
-    fn every_colour_meets_wcag_aa_with_cosmic_text_in_both_modes() {
-        // Close to COSMIC's default text colours in light and dark mode.
-        let (light_text, dark_text) = ((0x1A, 0x1A, 0x1A), (0xF2, 0xF2, 0xF2));
+    fn debian_red_gets_white_text_and_yellow_gets_dark_text() {
+        assert_eq!(Colour::Debian.text(), LIGHT_TEXT);
+        assert_eq!(Colour::Yellow.text(), DARK_TEXT);
+    }
+
+    #[test]
+    fn lines_are_a_darker_shade_of_the_paper() {
         for colour in Colour::ALL {
-            for (dark, text) in [(false, light_text), (true, dark_text)] {
-                let ratio = contrast_ratio(text, colour.background(dark));
-                assert!(
-                    ratio >= 4.5,
-                    "{colour:?} in {} mode has contrast {ratio:.2}, need 4.5",
-                    if dark { "dark" } else { "light" }
-                );
-            }
+            assert!(relative_luminance(colour.line()) < relative_luminance(colour.paper()));
         }
     }
 
@@ -168,16 +178,6 @@ mod tests {
     fn unknown_and_old_palette_names_are_yellow() {
         for name in ["", "green", "pink", "purple", "grey", "nonsense"] {
             assert_eq!(Colour::from_name(name), Colour::Yellow);
-        }
-    }
-
-    #[test]
-    fn light_tints_are_lighter_than_dark_shades() {
-        for colour in Colour::ALL {
-            assert!(
-                relative_luminance(colour.background(false))
-                    > relative_luminance(colour.background(true))
-            );
         }
     }
 }

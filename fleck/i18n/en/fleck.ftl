@@ -58,3 +58,4 @@ colour-fedora = Fedora
 colour-opensuse = openSUSE
 colour-arch = Arch
 colour-manjaro = Manjaro
+colour-mint = Mint
