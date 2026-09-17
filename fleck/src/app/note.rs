@@ -25,7 +25,8 @@ pub(super) const BODY_TEXT_SIZE: f32 = 14.0;
 /// body can never drift out of alignment with the text sitting on them.
 pub(super) const BODY_LINE_HEIGHT: f32 = 22.0;
 
-/// The body `text_editor`'s padding, in logical pixels, on every side.
+/// The body `text_editor`'s padding, in logical pixels, above and below the
+/// text (none at the sides).
 /// Shared with `ruled::RuledLines::padding_top` for the same reason as
 /// `BODY_LINE_HEIGHT` - the first rule's offset has to account for exactly
 /// this much space above the first line of text.
@@ -211,7 +212,14 @@ impl Fleck {
                     }
                     text_editor::Binding::from_key_press(press)
                 })
-                .padding(BODY_PADDING)
+                // Top and bottom only: the text starts at the lined area's
+                // left edge, in line with the Settings label above it.
+                .padding(cosmic::iced::Padding {
+                    top: BODY_PADDING,
+                    bottom: BODY_PADDING,
+                    left: 0.0,
+                    right: 0.0,
+                })
                 .size(BODY_TEXT_SIZE)
                 .line_height(LineHeight::Absolute(Pixels(BODY_LINE_HEIGHT)))
                 .min_height(body_min_height(size.height))
