@@ -114,10 +114,9 @@ Modelled on the Windows Sticky Notes list window.
   paragraph around it, and cut, paste, undo and search treat it like any other line.
 - **Under the note:** a row of thumbnails, in the order the images appear in the text.
   It is only there when the note has images.
-- **Finding one:** clicking a thumbnail puts the cursor on that image's line in the
-  text, scrolling there if needed.
-- **Opening one:** double-click a thumbnail to see the image full size over the note,
-  with **Copy**, **Save as** and **Remove**.
+- **Opening one:** clicking a thumbnail puts the cursor on that image's line in the
+  text and opens the picture full size over the note, with **Copy**, **Save as**,
+  **Remove** and **Close**.
 - **Saving a copy:** **Save as** opens COSMIC's file picker and writes a copy where you
   choose. The note keeps its own copy.
 - **Copying:** **Copy** puts the picture back on the clipboard, ready to paste
@@ -169,6 +168,8 @@ Modelled on the Windows Sticky Notes list window.
 
 - Dialogs over the notes list are 75% of the list window's width.
 - The list behind a dialog is not dimmed or blurred.
+- Dialogs are modal: clicking outside does not dismiss them, as in other COSMIC apps.
+  Escape closes a dialog, and a note's Settings menu.
 
 ## Icons
 

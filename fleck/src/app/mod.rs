@@ -29,10 +29,6 @@ use note::{edit_kind, note_window_settings};
 use style::text_button_class;
 use theme::AppTheme;
 
-/// How close together two clicks on the same thumbnail count as a
-/// double-click.
-const DOUBLE_CLICK: Duration = Duration::from_millis(500);
-
 /// How long to wait after the last keystroke before writing a note to disk.
 const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 
@@ -216,11 +212,13 @@ pub enum Message {
     NoteImageSaveAs(window::Id, String),
     /// Where the save dialog said to put it, if anywhere.
     NoteImageSaveTo(String, Option<PathBuf>),
-    /// A click on a thumbnail: put the cursor on that image's line, or open
-    /// the image when it is the second click in a row on the same thumbnail.
+    /// A click on a thumbnail: put the cursor on that image's line and open
+    /// the image full size.
     NoteImageClicked(window::Id, usize, String),
     /// Files dropped on a note window: the images among them are added.
     NoteFilesDropped(window::Id, Vec<PathBuf>),
+    /// Escape in a note window: close whatever is open over it.
+    NoteEscape(window::Id),
     /// A drag entered a note window, offering these mime types.
     NoteDragEntered(window::Id, Vec<String>),
     /// A drag left a note window without dropping.
@@ -416,9 +414,6 @@ pub struct Fleck {
     note_rename_input_id: id::Id,
     /// The note window a drag carrying files is currently over.
     drag_over_note: Option<window::Id>,
-    /// The last thumbnail click, for spotting a double-click (see
-    /// `Message::NoteImageClicked`).
-    last_thumbnail_click: Option<(window::Id, usize, Instant)>,
 }
 
 impl Fleck {
@@ -1087,7 +1082,6 @@ impl cosmic::Application for Fleck {
             note_dialog: None,
             note_rename_input_id: id::Id::unique(),
             drag_over_note: None,
-            last_thumbnail_click: None,
         };
 
         let apply_theme = app.theme.apply();
@@ -1109,6 +1103,10 @@ impl cosmic::Application for Fleck {
             cosmic::iced::Event::Window(window::Event::FileDropped(paths)) => {
                 Some(Message::NoteFilesDropped(id, paths))
             }
+            cosmic::iced::Event::Keyboard(cosmic::iced::keyboard::Event::KeyPressed {
+                key: cosmic::iced::keyboard::Key::Named(cosmic::iced::keyboard::key::Named::Escape),
+                ..
+            }) => Some(Message::NoteEscape(id)),
             _ => None,
         });
 
@@ -1486,19 +1484,6 @@ impl cosmic::Application for Fleck {
                 Task::none()
             }
             Message::NoteImageClicked(id, line, name) => {
-                // The thumbnail is a button, which takes the click itself, so
-                // a double-click can't be spotted by the widget around it.
-                let now = Instant::now();
-                let again = self
-                    .last_thumbnail_click
-                    .is_some_and(|(window, clicked, at)| {
-                        (window, clicked) == (id, line) && now.duration_since(at) <= DOUBLE_CLICK
-                    });
-                if again {
-                    self.last_thumbnail_click = None;
-                    return self.update(Message::NoteImageOpen(id, name));
-                }
-                self.last_thumbnail_click = Some((id, line, now));
                 let Some(window) = self.windows.get_mut(&id) else {
                     return Task::none();
                 };
@@ -1512,7 +1497,7 @@ impl cosmic::Application for Fleck {
                         .content
                         .perform(text_editor::Action::Move(text_editor::Motion::Down));
                 }
-                Task::none()
+                self.update(Message::NoteImageOpen(id, name))
             }
             Message::NoteFilesDropped(id, paths) => {
                 let Some(uuid) = self.windows.get(&id).map(|window| window.uuid) else {
@@ -1527,6 +1512,13 @@ impl cosmic::Application for Fleck {
                         Err(error) => tracing::error!(?error, "failed to save the dropped image"),
                     }
                 }
+                Task::none()
+            }
+            Message::NoteEscape(id) => {
+                if self.note_menu == Some(id) {
+                    self.note_menu = None;
+                }
+                self.note_dialog.take_if(|(window, _)| *window == id);
                 Task::none()
             }
             Message::NoteDragEntered(id, mimes) => {
@@ -1748,7 +1740,6 @@ mod tests {
             note_dialog: None,
             note_rename_input_id: id::Id::unique(),
             drag_over_note: None,
-            last_thumbnail_click: None,
         }
     }
 

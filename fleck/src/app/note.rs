@@ -62,6 +62,8 @@ const SWATCH_PADDING: u16 = 8;
 const THUMBNAIL_HEIGHT: f32 = 64.0;
 const THUMBNAIL_GAP: u16 = 8;
 const THUMBNAIL_PADDING: u16 = 4;
+/// Gap between the image dialog's picture and its Remove button.
+const IMAGE_DIALOG_SPACING: u16 = 8;
 const MENU_ITEM_PADDING_Y: u16 = 8;
 const MENU_ITEM_PADDING_X: u16 = 16;
 
@@ -433,8 +435,8 @@ impl Fleck {
                 continue;
             };
             any = true;
-            // A click puts the cursor on the image's line; a second click
-            // opens the picture full size (see `Message::NoteImageClicked`).
+            // A click puts the cursor on the image's line and opens the
+            // picture full size (see `Message::NoteImageClicked`).
             row = row.push(
                 widget::button::custom(
                     widget::image(widget::image::Handle::from_path(path))
@@ -594,11 +596,26 @@ impl Fleck {
                 frame
                     .title(name.clone())
                     .control(
-                        widget::container(image.map_or_else(
-                            || Element::from(widget::text::body(crate::fl!("image-missing"))),
-                            Element::from,
-                        ))
-                        .center_x(Length::Fill),
+                        widget::Column::with_capacity(2)
+                            .spacing(IMAGE_DIALOG_SPACING)
+                            .push(
+                                widget::container(image.map_or_else(
+                                    || {
+                                        Element::from(widget::text::body(crate::fl!(
+                                            "image-missing"
+                                        )))
+                                    },
+                                    Element::from,
+                                ))
+                                .center_x(Length::Fill),
+                            )
+                            .push(
+                                widget::container(
+                                    widget::button::destructive(crate::fl!("image-remove"))
+                                        .on_press(Message::NoteImageRemove(id, name.clone())),
+                                )
+                                .align_right(Length::Fill),
+                            ),
                     )
                     .primary_action(
                         widget::button::suggested(crate::fl!("image-copy"))
@@ -609,8 +626,8 @@ impl Fleck {
                             .on_press(Message::NoteImageSaveAs(id, name.clone())),
                     )
                     .tertiary_action(
-                        widget::button::destructive(crate::fl!("image-remove"))
-                            .on_press(Message::NoteImageRemove(id, name.clone())),
+                        widget::button::standard(crate::fl!("close"))
+                            .on_press(Message::NoteDialogCancel(id)),
                     )
                     .into()
             }

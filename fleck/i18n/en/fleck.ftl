@@ -32,6 +32,7 @@ delete-title = Delete note?
 delete-body = "{ $name }" will be deleted. This can't be undone.
 delete-confirm = Delete
 cancel = Cancel
+close = Close
 
 # Note window menu (the Settings button at the top-left of a note).
 settings = Settings
