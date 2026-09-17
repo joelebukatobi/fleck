@@ -10,7 +10,7 @@ use cosmic::widget::text_editor;
 use fleck_core::display_name;
 
 use super::list::dialog_width;
-use super::style::{icon_button_class, IconHoverRole};
+use super::style::text_button_class;
 use super::theme::AppTheme;
 use super::{Fleck, Message, NoteDialog, DEFAULT_WINDOW_SIZE};
 use crate::ruled::RuledLines;
@@ -33,21 +33,18 @@ pub(super) const BODY_PADDING: f32 = 8.0;
 
 /// The note menu: its width, its inner padding, and each row's padding.
 const MENU_WIDTH: f32 = 200.0;
-/// The settings button: its icon size and the padding around the icon. The
-/// menu opens just below the button, its left edge in line with the icon.
-const MENU_BUTTON_ICON: u16 = 16;
-const MENU_BUTTON_PADDING: u16 = 8;
-/// Left padding of the settings button, wider than the rest so the visible
-/// gear sits as far from the window's left edge (~19 px) as the visible close
-/// cross does from the right: COSMIC's `window-close-symbolic` draws its cross
-/// 4 px inside its 16 px box, while the gear nearly fills its box.
-const MENU_BUTTON_PADDING_LEFT: u16 = 11;
+/// The "Settings" text button: COSMIC's default text-button height, and its
+/// side padding. The label sits 18 px from the window's left edge, about as
+/// far as the visible close cross sits from the right; the menu opens just
+/// below the button with its left edge in line with the label.
+const MENU_BUTTON_HEIGHT: u16 = 32;
+const MENU_BUTTON_PADDING_X: u16 = 11;
 /// libcosmic's header bar padding on each side (Standard density, not
 /// maximised). Fixed inside libcosmic; mirrored here only for alignment.
 const HEADER_BAR_PADDING_X: u16 = 7;
-/// The lined area's side padding: in line with the settings icon and the menu
-/// under it on the left, and the same distance in from the right.
-const NOTE_PADDING_X: u16 = HEADER_BAR_PADDING_X + MENU_BUTTON_PADDING_LEFT;
+/// The lined area's side padding: in line with the "Settings" label and the
+/// menu under it on the left, and the same distance in from the right.
+const NOTE_PADDING_X: u16 = HEADER_BAR_PADDING_X + MENU_BUTTON_PADDING_X;
 const NOTE_PADDING_Y: u16 = 12;
 const MENU_PADDING: u16 = 4;
 const MENU_ITEM_PADDING_Y: u16 = 8;
@@ -314,25 +311,19 @@ impl Fleck {
     /// Fleck's own header bar for a note window, like libcosmic's main
     /// window: the menu on the left, the note's name, then the window buttons.
     fn note_header(&self, id: window::Id) -> Element<'_, Message> {
-        let menu_button = widget::button::icon(crate::icons::settings())
-            .extra_small()
-            .icon_size(MENU_BUTTON_ICON)
-            .padding([
-                MENU_BUTTON_PADDING,
-                MENU_BUTTON_PADDING,
-                MENU_BUTTON_PADDING,
-                MENU_BUTTON_PADDING_LEFT,
-            ])
+        let menu_button = widget::button::text(crate::fl!("settings"))
+            .height(Length::Fixed(f32::from(MENU_BUTTON_HEIGHT)))
+            .padding([0, MENU_BUTTON_PADDING_X])
             .on_press(Message::NoteMenuToggle(id))
-            .class(icon_button_class(IconHoverRole::Accent));
+            .class(text_button_class());
         let mut menu = widget::popover(menu_button).position(widget::popover::Position::Point(
             cosmic::iced::Point::new(
-                f32::from(MENU_BUTTON_PADDING_LEFT),
-                f32::from(MENU_BUTTON_ICON + 2 * MENU_BUTTON_PADDING),
+                f32::from(MENU_BUTTON_PADDING_X),
+                f32::from(MENU_BUTTON_HEIGHT),
             ),
         ));
-        // No `on_close`: the popover fires it on any press outside the gear
-        // button - including presses inside the menu - which closed the menu
+        // No `on_close`: the popover fires it on any press outside the
+        // Settings button - including presses inside the menu - which closed the menu
         // before its items (which act on release) could respond. Clicking in
         // the note's text closes it instead (see `view_note`).
         if self.note_menu == Some(id) {

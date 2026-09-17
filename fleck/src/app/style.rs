@@ -245,6 +245,57 @@ pub(super) fn icon_button_class(role: IconHoverRole) -> cosmic::theme::Button {
     }
 }
 
+/// COSMIC's default text-button style (its own hover and pressed backgrounds),
+/// with the label turning the accent colour while hovered or pressed - the same
+/// hover colour the icon buttons use (`icon_hover_color`).
+pub(super) fn text_button_class() -> cosmic::theme::Button {
+    fn with_accent_text(
+        mut style: cosmic::widget::button::Style,
+        theme: &cosmic::Theme,
+    ) -> cosmic::widget::button::Style {
+        style.text_color = Some(icon_hover_color(IconHoverRole::Accent, theme));
+        style
+    }
+    cosmic::theme::Button::Custom {
+        active: Box::new(|focused, theme| {
+            <cosmic::Theme as cosmic::widget::button::Catalog>::active(
+                theme,
+                focused,
+                false,
+                &cosmic::theme::Button::Text,
+            )
+        }),
+        disabled: Box::new(|theme| {
+            <cosmic::Theme as cosmic::widget::button::Catalog>::disabled(
+                theme,
+                &cosmic::theme::Button::Text,
+            )
+        }),
+        hovered: Box::new(|focused, theme| {
+            with_accent_text(
+                <cosmic::Theme as cosmic::widget::button::Catalog>::hovered(
+                    theme,
+                    focused,
+                    false,
+                    &cosmic::theme::Button::Text,
+                ),
+                theme,
+            )
+        }),
+        pressed: Box::new(|focused, theme| {
+            with_accent_text(
+                <cosmic::Theme as cosmic::widget::button::Catalog>::pressed(
+                    theme,
+                    focused,
+                    false,
+                    &cosmic::theme::Button::Text,
+                ),
+                theme,
+            )
+        }),
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // exact pixel values are the point of these tests
 mod tests {
