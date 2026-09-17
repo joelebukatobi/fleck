@@ -37,6 +37,13 @@ const MENU_WIDTH: f32 = 200.0;
 /// menu opens just below the button, its left edge in line with the icon.
 const MENU_BUTTON_ICON: u16 = 16;
 const MENU_BUTTON_PADDING: u16 = 8;
+/// libcosmic's header bar padding on each side (Standard density, not
+/// maximised). Fixed inside libcosmic; mirrored here only for alignment.
+const HEADER_BAR_PADDING_X: u16 = 7;
+/// The lined area's side padding: in line with the settings icon (and the
+/// menu under it) on the left, and with the close button's icon on the right.
+const NOTE_PADDING_X: u16 = HEADER_BAR_PADDING_X + MENU_BUTTON_PADDING;
+const NOTE_PADDING_Y: u16 = 12;
 const MENU_PADDING: u16 = 4;
 const MENU_ITEM_PADDING_Y: u16 = 8;
 const MENU_ITEM_PADDING_X: u16 = 16;
@@ -269,7 +276,7 @@ impl Fleck {
         let header = self.note_header(id);
 
         let body = widget::container(body)
-            .padding(12)
+            .padding([NOTE_PADDING_Y, NOTE_PADDING_X])
             .width(Length::Fill)
             .height(Length::Fill);
 
