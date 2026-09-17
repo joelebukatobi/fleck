@@ -185,6 +185,46 @@ pub(super) fn icon_hover_color(role: IconHoverRole, theme: &cosmic::Theme) -> Co
     }
 }
 
+/// COSMIC's grey for secondary text and icons: the colour libcosmic gives an
+/// unfocused window's header bar - the background's component foreground,
+/// mixed halfway into the background itself.
+pub(super) fn muted_color(theme: &cosmic::Theme) -> Color {
+    let background = theme.cosmic().background(theme.transparent);
+    let on = Color::from(background.component.on);
+    let base = Color::from(background.base);
+    Color {
+        r: f32::midpoint(on.r, base.r),
+        g: f32::midpoint(on.g, base.g),
+        b: f32::midpoint(on.b, base.b),
+        a: on.a,
+    }
+}
+
+/// Like `icon_button_class`, but the icon rests in COSMIC's grey
+/// (`muted_color`) instead of the header bar's accent colour. For the `+`
+/// in the notes list's header.
+pub(super) fn header_icon_button_class(role: IconHoverRole) -> cosmic::theme::Button {
+    let cosmic::theme::Button::Custom {
+        active,
+        disabled,
+        hovered,
+        pressed,
+    } = icon_button_class(role)
+    else {
+        unreachable!("icon_button_class always builds a custom class");
+    };
+    cosmic::theme::Button::Custom {
+        active: Box::new(move |focused, theme| {
+            let mut style = active(focused, theme);
+            style.icon_color = Some(muted_color(theme));
+            style
+        }),
+        disabled,
+        hovered,
+        pressed,
+    }
+}
+
 /// A header icon button's (the `+` new-note button in `header_start`, and
 /// the pencil/trash buttons in `view_card`) full `Button::Custom` style
 /// class: no background in any state - removing libcosmic's default icon-
@@ -246,8 +286,9 @@ pub(super) fn icon_button_class(role: IconHoverRole) -> cosmic::theme::Button {
 }
 
 /// COSMIC's default text-button style (its own hover and pressed backgrounds),
-/// with the label turning the accent colour while hovered or pressed - the same
-/// hover colour the icon buttons use (`icon_hover_color`).
+/// with the label in COSMIC's grey (`muted_color`) at rest, turning the accent
+/// colour while hovered or pressed - the same hover colour the icon buttons use
+/// (`icon_hover_color`).
 pub(super) fn text_button_class() -> cosmic::theme::Button {
     fn with_accent_text(
         mut style: cosmic::widget::button::Style,
@@ -258,12 +299,14 @@ pub(super) fn text_button_class() -> cosmic::theme::Button {
     }
     cosmic::theme::Button::Custom {
         active: Box::new(|focused, theme| {
-            <cosmic::Theme as cosmic::widget::button::Catalog>::active(
+            let mut style = <cosmic::Theme as cosmic::widget::button::Catalog>::active(
                 theme,
                 focused,
                 false,
                 &cosmic::theme::Button::Text,
-            )
+            );
+            style.text_color = Some(muted_color(theme));
+            style
         }),
         disabled: Box::new(|theme| {
             <cosmic::Theme as cosmic::widget::button::Catalog>::disabled(
@@ -300,6 +343,17 @@ pub(super) fn text_button_class() -> cosmic::theme::Button {
 #[allow(clippy::float_cmp)] // exact pixel values are the point of these tests
 mod tests {
     use super::*;
+
+    #[test]
+    fn muted_color_is_not_the_hover_accent() {
+        for theme in [cosmic::Theme::dark(), cosmic::Theme::light()] {
+            assert_ne!(
+                muted_color(&theme),
+                icon_hover_color(IconHoverRole::Accent, &theme),
+                "at rest the Settings label and + must not already look hovered"
+            );
+        }
+    }
 
     #[test]
     fn icon_hover_color_maps_trash_to_destructive() {

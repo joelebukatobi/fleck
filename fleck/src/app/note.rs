@@ -36,7 +36,7 @@ const MENU_WIDTH: f32 = 200.0;
 /// The "Settings" text button: COSMIC's default text-button height, and its
 /// side padding. The label sits 18 px from the window's left edge, about as
 /// far as the visible close cross sits from the right; the menu opens just
-/// below the button with its left edge in line with the label.
+/// below the button, in line with the left edge of its hover background.
 const MENU_BUTTON_HEIGHT: u16 = 32;
 const MENU_BUTTON_PADDING_X: u16 = 11;
 /// libcosmic's header bar padding on each side (Standard density, not
@@ -317,10 +317,7 @@ impl Fleck {
             .on_press(Message::NoteMenuToggle(id))
             .class(text_button_class());
         let mut menu = widget::popover(menu_button).position(widget::popover::Position::Point(
-            cosmic::iced::Point::new(
-                f32::from(MENU_BUTTON_PADDING_X),
-                f32::from(MENU_BUTTON_HEIGHT),
-            ),
+            cosmic::iced::Point::new(0.0, f32::from(MENU_BUTTON_HEIGHT)),
         ));
         // No `on_close`: the popover fires it on any press outside the
         // Settings button - including presses inside the menu - which closed the menu

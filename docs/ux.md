@@ -51,7 +51,7 @@ Modelled on the Windows Sticky Notes list window.
 ## Window title bar
 
 - Fleck draws each note window's title bar itself, in the same style as the notes
-  list's: a **Settings** button on the left (COSMIC's text-button style: a background on hover, and the label turns the accent colour), the note's name, then
+  list's: a **Settings** button on the left (COSMIC's text-button style: a grey label at rest; on hover a background, and the label turns the accent colour; its menu opens flush with the button's left edge), the note's name, then
   the window buttons COSMIC is set to show.
 - Drag the bar to move the window; double-click it to maximise.
 
@@ -91,6 +91,7 @@ Modelled on the Windows Sticky Notes list window.
   - Card content (preview and time): 8 px padding, including top and bottom.
   - Rename and delete icons sit 8 px apart; the delete icon is 8 px from the
     card's right edge, in line with the search bar's magnifier.
+  - The + rests in COSMIC's grey, like the note's Settings label.
   - Icon buttons (+, rename, delete) show no background on hover;
     the icon turns the accent colour, or red for delete.
   - Hovering a card lightens it slightly; pressing darkens it slightly. The card

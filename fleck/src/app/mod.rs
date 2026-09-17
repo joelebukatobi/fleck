@@ -25,7 +25,7 @@ use crate::undo::UndoHistory;
 
 use list::{dialog_width, RenameState};
 use note::{edit_kind, note_window_settings};
-use style::{icon_button_class, IconHoverRole};
+use style::{header_icon_button_class, IconHoverRole};
 use theme::AppTheme;
 
 /// How long to wait after the last keystroke before writing a note to disk.
@@ -1375,7 +1375,7 @@ impl cosmic::Application for Fleck {
         vec![
             widget::button::icon(crate::icons::plus())
                 .on_press(Message::NewNote)
-                .class(icon_button_class(IconHoverRole::Accent))
+                .class(header_icon_button_class(IconHoverRole::Accent))
                 .into(),
             widget::text::body("Fleck").into(),
         ]
