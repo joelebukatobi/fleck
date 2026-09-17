@@ -340,7 +340,10 @@ impl Fleck {
                 .cmp(&self.note_mtime(a.frontmatter.uuid))
         });
 
-        let search = widget::search_input(crate::fl!("search-notes"), self.search.clone())
+        // `text_input`, not `search_input`: the latter always adds COSMIC's
+        // magnifier on the left, and the placeholder should start right at
+        // the bar's padding, in line with the card titles.
+        let search = widget::text_input(crate::fl!("search-notes"), self.search.clone())
             .id(self.search_input_id.clone())
             .on_input(Message::SearchChanged)
             // The magnifier sits at the right edge, where a clear button

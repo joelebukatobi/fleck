@@ -31,8 +31,6 @@ pub(super) const BODY_LINE_HEIGHT: f32 = 22.0;
 /// this much space above the first line of text.
 pub(super) const BODY_PADDING: f32 = 8.0;
 
-/// Gap between the note's menu button and the lined body below it.
-const NOTE_HEADER_GAP: u16 = 4;
 /// The note menu: its width, its inner padding, and each row's padding.
 const MENU_WIDTH: f32 = 200.0;
 const MENU_PADDING: u16 = 4;
@@ -45,14 +43,15 @@ const MENU_ITEM_PADDING_X: u16 = 16;
 /// gives its own main window (`iced_settings` in libcosmic's `app/mod.rs`).
 /// The main window never flickered and note windows always did, so this
 /// mirrors libcosmic's main-window setup: a transparent surface under the
-/// opaque theme background, plus the application id. Decorations stay
-/// server-side - a client-side header made the flicker far worse.
+/// opaque theme background, the application id, and no server-side title
+/// bar - Fleck draws its own header bar, which holds the note menu.
 pub(super) fn note_window_settings(size: Size) -> window::Settings {
     let mut settings = window::Settings {
         size,
         ..window::Settings::default()
     };
     settings.transparent = true;
+    settings.decorations = false;
     settings.platform_specific.application_id = <Fleck as cosmic::Application>::APP_ID.to_string();
     settings
 }
@@ -263,23 +262,14 @@ impl Fleck {
         .width(Length::Fill)
         .height(Length::Fill);
 
-        let menu_button = widget::button::icon(crate::icons::more_vert())
-            .extra_small()
-            .on_press(Message::NoteMenuToggle(id))
-            .class(icon_button_class(IconHoverRole::Accent));
-        let mut menu = widget::popover(menu_button)
-            .position(widget::popover::Position::Bottom)
-            .on_close(Message::NoteMenuClose(id));
-        if self.note_menu == Some(id) {
-            menu = menu.popup(self.note_menu_popup(id));
-        }
+        let header = self.note_header(id);
 
-        let page = widget::Column::with_capacity(2)
-            .spacing(NOTE_HEADER_GAP)
-            .push(menu)
-            .push(body);
+        let body = widget::container(body)
+            .padding(12)
+            .width(Length::Fill)
+            .height(Length::Fill);
 
-        let note = widget::container(page)
+        let note = widget::container(widget::Column::with_capacity(2).push(header).push(body))
             // An explicit opaque background is a rendering requirement, not
             // decoration: `view_window` is used directly for every secondary
             // note window with nothing else wrapping it (see `Cosmic::view` in
@@ -288,7 +278,6 @@ impl Fleck {
             // transparent - the desktop showing through, stale frames smearing,
             // exactly the failure mode this task's brief warns about.
             .class(cosmic::theme::Container::WindowBackground)
-            .padding(12)
             .width(Length::Fill)
             .height(Length::Fill);
 
@@ -301,6 +290,44 @@ impl Fleck {
             note = note.popup(dialog);
         }
         note.into()
+    }
+
+    /// Fleck's own header bar for a note window, like libcosmic's main
+    /// window: the menu on the left, the note's name, then the window buttons.
+    fn note_header(&self, id: window::Id) -> Element<'_, Message> {
+        let menu_button = widget::button::icon(crate::icons::more_vert())
+            .extra_small()
+            .on_press(Message::NoteMenuToggle(id))
+            .class(icon_button_class(IconHoverRole::Accent));
+        let mut menu = widget::popover(menu_button)
+            .position(widget::popover::Position::Bottom)
+            .on_close(Message::NoteMenuClose(id));
+        if self.note_menu == Some(id) {
+            menu = menu.popup(self.note_menu_popup(id));
+        }
+
+        let title = self
+            .windows
+            .get(&id)
+            .and_then(|window| self.notes.get(&window.uuid))
+            .map_or_else(
+                || fleck_core::UNNAMED.to_string(),
+                |note| display_name(note).to_string(),
+            );
+        let mut header = widget::header_bar()
+            .title(title)
+            .focused(self.core.focused_window() == Some(id))
+            .start(menu)
+            .on_drag(Message::NoteWindowDrag(id))
+            .on_double_click(Message::NoteWindowMaximize(id))
+            .on_close(Message::CloseRequested(id));
+        if cosmic::config::show_maximize() {
+            header = header.on_maximize(Message::NoteWindowMaximize(id));
+        }
+        if cosmic::config::show_minimize() {
+            header = header.on_minimize(Message::NoteWindowMinimize(id));
+        }
+        header.into()
     }
 
     /// The menu under a note's three-dot button: rename, delete, back to the

@@ -196,6 +196,12 @@ pub enum Message {
     NoteBackToList(window::Id),
     /// A theme picked in a note's menu, for every Fleck window.
     SetTheme(AppTheme),
+    /// Dragging a note window's header bar.
+    NoteWindowDrag(window::Id),
+    /// The maximize button, or a double-click, on a note window's header bar.
+    NoteWindowMaximize(window::Id),
+    /// The minimize button on a note window's header bar.
+    NoteWindowMinimize(window::Id),
 }
 
 /// A dialog open over a note window. Drawn by the note window itself: libcosmic
@@ -697,13 +703,10 @@ impl Fleck {
         if let Some(id) = self.list_window {
             return window::gain_focus(id);
         }
-        let mut settings = note_window_settings(Size::new(
+        let settings = note_window_settings(Size::new(
             DEFAULT_WINDOW_SIZE.0 as f32,
             DEFAULT_WINDOW_SIZE.1 as f32,
         ));
-        // Like libcosmic's own main window: its client-side header is the
-        // title bar, so no server-side one on top of it.
-        settings.decorations = false;
         let (id, spawn) = window::open(settings);
         self.list_window = Some(id);
         // libcosmic draws the header (the `+` button) and dialogs only on
@@ -1333,6 +1336,9 @@ impl cosmic::Application for Fleck {
                 theme.save(<Fleck as cosmic::Application>::APP_ID);
                 theme.apply()
             }
+            Message::NoteWindowDrag(id) => window::drag(id),
+            Message::NoteWindowMaximize(id) => window::toggle_maximize(id),
+            Message::NoteWindowMinimize(id) => window::minimize(id, true),
             Message::ListScrollHover(hovered) => {
                 self.list_scroll_hovered = hovered;
                 Task::none()

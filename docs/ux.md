@@ -22,6 +22,7 @@ Modelled on the Windows Sticky Notes list window.
 - **Header:** a `+` button on the left for a new note, then **Fleck**, then the
   window buttons on the right.
 - **Search bar** under the header. Filters as you type, matching note names and text.
+  The placeholder starts right at the bar's padding, in line with the card titles.
   The magnifier sits at the right edge; there is no clear button.
 - **Notes as cards**, most recently edited first, scrolling when there are more
   than fit. Each card shows the note's name in bold, the first couple of lines
@@ -49,13 +50,14 @@ Modelled on the Windows Sticky Notes list window.
 
 ## Window title bar
 
-- Every note window's title reads **Note name | Fleck**, followed by minimise,
-  maximise and close. COSMIC already renders it this way.
+- Fleck draws each note window's title bar itself, in the same style as the notes
+  list's: the note menu (three vertical dots) on the left, the note's name, then
+  the window buttons COSMIC is set to show.
+- Drag the bar to move the window; double-click it to maximise.
 
 ## Inside a note
 
-- The note text, with a three-dot menu button (vertical) at the top-left. No
-  name field inside the note — the name lives in the title bar.
+- Just the note text. The menu and name live in the title bar.
 - A note's name is its first line of text, until it is renamed from the note's
   menu or the notes list.
 - **The note menu:**
