@@ -59,8 +59,9 @@ pub(super) fn card_container_style(
     style
 }
 
-/// The note window's paper: the theme's window background with the note's
-/// colour as its fill and the note's text colour.
+/// The note window's paper, below the title bar: the theme's window background
+/// with the note's colour as its fill and the note's text colour. Square at the
+/// top, where it meets the title bar; the window's own rounding at the bottom.
 pub(super) fn note_paper_style(
     colour: Colour,
 ) -> impl Fn(&cosmic::Theme) -> cosmic::iced::widget::container::Style {
@@ -74,8 +75,24 @@ pub(super) fn note_paper_style(
             style.text_color = Some(rgb(text));
             style.icon_color = Some(rgb(text));
         }
+        style.border.radius.top_left = 0.0;
+        style.border.radius.top_right = 0.0;
         style
     }
+}
+
+/// The note window's title bar: the theme's window background, rounded only
+/// at the top to follow the window's corners, square where the paper starts.
+pub(super) fn note_title_bar_style(
+    theme: &cosmic::Theme,
+) -> cosmic::iced::widget::container::Style {
+    let mut style = <cosmic::Theme as cosmic::iced::widget::container::Catalog>::style(
+        theme,
+        &cosmic::theme::Container::WindowBackground,
+    );
+    style.border.radius.bottom_left = 0.0;
+    style.border.radius.bottom_right = 0.0;
+    style
 }
 
 /// One swatch in the colour dialog: the note colour (the theme's background

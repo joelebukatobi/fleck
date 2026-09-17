@@ -11,7 +11,8 @@ use fleck_core::display_name;
 
 use super::list::dialog_width;
 use super::style::{
-    menu_item_button_class, note_paper_style, rgb, swatch_style, text_button_class,
+    menu_item_button_class, note_paper_style, note_title_bar_style, rgb, swatch_style,
+    text_button_class,
 };
 use super::theme::AppTheme;
 use super::{Fleck, Message, NoteDialog, DEFAULT_WINDOW_SIZE};
@@ -297,7 +298,10 @@ impl Fleck {
 
         let header = self.note_header(id);
 
+        // The paper starts where the title bar ends, like any other app's
+        // content; the title bar keeps the theme's colours.
         let body = widget::container(body)
+            .class(cosmic::theme::Container::custom(note_paper_style(colour)))
             .padding([NOTE_PADDING_Y, NOTE_PADDING_X])
             .width(Length::Fill)
             .height(Length::Fill);
@@ -313,9 +317,7 @@ impl Fleck {
             // default (`Container::Transparent`), the whole window would render
             // transparent - the desktop showing through, stale frames smearing,
             // exactly the failure mode this task's brief warns about.
-            .class(cosmic::theme::Container::custom(note_paper_style(
-                self.note_colour(id),
-            )))
+            .class(cosmic::theme::Container::WindowBackground)
             .width(Length::Fill)
             .height(Length::Fill);
 
@@ -370,12 +372,12 @@ impl Fleck {
         if cosmic::config::show_minimize() {
             header = header.on_minimize(Message::NoteWindowMinimize(id));
         }
-        // libcosmic's header bar is transparent, which let the note's colour
-        // show through it. Painting the theme's window background behind it
-        // keeps the title bar - title, Settings and window buttons - in the
-        // COSMIC theme's own colours whatever the note's colour.
+        // libcosmic's header bar is transparent. Painting the theme's window
+        // background behind it keeps the title bar - title, Settings and
+        // window buttons - in the COSMIC theme's own colours, with no rounding
+        // at its bottom edge where the note's paper starts.
         widget::container(header)
-            .class(cosmic::theme::Container::WindowBackground)
+            .class(cosmic::theme::Container::custom(note_title_bar_style))
             .width(Length::Fill)
             .into()
     }
