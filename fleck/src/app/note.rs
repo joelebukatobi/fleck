@@ -295,7 +295,7 @@ impl Fleck {
     /// Fleck's own header bar for a note window, like libcosmic's main
     /// window: the menu on the left, the note's name, then the window buttons.
     fn note_header(&self, id: window::Id) -> Element<'_, Message> {
-        let menu_button = widget::button::icon(crate::icons::more_vert())
+        let menu_button = widget::button::icon(crate::icons::settings())
             .extra_small()
             .on_press(Message::NoteMenuToggle(id))
             .class(icon_button_class(IconHoverRole::Accent));
@@ -330,7 +330,7 @@ impl Fleck {
         header.into()
     }
 
-    /// The menu under a note's three-dot button: rename, delete, back to the
+    /// The menu under a note's settings button: rename, delete, back to the
     /// list, and the app-wide theme.
     fn note_menu_popup(&self, id: window::Id) -> Element<'_, Message> {
         let item = |label: String, message: Message| {

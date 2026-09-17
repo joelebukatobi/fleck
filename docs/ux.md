@@ -51,7 +51,7 @@ Modelled on the Windows Sticky Notes list window.
 ## Window title bar
 
 - Fleck draws each note window's title bar itself, in the same style as the notes
-  list's: the note menu (three vertical dots) on the left, the note's name, then
+  list's: the note menu (a settings gear) on the left, the note's name, then
   the window buttons COSMIC is set to show.
 - Drag the bar to move the window; double-click it to maximise.
 
@@ -120,7 +120,7 @@ Modelled on the Windows Sticky Notes list window.
 - Fleck uses its own bundled icons from **Iconoir** (MIT), not the system icon theme,
   so they look the same whatever COSMIC's icon theme is set to.
 - **Stroke 2** for `plus` (new note) and `page-edit` (panel icon).
-- **Stroke 1.5** for `search`, `edit-pencil` (rename), `trash` (delete) and `more-vert` (note menu).
+- **Stroke 1.5** for `search`, `edit-pencil` (rename), `trash` (delete) and `settings` (note menu).
 - Icons follow the theme's text colour, so they work in light and dark mode.
 - Fleck's own app icon, for the panel list and the app library, comes with the design pass.
 

@@ -10,7 +10,7 @@ const PLUS: &[u8] = include_bytes!("../../data/icons/iconoir/plus.svg");
 const EDIT_PENCIL: &[u8] = include_bytes!("../../data/icons/iconoir/edit-pencil.svg");
 const TRASH: &[u8] = include_bytes!("../../data/icons/iconoir/trash.svg");
 const SEARCH: &[u8] = include_bytes!("../../data/icons/iconoir/search.svg");
-const MORE_VERT: &[u8] = include_bytes!("../../data/icons/iconoir/more-vert.svg");
+const SETTINGS: &[u8] = include_bytes!("../../data/icons/iconoir/settings.svg");
 const PAGE_EDIT: &[u8] = include_bytes!("../../data/icons/iconoir/page-edit.svg");
 
 /// The `+` new-note button in the list window header.
@@ -34,8 +34,8 @@ pub fn search() -> widget::icon::Handle {
 }
 
 /// The menu button at the top-left of each note window.
-pub fn more_vert() -> widget::icon::Handle {
-    widget::icon::from_svg_bytes(MORE_VERT).symbolic(true)
+pub fn settings() -> widget::icon::Handle {
+    widget::icon::from_svg_bytes(SETTINGS).symbolic(true)
 }
 
 /// The panel applet icon (`fleck --applet`).
@@ -62,7 +62,7 @@ mod tests {
         for bytes in [PLUS, PAGE_EDIT] {
             assert_eq!(stroke_width(bytes), "2");
         }
-        for bytes in [EDIT_PENCIL, TRASH, SEARCH, MORE_VERT] {
+        for bytes in [EDIT_PENCIL, TRASH, SEARCH, SETTINGS] {
             assert_eq!(stroke_width(bytes), "1.5");
         }
     }
@@ -74,7 +74,7 @@ mod tests {
             edit_pencil(),
             trash(),
             search(),
-            more_vert(),
+            settings(),
             page_edit(),
         ] {
             assert!(handle.symbolic);

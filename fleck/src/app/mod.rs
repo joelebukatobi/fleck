@@ -176,7 +176,7 @@ pub enum Message {
     /// (`SCROLLBAR_SCROLLER_WIDTH_HOVER`) without ever changing the
     /// reserved layout width the cards see (`SCROLLBAR_WIDTH`, constant).
     ListScrollHover(bool),
-    /// The three-dot button at the top-left of a note window.
+    /// The settings button at the top-left of a note window.
     NoteMenuToggle(window::Id),
     /// A click outside an open note menu.
     NoteMenuClose(window::Id),
