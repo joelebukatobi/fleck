@@ -105,10 +105,10 @@ Modelled on the Windows Sticky Notes list window.
 
 ## Icons
 
-- Fleck uses its own bundled icons from **Phosphor** (MIT), not the system icon theme,
+- Fleck uses its own bundled icons from **Iconoir** (MIT), not the system icon theme,
   so they look the same whatever COSMIC's icon theme is set to.
-- **Bold** weight — the closest to COSMIC's own icons. COSMIC's measure 2 px thick at
-  16 px; Phosphor bold is 1.5 px, regular would be 1 px.
+- **Stroke 1** on every icon: `plus` (new note), `search`, `xmark` (clear search),
+  `edit-pencil` (rename), `trash` (delete), `page-edit` (panel icon).
 - Icons follow the theme's text colour, so they work in light and dark mode.
 - Fleck's own app icon, for the panel list and the app library, comes with the design pass.
 

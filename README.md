@@ -112,5 +112,5 @@ The code is a Cargo workspace:
 Fleck is licensed under the GNU General Public License, version 3 or later.
 See [LICENSE](LICENSE).
 
-Icons are from [Phosphor Icons](https://phosphoricons.com), used under the MIT
+Icons are from [Iconoir](https://iconoir.com), used under the MIT
 License. See [NOTICE](NOTICE).

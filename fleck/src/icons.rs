@@ -1,82 +1,76 @@
-//! Bundled Phosphor icons, replacing the named COSMIC symbolic icons Fleck
-//! used before it had an icon of its own. Embedded with `include_bytes!` so
-//! nothing is read from disk at runtime; each handle is marked
-//! `.symbolic(true)` so libcosmic tints it to the theme's icon colour the
-//! same way it tints `widget::icon::from_name("...-symbolic")` - see
-//! `iced/widget/src/svg.rs` (`symbolic` field, used in `draw`) and
+//! Bundled Iconoir icons (regular set, stroke width 1). Embedded with
+//! `include_bytes!` so nothing is read from disk at runtime; each handle is
+//! marked `.symbolic(true)` so libcosmic tints it to the theme's icon colour -
+//! see `iced/widget/src/svg.rs` (`symbolic` field, used in `draw`) and
 //! `widget/icon/mod.rs` (`Svg::symbolic(self.handle.symbolic)`).
 use cosmic::widget;
 
-const PLUS: &[u8] = include_bytes!("../../data/icons/phosphor/plus-bold.svg");
-const PENCIL_SIMPLE: &[u8] = include_bytes!("../../data/icons/phosphor/pencil-simple-bold.svg");
-const TRASH: &[u8] = include_bytes!("../../data/icons/phosphor/trash-bold.svg");
-const MAGNIFYING_GLASS: &[u8] =
-    include_bytes!("../../data/icons/phosphor/magnifying-glass-bold.svg");
-const X: &[u8] = include_bytes!("../../data/icons/phosphor/x-bold.svg");
-const NOTE_PENCIL: &[u8] = include_bytes!("../../data/icons/phosphor/note-pencil-bold.svg");
+const PLUS: &[u8] = include_bytes!("../../data/icons/iconoir/plus.svg");
+const EDIT_PENCIL: &[u8] = include_bytes!("../../data/icons/iconoir/edit-pencil.svg");
+const TRASH: &[u8] = include_bytes!("../../data/icons/iconoir/trash.svg");
+const SEARCH: &[u8] = include_bytes!("../../data/icons/iconoir/search.svg");
+const XMARK: &[u8] = include_bytes!("../../data/icons/iconoir/xmark.svg");
+const PAGE_EDIT: &[u8] = include_bytes!("../../data/icons/iconoir/page-edit.svg");
 
-/// The `+` new-note button in the list window header. Replaces `list-add-symbolic`.
+/// The `+` new-note button in the list window header.
 pub fn plus() -> widget::icon::Handle {
     widget::icon::from_svg_bytes(PLUS).symbolic(true)
 }
 
-/// The rename button on each card. Replaces `edit-symbolic`.
-pub fn pencil_simple() -> widget::icon::Handle {
-    widget::icon::from_svg_bytes(PENCIL_SIMPLE).symbolic(true)
+/// The rename button on each card.
+pub fn edit_pencil() -> widget::icon::Handle {
+    widget::icon::from_svg_bytes(EDIT_PENCIL).symbolic(true)
 }
 
-/// The delete button on each card. Replaces `user-trash-symbolic`.
+/// The delete button on each card.
 pub fn trash() -> widget::icon::Handle {
     widget::icon::from_svg_bytes(TRASH).symbolic(true)
 }
 
-/// The search bar's leading icon. Replaces libcosmic's built-in
-/// `system-search-symbolic`.
-pub fn magnifying_glass() -> widget::icon::Handle {
-    widget::icon::from_svg_bytes(MAGNIFYING_GLASS).symbolic(true)
+/// The search bar's leading icon.
+pub fn search() -> widget::icon::Handle {
+    widget::icon::from_svg_bytes(SEARCH).symbolic(true)
 }
 
-/// The search bar's clear button. Replaces libcosmic's `edit-clear-symbolic`.
-pub fn x() -> widget::icon::Handle {
-    widget::icon::from_svg_bytes(X).symbolic(true)
+/// The search bar's clear button.
+pub fn xmark() -> widget::icon::Handle {
+    widget::icon::from_svg_bytes(XMARK).symbolic(true)
 }
 
-/// The panel applet icon (`fleck --applet`). Replaces `accessories-text-editor-symbolic`.
-pub fn note_pencil() -> widget::icon::Handle {
-    widget::icon::from_svg_bytes(NOTE_PENCIL).symbolic(true)
+/// The panel applet icon (`fleck --applet`).
+pub fn page_edit() -> widget::icon::Handle {
+    widget::icon::from_svg_bytes(PAGE_EDIT).symbolic(true)
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn x_icon_is_an_svg_and_symbolic() {
-        assert!(X.starts_with(b"<svg"), "x-bold.svg must be an SVG");
-        assert!(
-            x().symbolic,
-            "the clear icon must be symbolic so it takes the theme colour"
-        );
-    }
-
     use super::*;
 
-    fn is_valid_svg(bytes: &[u8]) -> bool {
-        std::str::from_utf8(bytes).is_ok_and(|s| s.trim_start().starts_with("<svg"))
-    }
+    const ALL: [&[u8]; 6] = [PLUS, EDIT_PENCIL, TRASH, SEARCH, XMARK, PAGE_EDIT];
 
     #[test]
-    fn embedded_svgs_are_non_empty_and_well_formed() {
-        for bytes in [PLUS, PENCIL_SIMPLE, TRASH, MAGNIFYING_GLASS, NOTE_PENCIL] {
-            assert!(!bytes.is_empty());
-            assert!(is_valid_svg(bytes));
+    fn embedded_svgs_are_well_formed_with_a_stroke_of_one() {
+        for bytes in ALL {
+            let svg = std::str::from_utf8(bytes).expect("SVGs are UTF-8");
+            assert!(svg.trim_start().starts_with("<svg"));
+            assert!(
+                svg.contains(r#"stroke-width="1""#),
+                "every icon uses stroke 1"
+            );
         }
     }
 
     #[test]
     fn handles_are_marked_symbolic() {
-        assert!(plus().symbolic);
-        assert!(pencil_simple().symbolic);
-        assert!(trash().symbolic);
-        assert!(magnifying_glass().symbolic);
-        assert!(note_pencil().symbolic);
+        for handle in [
+            plus(),
+            edit_pencil(),
+            trash(),
+            search(),
+            xmark(),
+            page_edit(),
+        ] {
+            assert!(handle.symbolic);
+        }
     }
 }

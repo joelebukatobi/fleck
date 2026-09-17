@@ -173,7 +173,7 @@ impl cosmic::Application for FleckApplet {
     fn view(&self) -> Element<'_, Message> {
         self.core
             .applet
-            .icon_button_from_handle(icons::note_pencil())
+            .icon_button_from_handle(icons::page_edit())
             .on_press(Message::Clicked)
             .into()
     }

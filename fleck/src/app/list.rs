@@ -245,7 +245,7 @@ impl Fleck {
                     .spacing(CARD_ACTION_SPACING)
                     .align_y(Alignment::Center)
                     .push(
-                        widget::button::icon(crate::icons::pencil_simple())
+                        widget::button::icon(crate::icons::edit_pencil())
                             .extra_small()
                             .padding([
                                 CARD_ACTION_PADDING,
@@ -346,9 +346,9 @@ impl Fleck {
             // Our own clear button in place of libcosmic's `on_clear`, which
             // hardcodes COSMIC's `edit-clear-symbolic`. Mirrors `on_clear`
             // exactly (button::custom, Button::Icon, 8 px padding) with the
-            // Phosphor `x`, so the x keeps its 16 px inset from the right edge.
+            // Iconoir `xmark`, so it keeps its 16 px inset from the right edge.
             .trailing_icon(
-                widget::icon(crate::icons::x())
+                widget::icon(crate::icons::xmark())
                     .size(16)
                     .apply(widget::button::custom)
                     .class(icon_button_class(IconHoverRole::Accent))
@@ -359,7 +359,7 @@ impl Fleck {
                     .into(),
             )
             .leading_icon(
-                widget::icon(crate::icons::magnifying_glass())
+                widget::icon(crate::icons::search())
                     .size(16)
                     .apply(widget::container)
                     // No left inset: libcosmic already places this icon after
