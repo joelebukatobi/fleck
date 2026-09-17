@@ -58,6 +58,10 @@ const SWATCH_SIZE: f32 = 32.0;
 const SWATCH_GAP: u16 = 8;
 const SWATCH_LABEL_GAP: u16 = 4;
 const SWATCH_PADDING: u16 = 8;
+/// The thumbnail row under a note's text.
+const THUMBNAIL_HEIGHT: f32 = 64.0;
+const THUMBNAIL_GAP: u16 = 8;
+const THUMBNAIL_PADDING: u16 = 4;
 const MENU_ITEM_PADDING_Y: u16 = 8;
 const MENU_ITEM_PADDING_X: u16 = 16;
 
@@ -218,6 +222,14 @@ impl Fleck {
                             Some('y') => {
                                 return Some(text_editor::Binding::Custom(Message::Redo(id)));
                             }
+                            // An image on the clipboard becomes a picture in
+                            // the note; anything else pastes as text (see
+                            // `Message::NoteImagePasted`).
+                            Some('v') => {
+                                return Some(text_editor::Binding::Custom(
+                                    Message::NotePasteImage(id),
+                                ));
+                            }
                             _ => {}
                         }
                     }
@@ -298,13 +310,19 @@ impl Fleck {
 
         let header = self.note_header(id);
 
+        let thumbnails = self.note_thumbnails(id);
+
         // The paper starts where the title bar ends, like any other app's
         // content; the title bar keeps the theme's colours.
-        let body = widget::container(body)
-            .class(cosmic::theme::Container::custom(note_paper_style(colour)))
-            .padding([NOTE_PADDING_Y, NOTE_PADDING_X])
-            .width(Length::Fill)
-            .height(Length::Fill);
+        let body = widget::container(
+            widget::Column::with_capacity(2)
+                .push(body)
+                .push_maybe(thumbnails),
+        )
+        .class(cosmic::theme::Container::custom(note_paper_style(colour)))
+        .padding([NOTE_PADDING_Y, NOTE_PADDING_X])
+        .width(Length::Fill)
+        .height(Length::Fill);
         // Clicking in the note closes its menu. Presses on the open menu never
         // reach here: the menu is an overlay and takes them first.
         let body = widget::mouse_area(body).on_press(Message::NoteMenuClose(id));
@@ -388,6 +406,38 @@ impl Fleck {
             })
     }
 
+    /// The row of thumbnails under a note's text, one per image it links to,
+    /// in the order they appear. `None` when the note has no images.
+    fn note_thumbnails(&self, id: window::Id) -> Option<Element<'_, Message>> {
+        let uuid = self.windows.get(&id)?.uuid;
+        let body = &self.notes.get(&uuid)?.body;
+        let mut row = widget::Row::new().spacing(THUMBNAIL_GAP);
+        let mut any = false;
+        for (_, name) in fleck_core::image_links(body) {
+            let Some(path) = self.store.image_path(uuid, &name) else {
+                continue;
+            };
+            any = true;
+            row = row.push(
+                widget::button::custom(
+                    widget::image(widget::image::Handle::from_path(path))
+                        .height(Length::Fixed(THUMBNAIL_HEIGHT)),
+                )
+                .class(menu_item_button_class())
+                .padding(THUMBNAIL_PADDING)
+                .on_press(Message::NoteImageOpen(id, name)),
+            );
+        }
+        any.then(|| {
+            widget::scrollable(row)
+                .direction(cosmic::iced::widget::scrollable::Direction::Horizontal(
+                    cosmic::iced::widget::scrollable::Scrollbar::default(),
+                ))
+                .width(Length::Fill)
+                .into()
+        })
+    }
+
     /// The menu under a note's settings button: rename, delete, back to the
     /// list, and the app-wide theme.
     fn note_menu_popup(&self, id: window::Id) -> Element<'_, Message> {
@@ -435,6 +485,58 @@ impl Fleck {
             .into()
     }
 
+    /// The colour dialog's swatch grid, and the dialog around it.
+    fn colour_dialog<'a>(
+        &'a self,
+        id: window::Id,
+        frame: widget::Dialog<'a, Message>,
+    ) -> Element<'a, Message> {
+        let current = self.note_colour(id);
+        let mut grid = widget::Column::with_capacity(Colour::ALL.len().div_ceil(SWATCHES_PER_ROW))
+            .spacing(SWATCH_GAP);
+        for row in Colour::ALL.chunks(SWATCHES_PER_ROW) {
+            let mut swatches = widget::Row::with_capacity(SWATCHES_PER_ROW).spacing(SWATCH_GAP);
+            for &colour in row {
+                // Full width, so the swatch and its label centre in the cell.
+                let swatch = widget::Column::with_capacity(2)
+                    .spacing(SWATCH_LABEL_GAP)
+                    .width(Length::Fill)
+                    .align_x(cosmic::iced::Alignment::Center)
+                    .push(
+                        widget::container(widget::text(""))
+                            .width(Length::Fixed(SWATCH_SIZE))
+                            .height(Length::Fixed(SWATCH_SIZE))
+                            .class(cosmic::theme::Container::custom(swatch_style(
+                                colour,
+                                colour == current,
+                            ))),
+                    )
+                    .push(widget::text::caption(colour.label()));
+                swatches = swatches.push(
+                    widget::button::custom(swatch)
+                        .class(menu_item_button_class())
+                        .padding(SWATCH_PADDING)
+                        .width(Length::Fill)
+                        .on_press(Message::NoteSetColour(id, colour)),
+                );
+            }
+            // Pad a short last row with empty cells, so its swatches keep
+            // the same width as the rows above.
+            for _ in row.len()..SWATCHES_PER_ROW {
+                swatches = swatches.push(widget::container(widget::text("")).width(Length::Fill));
+            }
+            grid = grid.push(swatches);
+        }
+        frame
+            .title(crate::fl!("colour-title"))
+            .control(grid)
+            .secondary_action(
+                widget::button::standard(crate::fl!("cancel"))
+                    .on_press(Message::NoteDialogCancel(id)),
+            )
+            .into()
+    }
+
     /// The rename or delete dialog open over note window `id`, if any.
     fn note_dialog_view(&self, id: window::Id) -> Option<Element<'_, Message>> {
         let (dialog_window, dialog) = self.note_dialog.as_ref()?;
@@ -466,50 +568,30 @@ impl Fleck {
                         .on_press(Message::NoteDialogCancel(id)),
                 )
                 .into(),
-            NoteDialog::Colour => {
-                let current = self.note_colour(id);
-                let mut grid =
-                    widget::Column::with_capacity(Colour::ALL.len().div_ceil(SWATCHES_PER_ROW))
-                        .spacing(SWATCH_GAP);
-                for row in Colour::ALL.chunks(SWATCHES_PER_ROW) {
-                    let mut swatches =
-                        widget::Row::with_capacity(SWATCHES_PER_ROW).spacing(SWATCH_GAP);
-                    for &colour in row {
-                        // Full width, so the swatch and its label centre in the cell.
-                        let swatch = widget::Column::with_capacity(2)
-                            .spacing(SWATCH_LABEL_GAP)
-                            .width(Length::Fill)
-                            .align_x(cosmic::iced::Alignment::Center)
-                            .push(
-                                widget::container(widget::text(""))
-                                    .width(Length::Fixed(SWATCH_SIZE))
-                                    .height(Length::Fixed(SWATCH_SIZE))
-                                    .class(cosmic::theme::Container::custom(swatch_style(
-                                        colour,
-                                        colour == current,
-                                    ))),
-                            )
-                            .push(widget::text::caption(colour.label()));
-                        swatches = swatches.push(
-                            widget::button::custom(swatch)
-                                .class(menu_item_button_class())
-                                .padding(SWATCH_PADDING)
-                                .width(Length::Fill)
-                                .on_press(Message::NoteSetColour(id, colour)),
-                        );
-                    }
-                    // Pad a short last row with empty cells, so its swatches keep
-                    // the same width as the rows above.
-                    for _ in row.len()..SWATCHES_PER_ROW {
-                        swatches =
-                            swatches.push(widget::container(widget::text("")).width(Length::Fill));
-                    }
-                    grid = grid.push(swatches);
-                }
+            NoteDialog::Colour => self.colour_dialog(id, frame),
+            NoteDialog::Image(name) => {
+                let image = self
+                    .store
+                    .image_path(uuid, name)
+                    .map(|path| widget::image(widget::image::Handle::from_path(path)));
                 frame
-                    .title(crate::fl!("colour-title"))
-                    .control(grid)
+                    .title(name.clone())
+                    .control(
+                        widget::container(image.map_or_else(
+                            || Element::from(widget::text::body(crate::fl!("image-missing"))),
+                            Element::from,
+                        ))
+                        .center_x(Length::Fill),
+                    )
+                    .primary_action(
+                        widget::button::suggested(crate::fl!("image-copy"))
+                            .on_press(Message::NoteImageCopy(id, name.clone())),
+                    )
                     .secondary_action(
+                        widget::button::destructive(crate::fl!("image-remove"))
+                            .on_press(Message::NoteImageRemove(id, name.clone())),
+                    )
+                    .tertiary_action(
                         widget::button::standard(crate::fl!("cancel"))
                             .on_press(Message::NoteDialogCancel(id)),
                     )

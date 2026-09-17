@@ -104,20 +104,19 @@ Modelled on the Windows Sticky Notes list window.
 
 ## Images in a note
 
-- **Putting one in:** paste it (Ctrl+V), or drag an image file onto the note. A
-  pasted image lands where the cursor is; a dropped one goes at the end.
+- **Putting one in:** paste it (Ctrl+V). The image lands where the cursor is. Pasting
+  text still pastes text.
+- **Still to come:** dragging an image file onto a note, **Save as**, and clicking a
+  thumbnail to scroll to its line in the text.
 - **In the text:** the image shows as its own line — a picture icon and the file
   name — in the note's own colours. It is ordinary text, so it moves with the
   paragraph around it, and cut, paste, undo and search treat it like any other line.
 - **Under the note:** a row of thumbnails, in the order the images appear in the text.
   It is only there when the note has images.
-- **The two halves point at each other:** clicking a thumbnail scrolls to its line in
-  the text and highlights it; putting the cursor on an image line highlights its
-  thumbnail.
-- **Opening one:** double-click a thumbnail, or press Enter on it, to see the image
-  full size over the note, with **Copy**, **Save as** and **Remove**.
-- **Copying:** right-click a thumbnail (or the full-size image) to copy the picture to
-  the clipboard, ready to paste anywhere else.
+- **Opening one:** click a thumbnail to see the image full size over the note, with
+  **Copy**, **Remove** and **Cancel**.
+- **Copying:** **Copy** puts the picture back on the clipboard, ready to paste
+  anywhere else.
 - **Removing:** removing an image deletes its line from the text and its file from disk,
   with the same confirmation style as deleting a note.
 - **On disk:** images are saved beside the note, in a folder named after it, and the

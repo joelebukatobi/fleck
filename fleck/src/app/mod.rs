@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
+mod images;
 mod list;
 mod note;
 mod style;
@@ -21,7 +22,7 @@ use uuid::Uuid;
 
 use crate::dbus;
 use crate::palette::Colour;
-use crate::undo::UndoHistory;
+use crate::undo::{EditKind, UndoHistory};
 
 use list::dialog_width;
 use note::{edit_kind, note_window_settings};
@@ -194,6 +195,19 @@ pub enum Message {
     NoteBackToList(window::Id),
     /// A theme picked in a note's menu, for every Fleck window.
     SetTheme(AppTheme),
+    /// Ctrl+V in a note: look for an image on the clipboard first.
+    NotePasteImage(window::Id),
+    /// What the clipboard held: an image (encoded PNG), or nothing usable, in
+    /// which case the paste falls back to text.
+    NoteImagePasted(window::Id, Option<Arc<Vec<u8>>>),
+    /// The clipboard's text, for a paste that turned out not to be an image.
+    NotePasteText(window::Id, Option<String>),
+    /// A thumbnail under a note: show that image full size.
+    NoteImageOpen(window::Id, String),
+    /// "Copy" in the image dialog: put the image back on the clipboard.
+    NoteImageCopy(window::Id, String),
+    /// "Remove" in the image dialog: delete the image and its line.
+    NoteImageRemove(window::Id, String),
     /// Dragging a note window's header bar.
     NoteWindowDrag(window::Id),
     /// The maximize button, or a double-click, on a note window's header bar.
@@ -210,6 +224,8 @@ pub(super) enum NoteDialog {
     Rename(String),
     /// Choosing the note's colour.
     Colour,
+    /// One of the note's images, full size.
+    Image(String),
     Delete,
 }
 
@@ -830,6 +846,55 @@ impl Fleck {
         self.dirty.insert(uuid, Instant::now());
     }
 
+    /// Types `text` into note window `id` at the cursor, as a paste: the
+    /// editor, the note and the undo history all see it exactly as they would
+    /// a Ctrl+V of that text.
+    fn insert_at_cursor(&mut self, id: window::Id, text: &str) {
+        let Some(window) = self.windows.get_mut(&id) else {
+            return;
+        };
+        window
+            .content
+            .perform(text_editor::Action::Edit(text_editor::Edit::Paste(
+                Arc::new(text.to_string()),
+            )));
+        let uuid = window.uuid;
+        let body = window.content.text();
+        window.history.record(body.clone(), EditKind::Insert, true);
+        self.sync_body(uuid, body);
+    }
+
+    /// Deletes one of note window `id`'s images: its file, and the line
+    /// linking to it. Leaves any other line alone, including a second link to
+    /// the same image.
+    fn remove_image(&mut self, id: window::Id, name: &str) {
+        let Some(uuid) = self.windows.get(&id).map(|window| window.uuid) else {
+            return;
+        };
+        if let Err(error) = self.store.delete_image(uuid, name) {
+            tracing::error!(?error, "failed to delete the image file");
+        }
+        let Some(note) = self.notes.get(&uuid) else {
+            return;
+        };
+        let keep: Vec<&str> = note
+            .body
+            .lines()
+            .filter(|line| {
+                fleck_core::image_links(line)
+                    .first()
+                    .map(|(_, l)| l.as_str())
+                    != Some(name)
+            })
+            .collect();
+        let body = keep.join("\n");
+        if let Some(window) = self.windows.get_mut(&id) {
+            window.content = text_editor::Content::with_text(&body);
+            window.history.record(body.clone(), EditKind::Delete, true);
+        }
+        self.sync_body(uuid, body);
+    }
+
     /// Writes `text` into the note behind `uuid`'s body and marks it dirty,
     /// exactly as a normal body edit does - shared by `BodyAction` (a live
     /// keystroke) and `apply_history_step` (an undo/redo), so autosave
@@ -1296,6 +1361,60 @@ impl cosmic::Application for Fleck {
                     note.frontmatter.color = colour.name().to_string();
                     self.dirty.insert(note.frontmatter.uuid, Instant::now());
                 }
+                Task::none()
+            }
+            Message::NotePasteImage(id) => Task::perform(
+                // Off the UI thread: reading the clipboard blocks.
+                async {
+                    tokio::task::spawn_blocking(images::from_clipboard)
+                        .await
+                        .ok()
+                        .flatten()
+                },
+                move |png| cosmic::Action::App(Message::NoteImagePasted(id, png.map(Arc::new))),
+            ),
+            Message::NoteImagePasted(id, png) => {
+                let Some(png) = png else {
+                    // Not an image: paste whatever text is there instead.
+                    return cosmic::iced::clipboard::read()
+                        .map(move |text| cosmic::Action::App(Message::NotePasteText(id, text)));
+                };
+                let Some(uuid) = self.windows.get(&id).map(|window| window.uuid) else {
+                    return Task::none();
+                };
+                match self.store.save_image(uuid, images::PASTED_FORMAT, &png) {
+                    Ok(name) => self.insert_at_cursor(id, &images::link_line(&name)),
+                    Err(error) => tracing::error!(?error, "failed to save the pasted image"),
+                }
+                Task::none()
+            }
+            Message::NotePasteText(id, text) => {
+                if let Some(text) = text {
+                    self.insert_at_cursor(id, &text);
+                }
+                Task::none()
+            }
+            Message::NoteImageOpen(id, name) => {
+                self.note_dialog = Some((id, NoteDialog::Image(name)));
+                Task::none()
+            }
+            Message::NoteImageCopy(id, name) => {
+                let path = self
+                    .windows
+                    .get(&id)
+                    .map(|window| window.uuid)
+                    .and_then(|uuid| self.store.image_path(uuid, &name));
+                if let Some(path) = path {
+                    if let Err(error) = images::to_clipboard(&path) {
+                        tracing::error!(%error, "failed to copy the image");
+                    }
+                }
+                self.note_dialog.take_if(|(window, _)| *window == id);
+                Task::none()
+            }
+            Message::NoteImageRemove(id, name) => {
+                self.note_dialog.take_if(|(window, _)| *window == id);
+                self.remove_image(id, &name);
                 Task::none()
             }
             Message::NoteDeleteStart(id) => {
@@ -2259,6 +2378,54 @@ mod tests {
         assert!(
             app.dirty.contains_key(&uuid),
             "a rename is saved like any other edit"
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// A one-pixel PNG, so the paste path can be driven without a clipboard.
+    fn sample_png() -> Vec<u8> {
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(image::RgbaImage::new(1, 1))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("encoding a 1x1 png");
+        png
+    }
+
+    #[test]
+    fn pasting_an_image_saves_it_beside_the_note_and_links_to_it() {
+        let (mut app, tmp, id, uuid) = app_with_open_note("paste-image");
+
+        let _ = app.update(Message::NoteImagePasted(id, Some(Arc::new(sample_png()))));
+
+        let links = fleck_core::image_links(&app.notes[&uuid].body);
+        assert_eq!(links.len(), 1, "the note links to the pasted image");
+        let path = app.store.image_path(uuid, &links[0].1).unwrap();
+        assert!(path.exists(), "the image file is saved beside the note");
+        assert!(
+            app.dirty.contains_key(&uuid),
+            "the new line is saved like any edit"
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn removing_an_image_deletes_its_file_and_its_line() {
+        let (mut app, tmp, id, uuid) = app_with_open_note("remove-image");
+        let _ = app.update(Message::NoteImagePasted(id, Some(Arc::new(sample_png()))));
+        let name = fleck_core::image_links(&app.notes[&uuid].body)[0].1.clone();
+        let path = app.store.image_path(uuid, &name).unwrap();
+        let _ = app.update(Message::NoteImageOpen(id, name.clone()));
+        assert_eq!(app.note_dialog, Some((id, NoteDialog::Image(name.clone()))));
+
+        let _ = app.update(Message::NoteImageRemove(id, name));
+
+        assert_eq!(app.note_dialog, None);
+        assert!(!path.exists(), "the image file is deleted");
+        assert!(
+            fleck_core::image_links(&app.notes[&uuid].body).is_empty(),
+            "its line is gone from the note"
         );
 
         std::fs::remove_dir_all(&tmp).ok();

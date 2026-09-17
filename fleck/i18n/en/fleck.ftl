@@ -49,6 +49,11 @@ rename-title = Rename note
 rename-placeholder = Note name
 save = Save
 
+# Image dialog, opened from a thumbnail under a note.
+image-copy = Copy
+image-remove = Remove
+image-missing = This image is missing from disk.
+
 # Colour dialog, opened from a note's menu.
 colour-title = Note colour
 colour-default = Default

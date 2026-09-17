@@ -64,6 +64,47 @@ impl Store {
         Ok(out)
     }
 
+    /// Where a note's images live: a folder beside the note file, named after
+    /// the note. `Store::list` skips it, since it only reads `.md` files.
+    pub fn image_dir(&self, id: Uuid) -> PathBuf {
+        self.dir.join(id.to_string())
+    }
+
+    /// The path of one of a note's images. `None` for a name that isn't a
+    /// plain file name - a note's text is editable, so a link could name
+    /// anything, and only files inside the note's own folder may be opened.
+    pub fn image_path(&self, id: Uuid, name: &str) -> Option<PathBuf> {
+        let plain = !name.is_empty()
+            && !name.contains('/')
+            && !name.contains('\\')
+            && name != "."
+            && name != "..";
+        plain.then(|| self.image_dir(id).join(name))
+    }
+
+    /// Writes `bytes` as a new image for note `id`, returning the file name to
+    /// link to. Names are uuids, so a note can hold any number of images and
+    /// pasting the same picture twice keeps both.
+    pub fn save_image(&self, id: Uuid, extension: &str, bytes: &[u8]) -> std::io::Result<String> {
+        let dir = self.image_dir(id);
+        std::fs::create_dir_all(&dir)?;
+        let name = format!("{}.{extension}", Uuid::new_v4());
+        std::fs::write(dir.join(&name), bytes)?;
+        Ok(name)
+    }
+
+    /// Deletes one of a note's images. A name that isn't a plain file name, or
+    /// a file that is already gone, is not an error.
+    pub fn delete_image(&self, id: Uuid, name: &str) -> std::io::Result<()> {
+        let Some(path) = self.image_path(id, name) else {
+            return Ok(());
+        };
+        match std::fs::remove_file(path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        }
+    }
+
     pub fn backup_path(&self, id: Uuid) -> PathBuf {
         self.dir.join(format!("{id}.md.bak"))
     }
@@ -108,7 +149,12 @@ impl Store {
         std::fs::metadata(self.path(id))?.modified()
     }
 
+    /// Deletes a note, its backup, and the folder holding its images.
     pub fn delete(&self, id: Uuid) -> std::io::Result<()> {
+        match std::fs::remove_dir_all(self.image_dir(id)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
         for path in [self.path(id), self.backup_path(id)] {
             match std::fs::remove_file(path) {
                 Ok(()) => {}
@@ -156,6 +202,44 @@ mod tests {
         assert!(results
             .iter()
             .any(|r| matches!(r, Err(ParseError::WrongFileName { .. }))));
+    }
+
+    #[test]
+    fn saved_images_live_beside_the_note_and_go_with_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let id = Uuid::from_u128(11);
+        store.save(&note_with(id, "text\n")).unwrap();
+
+        let name = store.save_image(id, "png", b"not really a png").unwrap();
+        let path = store.image_path(id, &name).unwrap();
+        assert!(path.exists());
+        assert!(path.starts_with(store.image_dir(id)));
+        // The images folder is not mistaken for a note.
+        assert_eq!(store.list().unwrap().len(), 1);
+
+        store.delete(id).unwrap();
+        assert!(!store.image_dir(id).exists());
+    }
+
+    #[test]
+    fn image_paths_stay_inside_the_notes_own_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let id = Uuid::from_u128(12);
+        for name in ["../escape.png", "sub/dir.png", "..", ".", ""] {
+            assert_eq!(store.image_path(id, name), None, "{name} must be refused");
+        }
+        assert!(store.image_path(id, "picture.png").is_some());
+    }
+
+    #[test]
+    fn deleting_a_missing_image_is_not_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let id = Uuid::from_u128(13);
+        store.delete_image(id, "gone.png").unwrap();
+        store.delete_image(id, "../escape.png").unwrap();
     }
 
     #[test]

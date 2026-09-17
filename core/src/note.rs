@@ -121,6 +121,30 @@ pub fn display_name(note: &Note) -> &str {
     }
 }
 
+/// The images a note links to, as `(line index, file name)` in the order they
+/// appear. A line counts when it is exactly a Markdown image link naming a
+/// plain file (`![](picture.png)`, or with alt text) - the form Fleck writes
+/// when an image is pasted in. Links to anything else, a URL say, are left
+/// alone: they are the user's own text.
+pub fn image_links(body: &str) -> Vec<(usize, String)> {
+    body.lines()
+        .enumerate()
+        .filter_map(|(line, text)| Some((line, image_link(text.trim())?.to_string())))
+        .collect()
+}
+
+/// The file name in a Markdown image link that is alone on its line.
+fn image_link(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("![")?;
+    let (_alt, rest) = rest.split_once("](")?;
+    let name = rest.strip_suffix(')')?;
+    let plain = !name.is_empty()
+        && !name.contains(['/', '\\', ' ', '"'])
+        && !name.contains("..")
+        && name.contains('.');
+    plain.then_some(name)
+}
+
 /// Whether a note is disposable: an empty or whitespace-only body AND no
 /// explicit name, safe to delete instead of persisting to disk (e.g. a note
 /// window closed without ever being typed into). A note with a name but no
@@ -132,6 +156,25 @@ pub fn is_disposable(note: &Note) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_links_finds_pasted_images_in_order() {
+        let body = "first\n![](a.png)\nmiddle\n![shopping](b.jpg)\n";
+        assert_eq!(
+            image_links(body),
+            vec![(1, "a.png".to_string()), (3, "b.jpg".to_string())]
+        );
+    }
+
+    #[test]
+    fn image_links_ignores_links_that_are_not_a_notes_own_image() {
+        let body = "![](https://example.com/x.png)\n\
+                    ![](../escape.png)\n\
+                    ![](sub/dir.png)\n\
+                    text ![](a.png) more\n\
+                    ![](noextension)\n";
+        assert!(image_links(body).is_empty());
+    }
 
     const SAMPLE: &str = "+++\nversion = 1\nuuid = \"3f2a1c88-0000-4000-8000-000000000000\"\ncreated = \"2026-09-04T10:15:00Z\"\ncolor = \"yellow\"\n+++\nGroceries\n\nback door key under mat\n";
 
