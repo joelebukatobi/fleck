@@ -85,8 +85,8 @@ pub(super) fn relative_time(elapsed: Duration) -> String {
 /// place for the design pass to change spacing and corner radius.
 pub(super) const LIST_PANEL_PADDING: u16 = 8;
 pub(super) const SEARCH_PADDING_X: u16 = 8;
-/// Inset around the search bar's magnifier (top, right, bottom). The left
-/// side is 0 so the icon lines up with the card titles.
+/// Inset around the search bar's magnifier (top, left, bottom). The right
+/// side is 0 so the icon lines up with the card trash icons.
 pub(super) const SEARCH_ICON_INSET: u16 = 8;
 /// Padding of the card's content section (preview lines, then time) -
 /// repurposed from the old single-container card padding now that the card
@@ -343,29 +343,15 @@ impl Fleck {
         let search = widget::search_input(crate::fl!("search-notes"), self.search.clone())
             .id(self.search_input_id.clone())
             .on_input(Message::SearchChanged)
-            // Our own clear button in place of libcosmic's `on_clear`, which
-            // hardcodes COSMIC's `edit-clear-symbolic`. Mirrors `on_clear`
-            // exactly (button::custom, Button::Icon, 8 px padding) with the
-            // Iconoir `xmark`, so it keeps its 16 px inset from the right edge.
+            // The magnifier sits at the right edge, where a clear button
+            // would usually go; there is no clear button.
             .trailing_icon(
-                widget::icon(crate::icons::xmark())
-                    .size(16)
-                    .apply(widget::button::custom)
-                    .class(icon_button_class(IconHoverRole::Accent))
-                    .on_press(Message::SearchChanged(String::new()))
-                    // No right inset, so the x sits 8 px from the bar's right
-                    // edge, in line with the card trash icons.
-                    .padding([SEARCH_ICON_INSET, 0, SEARCH_ICON_INSET, SEARCH_ICON_INSET])
-                    .into(),
-            )
-            .leading_icon(
                 widget::icon(crate::icons::search())
                     .size(16)
                     .apply(widget::container)
-                    // No left inset: libcosmic already places this icon after
-                    // the bar's own padding, so a left inset here pushed the
-                    // magnifier 8 px right of the card titles below.
-                    .padding([SEARCH_ICON_INSET, SEARCH_ICON_INSET, SEARCH_ICON_INSET, 0])
+                    // No right inset, so it sits 8 px from the bar's right
+                    // edge, in line with the card trash icons.
+                    .padding([SEARCH_ICON_INSET, 0, SEARCH_ICON_INSET, SEARCH_ICON_INSET])
                     .into(),
             )
             .padding([0, SEARCH_PADDING_X])

@@ -31,3 +31,17 @@ delete-title = Delete note?
 delete-body = "{ $name }" will be deleted. This can't be undone.
 delete-confirm = Delete
 cancel = Cancel
+
+# Note window menu (the three dots at the top-left of a note).
+edit-name = Edit name
+delete-note = Delete note
+back-to-list = Back to list
+theme = Theme
+theme-system = System
+theme-light = Light
+theme-dark = Dark
+
+# Rename dialog, opened from a note's menu.
+rename-title = Rename note
+rename-placeholder = Note name
+save = Save

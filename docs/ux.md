@@ -22,6 +22,7 @@ Modelled on the Windows Sticky Notes list window.
 - **Header:** a `+` button on the left for a new note, then **Fleck**, then the
   window buttons on the right.
 - **Search bar** under the header. Filters as you type, matching note names and text.
+  The magnifier sits at the right edge; there is no clear button.
 - **Notes as cards**, most recently edited first, scrolling when there are more
   than fit. Each card shows the note's name in bold, the first couple of lines
   of its text, and when it was last edited.
@@ -53,9 +54,19 @@ Modelled on the Windows Sticky Notes list window.
 
 ## Inside a note
 
-- Just the note text. No name field inside the note — the name lives in the title bar.
-- A note's name is its first line of text. Renaming explicitly happens from the
-  notes list.
+- The note text, with a three-dot menu button (vertical) at the top-left. No
+  name field inside the note — the name lives in the title bar.
+- A note's name is its first line of text, until it is renamed from the note's
+  menu or the notes list.
+- **The note menu:**
+  - **Edit name** — a small "Rename note" dialog over the note, with Save and
+    Cancel. Enter saves.
+  - **Delete note** — the same "Delete note?" confirmation as the list. If no
+    other window is open, the notes list opens afterwards.
+  - **Back to list** — opens the notes list, or brings it forward. The note stays open.
+  - **Theme** — System, Light or Dark, for every Fleck window. System follows
+    COSMIC. Remembered between runs.
+  - Picking anything, or clicking outside the menu, closes it.
 - The note text has no border.
 - The note text is ruled like lined paper: evenly spaced dotted lines, one per
   line of text, filling the window whether or not there is text on them.
@@ -77,9 +88,8 @@ Modelled on the Windows Sticky Notes list window.
   - 8 px between the heading strip and the card's content.
   - Card content (preview and time): 8 px padding, including top and bottom.
   - Rename and delete icons sit 8 px apart; the delete icon is 8 px from the
-    card's right edge, in line with the search bar's clear icon.
-  - The search magnifier lines up with the card titles on the left.
-  - Icon buttons (+, rename, delete, search clear) show no background on hover;
+    card's right edge, in line with the search bar's magnifier.
+  - Icon buttons (+, rename, delete, note menu) show no background on hover;
     the icon turns the accent colour, or red for delete.
   - Hovering a card lightens it slightly; pressing darkens it slightly. The card
     itself is the clickable surface, so the effect lines up with its edges.
@@ -108,7 +118,7 @@ Modelled on the Windows Sticky Notes list window.
 - Fleck uses its own bundled icons from **Iconoir** (MIT), not the system icon theme,
   so they look the same whatever COSMIC's icon theme is set to.
 - **Stroke 2** for `plus` (new note) and `page-edit` (panel icon).
-- **Stroke 1.5** for `search`, `xmark` (clear search), `edit-pencil` (rename) and `trash` (delete).
+- **Stroke 1.5** for `search`, `edit-pencil` (rename), `trash` (delete) and `more-vert` (note menu).
 - Icons follow the theme's text colour, so they work in light and dark mode.
 - Fleck's own app icon, for the panel list and the app library, comes with the design pass.
 

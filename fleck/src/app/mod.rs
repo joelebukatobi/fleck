@@ -6,6 +6,7 @@ use std::time::{Duration, Instant, SystemTime};
 mod list;
 mod note;
 mod style;
+mod theme;
 
 use cosmic::app::{Core, Task};
 use cosmic::iced::core::id;
@@ -25,6 +26,7 @@ use crate::undo::UndoHistory;
 use list::{dialog_width, RenameState};
 use note::{edit_kind, note_window_settings};
 use style::{icon_button_class, IconHoverRole};
+use theme::AppTheme;
 
 /// How long to wait after the last keystroke before writing a note to disk.
 const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -174,6 +176,35 @@ pub enum Message {
     /// (`SCROLLBAR_SCROLLER_WIDTH_HOVER`) without ever changing the
     /// reserved layout width the cards see (`SCROLLBAR_WIDTH`, constant).
     ListScrollHover(bool),
+    /// The three-dot button at the top-left of a note window.
+    NoteMenuToggle(window::Id),
+    /// A click outside an open note menu.
+    NoteMenuClose(window::Id),
+    /// "Edit name" in a note's menu: open the rename dialog.
+    NoteRenameStart(window::Id),
+    /// A keystroke in a note window's rename dialog.
+    NoteRenameInput(window::Id, String),
+    /// "Save" (or Enter) in a note window's rename dialog.
+    NoteRenameSave(window::Id),
+    /// "Delete note" in a note's menu: ask for confirmation.
+    NoteDeleteStart(window::Id),
+    /// "Delete" in a note window's confirmation dialog.
+    NoteDeleteConfirm(window::Id),
+    /// "Cancel" in either note window dialog.
+    NoteDialogCancel(window::Id),
+    /// "Back to list" in a note's menu: open or raise the notes list.
+    NoteBackToList(window::Id),
+    /// A theme picked in a note's menu, for every Fleck window.
+    SetTheme(AppTheme),
+}
+
+/// A dialog open over a note window. Drawn by the note window itself: libcosmic
+/// only draws `Application::dialog` on the main window, the notes list.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum NoteDialog {
+    /// Renaming, with the text typed so far.
+    Rename(String),
+    Delete,
 }
 
 /// Wraps a `dbus::Request` so it can ride through `Message`, which
@@ -335,6 +366,14 @@ pub struct Fleck {
     /// Current width of the notes-list window, for sizing its dialogs.
     /// libcosmic's core does not track the main window's size.
     list_window_width: f32,
+    /// Light, dark, or following COSMIC - see `theme::AppTheme`.
+    theme: AppTheme,
+    /// The note window whose menu is open, if any. One menu at a time.
+    note_menu: Option<window::Id>,
+    /// The note window showing a dialog, and which one. One at a time.
+    note_dialog: Option<(window::Id, NoteDialog)>,
+    /// Stable id for the rename dialog's text input, so it can be focused.
+    note_rename_input_id: id::Id,
 }
 
 impl Fleck {
@@ -953,9 +992,14 @@ impl cosmic::Application for Fleck {
             dbus_rx: DbusRx(Arc::new(Mutex::new(Some(dbus_rx)))),
             list_scroll_hovered: false,
             list_window_width: DEFAULT_WINDOW_SIZE.0 as f32,
+            theme: AppTheme::load(<Fleck as cosmic::Application>::APP_ID),
+            note_menu: None,
+            note_dialog: None,
+            note_rename_input_id: id::Id::unique(),
         };
 
-        (app, Task::none())
+        let apply_theme = app.theme.apply();
+        (app, apply_theme)
     }
 
     fn subscription(&self) -> Subscription<Message> {
@@ -1028,6 +1072,10 @@ impl cosmic::Application for Fleck {
                 }
             }
             Message::NoteClosed(id) => {
+                if self.note_menu == Some(id) {
+                    self.note_menu = None;
+                }
+                self.note_dialog.take_if(|(window, _)| *window == id);
                 if self.list_window == Some(id) {
                     self.list_window = None;
                     // A note opening *concurrently* with the list closing
@@ -1201,6 +1249,90 @@ impl cosmic::Application for Fleck {
                 self.pending_delete = None;
                 Task::none()
             }
+            Message::NoteMenuToggle(id) => {
+                self.note_menu = if self.note_menu == Some(id) {
+                    None
+                } else {
+                    Some(id)
+                };
+                Task::none()
+            }
+            Message::NoteMenuClose(id) => {
+                if self.note_menu == Some(id) {
+                    self.note_menu = None;
+                }
+                Task::none()
+            }
+            Message::NoteRenameStart(id) => {
+                self.note_menu = None;
+                let name = self
+                    .windows
+                    .get(&id)
+                    .and_then(|window| self.notes.get(&window.uuid))
+                    .map(|note| note.frontmatter.name.clone());
+                let Some(name) = name else {
+                    return Task::none();
+                };
+                self.note_dialog = Some((id, NoteDialog::Rename(name)));
+                widget::text_input::focus(self.note_rename_input_id.clone())
+            }
+            Message::NoteRenameInput(id, text) => {
+                if let Some((window, NoteDialog::Rename(typed))) = &mut self.note_dialog {
+                    if *window == id {
+                        *typed = text;
+                    }
+                }
+                Task::none()
+            }
+            Message::NoteRenameSave(id) => {
+                let dialog = self.note_dialog.take_if(|(window, dialog)| {
+                    *window == id && matches!(dialog, NoteDialog::Rename(_))
+                });
+                if let (Some((_, NoteDialog::Rename(name))), Some(window)) =
+                    (dialog, self.windows.get(&id))
+                {
+                    let uuid = window.uuid;
+                    self.rename_note(uuid, &name);
+                }
+                Task::none()
+            }
+            Message::NoteDeleteStart(id) => {
+                self.note_menu = None;
+                if self.windows.contains_key(&id) {
+                    self.note_dialog = Some((id, NoteDialog::Delete));
+                }
+                Task::none()
+            }
+            Message::NoteDeleteConfirm(id) => {
+                self.note_dialog.take_if(|(window, _)| *window == id);
+                let Some(uuid) = self.windows.get(&id).map(|window| window.uuid) else {
+                    return Task::none();
+                };
+                let (_, close) = self.delete_note(uuid);
+                // With nothing else open, show the list rather than leave
+                // Fleck running with no window at all.
+                if self.list_window.is_none() && self.intent_visible.is_empty() {
+                    Task::batch([close, self.show_list()])
+                } else {
+                    close
+                }
+            }
+            Message::NoteDialogCancel(id) => {
+                self.note_dialog.take_if(|(window, _)| *window == id);
+                Task::none()
+            }
+            Message::NoteBackToList(id) => {
+                if self.note_menu == Some(id) {
+                    self.note_menu = None;
+                }
+                self.show_list()
+            }
+            Message::SetTheme(theme) => {
+                self.note_menu = None;
+                self.theme = theme;
+                theme.save(<Fleck as cosmic::Application>::APP_ID);
+                theme.apply()
+            }
             Message::ListScrollHover(hovered) => {
                 self.list_scroll_hovered = hovered;
                 Task::none()
@@ -1340,6 +1472,10 @@ mod tests {
             dbus_rx: DbusRx(Arc::new(Mutex::new(None))),
             list_scroll_hovered: false,
             list_window_width: DEFAULT_WINDOW_SIZE.0 as f32,
+            theme: AppTheme::System,
+            note_menu: None,
+            note_dialog: None,
+            note_rename_input_id: id::Id::unique(),
         }
     }
 
@@ -2126,6 +2262,124 @@ mod tests {
             app.list_window,
             "libcosmic only draws the header and dialogs on the main window"
         );
+    }
+
+    fn app_with_open_note(label: &str) -> (Fleck, PathBuf, window::Id, Uuid) {
+        let tmp = std::env::temp_dir().join(format!("fleck-test-{label}-{}", Uuid::new_v4()));
+        let mut app = make_fleck(Store::new(&tmp));
+        let note = sample_note();
+        let uuid = note.frontmatter.uuid;
+        app.store.save(&note).unwrap();
+        app.notes.insert(uuid, note);
+        app.intent_visible.show(uuid);
+        let id = window::Id::unique();
+        app.windows.insert(
+            id,
+            WindowNote {
+                uuid,
+                input_id: id::Id::unique(),
+                content: text_editor::Content::new(),
+                last_title: String::new(),
+                history: UndoHistory::new(""),
+            },
+        );
+        (app, tmp, id, uuid)
+    }
+
+    #[test]
+    fn note_menu_toggles_and_closes() {
+        let (mut app, tmp, id, _) = app_with_open_note("menu");
+
+        let _ = app.update(Message::NoteMenuToggle(id));
+        assert_eq!(app.note_menu, Some(id));
+        let _ = app.update(Message::NoteMenuToggle(id));
+        assert_eq!(app.note_menu, None);
+        let _ = app.update(Message::NoteMenuToggle(id));
+        let _ = app.update(Message::NoteMenuClose(id));
+        assert_eq!(app.note_menu, None);
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn rename_from_the_note_menu_saves_the_new_name() {
+        let (mut app, tmp, id, uuid) = app_with_open_note("note-rename");
+
+        let _ = app.update(Message::NoteMenuToggle(id));
+        let _ = app.update(Message::NoteRenameStart(id));
+        assert_eq!(app.note_menu, None, "picking an item closes the menu");
+        assert_eq!(
+            app.note_dialog,
+            Some((id, NoteDialog::Rename(String::new())))
+        );
+
+        let _ = app.update(Message::NoteRenameInput(id, "Groceries".to_string()));
+        let _ = app.update(Message::NoteRenameSave(id));
+
+        assert_eq!(app.note_dialog, None);
+        assert_eq!(app.notes[&uuid].frontmatter.name, "Groceries");
+        assert!(
+            app.dirty.contains_key(&uuid),
+            "a rename is saved like any other edit"
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn cancelling_the_note_rename_dialog_leaves_the_name_alone() {
+        let (mut app, tmp, id, uuid) = app_with_open_note("note-rename-cancel");
+
+        let _ = app.update(Message::NoteRenameStart(id));
+        let _ = app.update(Message::NoteRenameInput(id, "Discarded".to_string()));
+        let _ = app.update(Message::NoteDialogCancel(id));
+
+        assert_eq!(app.note_dialog, None);
+        assert_eq!(app.notes[&uuid].frontmatter.name, "");
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn delete_from_the_note_menu_asks_first_then_deletes_and_shows_the_list() {
+        let (mut app, tmp, id, uuid) = app_with_open_note("note-delete");
+
+        let _ = app.update(Message::NoteDeleteStart(id));
+        assert_eq!(app.note_dialog, Some((id, NoteDialog::Delete)));
+        assert!(
+            app.notes.contains_key(&uuid),
+            "asking must not delete by itself"
+        );
+
+        let _ = app.update(Message::NoteDeleteConfirm(id));
+
+        assert_eq!(app.note_dialog, None);
+        assert!(!app.notes.contains_key(&uuid));
+        assert!(!app.store.path(uuid).exists());
+        assert!(
+            app.closing_for_hide.contains(&id),
+            "the note's window closes"
+        );
+        assert!(
+            app.list_window.is_some(),
+            "with nothing else open, the list opens"
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn back_to_list_opens_the_list_and_keeps_the_note_open() {
+        let (mut app, tmp, id, uuid) = app_with_open_note("back-to-list");
+
+        let _ = app.update(Message::NoteMenuToggle(id));
+        let _ = app.update(Message::NoteBackToList(id));
+
+        assert_eq!(app.note_menu, None);
+        assert!(app.list_window.is_some());
+        assert!(app.is_visible(uuid));
+
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     /// `cosmic::iced::exit()` skips `on_app_exit`, so exiting must write

@@ -7,7 +7,12 @@ use cosmic::prelude::*;
 use cosmic::widget;
 use cosmic::widget::text_editor;
 
-use super::{Fleck, Message};
+use fleck_core::display_name;
+
+use super::list::dialog_width;
+use super::style::{icon_button_class, IconHoverRole};
+use super::theme::AppTheme;
+use super::{Fleck, Message, NoteDialog, DEFAULT_WINDOW_SIZE};
 use crate::ruled::RuledLines;
 use crate::undo::EditKind;
 
@@ -25,6 +30,14 @@ pub(super) const BODY_LINE_HEIGHT: f32 = 22.0;
 /// `BODY_LINE_HEIGHT` - the first rule's offset has to account for exactly
 /// this much space above the first line of text.
 pub(super) const BODY_PADDING: f32 = 8.0;
+
+/// Gap between the note's menu button and the lined body below it.
+const NOTE_HEADER_GAP: u16 = 4;
+/// The note menu: its width, its inner padding, and each row's padding.
+const MENU_WIDTH: f32 = 200.0;
+const MENU_PADDING: u16 = 4;
+const MENU_ITEM_PADDING_Y: u16 = 8;
+const MENU_ITEM_PADDING_X: u16 = 16;
 
 /// Settings for every window opened with `window::open`.
 ///
@@ -133,9 +146,8 @@ impl Fleck {
         // still routes through `text_editor` rather than `widget::text`.
         //
         // No name field: per `docs/ux.md`'s "Inside a note", a note's name
-        // is just its first line of text and renaming happens from the
-        // notes list, not here - so there's nothing to sit above a divider
-        // any more, and the note window is the body editor alone.
+        // is its first line of text until renamed, from the note's menu or
+        // the notes list.
         let (input_id, content) = match self.windows.get(&id) {
             Some(window) => (window.input_id.clone(), &window.content),
             None => (self.fallback_input_id.clone(), &self.fallback_content),
@@ -251,7 +263,23 @@ impl Fleck {
         .width(Length::Fill)
         .height(Length::Fill);
 
-        widget::container(body)
+        let menu_button = widget::button::icon(crate::icons::more_vert())
+            .extra_small()
+            .on_press(Message::NoteMenuToggle(id))
+            .class(icon_button_class(IconHoverRole::Accent));
+        let mut menu = widget::popover(menu_button)
+            .position(widget::popover::Position::Bottom)
+            .on_close(Message::NoteMenuClose(id));
+        if self.note_menu == Some(id) {
+            menu = menu.popup(self.note_menu_popup(id));
+        }
+
+        let page = widget::Column::with_capacity(2)
+            .spacing(NOTE_HEADER_GAP)
+            .push(menu)
+            .push(body);
+
+        let note = widget::container(page)
             // An explicit opaque background is a rendering requirement, not
             // decoration: `view_window` is used directly for every secondary
             // note window with nothing else wrapping it (see `Cosmic::view` in
@@ -262,8 +290,109 @@ impl Fleck {
             .class(cosmic::theme::Container::WindowBackground)
             .padding(12)
             .width(Length::Fill)
-            .height(Length::Fill)
+            .height(Length::Fill);
+
+        // A modal popover rather than `Application::dialog`, which libcosmic
+        // only draws on the main window (the notes list). The note stays at
+        // index 0 of the popover's children, so the editor keeps its state
+        // whether or not a dialog is showing.
+        let mut note = widget::popover(note).modal(true);
+        if let Some(dialog) = self.note_dialog_view(id) {
+            note = note.popup(dialog);
+        }
+        note.into()
+    }
+
+    /// The menu under a note's three-dot button: rename, delete, back to the
+    /// list, and the app-wide theme.
+    fn note_menu_popup(&self, id: window::Id) -> Element<'_, Message> {
+        let item = |label: String, message: Message| {
+            widget::button::custom(widget::text::body(label))
+                .class(cosmic::theme::Button::MenuItem)
+                .padding([MENU_ITEM_PADDING_Y, MENU_ITEM_PADDING_X])
+                .width(Length::Fill)
+                .on_press(message)
+        };
+        let mut menu = widget::Column::with_capacity(8)
+            .push(item(crate::fl!("edit-name"), Message::NoteRenameStart(id)))
+            .push(item(
+                crate::fl!("delete-note"),
+                Message::NoteDeleteStart(id),
+            ))
+            .push(item(
+                crate::fl!("back-to-list"),
+                Message::NoteBackToList(id),
+            ))
+            .push(widget::divider::horizontal::default())
+            .push(
+                widget::container(widget::text::caption(crate::fl!("theme")))
+                    .padding([MENU_ITEM_PADDING_Y, MENU_ITEM_PADDING_X]),
+            );
+        for theme in AppTheme::ALL {
+            menu = menu.push(
+                widget::container(widget::radio(
+                    widget::text::body(theme.label()),
+                    theme,
+                    Some(self.theme),
+                    Message::SetTheme,
+                ))
+                .padding([MENU_ITEM_PADDING_Y, MENU_ITEM_PADDING_X]),
+            );
+        }
+        widget::container(menu)
+            .class(cosmic::theme::Container::Dropdown)
+            .padding(MENU_PADDING)
+            .width(Length::Fixed(MENU_WIDTH))
             .into()
+    }
+
+    /// The rename or delete dialog open over note window `id`, if any.
+    fn note_dialog_view(&self, id: window::Id) -> Option<Element<'_, Message>> {
+        let (dialog_window, dialog) = self.note_dialog.as_ref()?;
+        if *dialog_window != id {
+            return None;
+        }
+        let uuid = self.windows.get(&id)?.uuid;
+        let window_width = self
+            .window_state
+            .sizes
+            .get(&uuid)
+            .map_or(DEFAULT_WINDOW_SIZE.0, |&(width, _)| width);
+        let frame = widget::dialog().width(Length::Fixed(dialog_width(window_width as f32)));
+        Some(match dialog {
+            NoteDialog::Rename(typed) => frame
+                .title(crate::fl!("rename-title"))
+                .control(
+                    widget::text_input(crate::fl!("rename-placeholder"), typed.as_str())
+                        .id(self.note_rename_input_id.clone())
+                        .on_input(move |text| Message::NoteRenameInput(id, text))
+                        .on_submit(move |_| Message::NoteRenameSave(id)),
+                )
+                .primary_action(
+                    widget::button::suggested(crate::fl!("save"))
+                        .on_press(Message::NoteRenameSave(id)),
+                )
+                .secondary_action(
+                    widget::button::standard(crate::fl!("cancel"))
+                        .on_press(Message::NoteDialogCancel(id)),
+                )
+                .into(),
+            NoteDialog::Delete => {
+                let name = self.notes.get(&uuid).map_or("", display_name);
+                frame
+                    .title(crate::fl!("delete-title"))
+                    .body(crate::fl!("delete-body", name = name))
+                    .primary_action(
+                        widget::button::destructive(crate::fl!("delete-confirm"))
+                            .on_press(Message::NoteDeleteConfirm(id)),
+                    )
+                    .secondary_action(
+                        widget::button::standard(crate::fl!("cancel"))
+                            .on_press(Message::NoteDialogCancel(id)),
+                    )
+                    .into()
+            }
+        })
     }
 }
 
