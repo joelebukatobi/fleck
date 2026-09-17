@@ -52,6 +52,7 @@ save = Save
 # Image dialog, opened from a thumbnail under a note.
 image-copy = Copy
 image-remove = Remove
+image-save-as = Save as
 image-missing = This image is missing from disk.
 
 # Colour dialog, opened from a note's menu.

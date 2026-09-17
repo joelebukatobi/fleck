@@ -47,6 +47,23 @@ pub(super) fn to_clipboard(path: &Path) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+/// Image files Fleck accepts when they are dropped on a note: what both
+/// `widget::image` and the copy-to-clipboard path can read.
+const DROPPABLE: [&str; 6] = ["png", "jpg", "jpeg", "webp", "gif", "bmp"];
+
+/// A dropped file's contents and extension, or `None` when it isn't an image
+/// Fleck can show.
+pub(super) fn from_file(path: &Path) -> Option<(String, Vec<u8>)> {
+    let extension = path.extension()?.to_str()?.to_lowercase();
+    if !DROPPABLE.contains(&extension.as_str()) {
+        return None;
+    }
+    let bytes = std::fs::read(path)
+        .map_err(|error| tracing::warn!(?error, "failed to read the dropped image"))
+        .ok()?;
+    Some((extension, bytes))
+}
+
 /// The Markdown line Fleck writes for a pasted image, with the blank line
 /// that keeps it on its own (see `fleck_core::image_links`).
 pub(super) fn link_line(name: &str) -> String {
@@ -56,6 +73,27 @@ pub(super) fn link_line(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_readable_image_files_are_accepted_from_a_drop() {
+        let dir = tempfile::tempdir().unwrap();
+        let png = dir.path().join("shot.PNG");
+        std::fs::write(&png, b"bytes").unwrap();
+        assert_eq!(
+            from_file(&png),
+            Some(("png".to_string(), b"bytes".to_vec())),
+            "the extension's case must not matter"
+        );
+
+        let notes = dir.path().join("notes.txt");
+        std::fs::write(&notes, b"text").unwrap();
+        assert_eq!(from_file(&notes), None, "a text file is not an image");
+        assert_eq!(
+            from_file(&dir.path().join("gone.png")),
+            None,
+            "a missing file"
+        );
+    }
 
     #[test]
     fn link_line_is_a_markdown_image_on_its_own_line() {

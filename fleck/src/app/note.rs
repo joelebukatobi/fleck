@@ -413,19 +413,22 @@ impl Fleck {
         let body = &self.notes.get(&uuid)?.body;
         let mut row = widget::Row::new().spacing(THUMBNAIL_GAP);
         let mut any = false;
-        for (_, name) in fleck_core::image_links(body) {
+        for (line, name) in fleck_core::image_links(body) {
             let Some(path) = self.store.image_path(uuid, &name) else {
                 continue;
             };
             any = true;
+            // A click puts the cursor on the image's line; a double-click
+            // opens the picture full size.
+            let thumbnail = widget::button::custom(
+                widget::image(widget::image::Handle::from_path(path))
+                    .height(Length::Fixed(THUMBNAIL_HEIGHT)),
+            )
+            .class(menu_item_button_class())
+            .padding(THUMBNAIL_PADDING)
+            .on_press(Message::NoteImageScrollTo(id, line));
             row = row.push(
-                widget::button::custom(
-                    widget::image(widget::image::Handle::from_path(path))
-                        .height(Length::Fixed(THUMBNAIL_HEIGHT)),
-                )
-                .class(menu_item_button_class())
-                .padding(THUMBNAIL_PADDING)
-                .on_press(Message::NoteImageOpen(id, name)),
+                widget::mouse_area(thumbnail).on_double_press(Message::NoteImageOpen(id, name)),
             );
         }
         any.then(|| {
@@ -588,12 +591,12 @@ impl Fleck {
                             .on_press(Message::NoteImageCopy(id, name.clone())),
                     )
                     .secondary_action(
-                        widget::button::destructive(crate::fl!("image-remove"))
-                            .on_press(Message::NoteImageRemove(id, name.clone())),
+                        widget::button::standard(crate::fl!("image-save-as"))
+                            .on_press(Message::NoteImageSaveAs(id, name.clone())),
                     )
                     .tertiary_action(
-                        widget::button::standard(crate::fl!("cancel"))
-                            .on_press(Message::NoteDialogCancel(id)),
+                        widget::button::destructive(crate::fl!("image-remove"))
+                            .on_press(Message::NoteImageRemove(id, name.clone())),
                     )
                     .into()
             }

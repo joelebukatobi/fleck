@@ -208,6 +208,14 @@ pub enum Message {
     NoteImageCopy(window::Id, String),
     /// "Remove" in the image dialog: delete the image and its line.
     NoteImageRemove(window::Id, String),
+    /// "Save as" in the image dialog: ask where to put a copy.
+    NoteImageSaveAs(window::Id, String),
+    /// Where the save dialog said to put it, if anywhere.
+    NoteImageSaveTo(String, Option<PathBuf>),
+    /// A single click on a thumbnail: put the cursor on that image's line.
+    NoteImageScrollTo(window::Id, usize),
+    /// Files dropped on a note window: the images among them are added.
+    NoteFilesDropped(window::Id, Vec<PathBuf>),
     /// Dragging a note window's header bar.
     NoteWindowDrag(window::Id),
     /// The maximize button, or a double-click, on a note window's header bar.
@@ -1080,6 +1088,9 @@ impl cosmic::Application for Fleck {
             cosmic::iced::Event::Window(window::Event::Resized(size)) => {
                 Some(Message::WindowResized(id, size))
             }
+            cosmic::iced::Event::Window(window::Event::FileDropped(paths)) => {
+                Some(Message::NoteFilesDropped(id, paths))
+            }
             _ => None,
         });
 
@@ -1415,6 +1426,76 @@ impl cosmic::Application for Fleck {
             Message::NoteImageRemove(id, name) => {
                 self.note_dialog.take_if(|(window, _)| *window == id);
                 self.remove_image(id, &name);
+                Task::none()
+            }
+            Message::NoteImageSaveAs(id, name) => {
+                let Some(path) = self
+                    .windows
+                    .get(&id)
+                    .map(|window| window.uuid)
+                    .and_then(|uuid| self.store.image_path(uuid, &name))
+                else {
+                    return Task::none();
+                };
+                self.note_dialog.take_if(|(window, _)| *window == id);
+                let title = crate::fl!("image-save-as");
+                Task::perform(
+                    async move {
+                        cosmic::dialog::file_chooser::save::Dialog::new()
+                            .title(title)
+                            .file_name(name)
+                            .save_file()
+                            .await
+                            .ok()
+                            .and_then(|response| {
+                                response.url().and_then(|url| url.to_file_path().ok())
+                            })
+                    },
+                    move |destination| {
+                        cosmic::Action::App(Message::NoteImageSaveTo(
+                            path.to_string_lossy().to_string(),
+                            destination,
+                        ))
+                    },
+                )
+            }
+            Message::NoteImageSaveTo(source, destination) => {
+                if let Some(destination) = destination {
+                    if let Err(error) = std::fs::copy(&source, &destination) {
+                        tracing::error!(?error, "failed to save a copy of the image");
+                    }
+                }
+                Task::none()
+            }
+            Message::NoteImageScrollTo(id, line) => {
+                let Some(window) = self.windows.get_mut(&id) else {
+                    return Task::none();
+                };
+                // Moving the cursor is what scrolls the editor; there is no
+                // scroll-to-line of its own.
+                window.content.perform(text_editor::Action::Move(
+                    text_editor::Motion::DocumentStart,
+                ));
+                for _ in 0..line {
+                    window
+                        .content
+                        .perform(text_editor::Action::Move(text_editor::Motion::Down));
+                }
+                Task::none()
+            }
+            Message::NoteFilesDropped(id, paths) => {
+                let Some(uuid) = self.windows.get(&id).map(|window| window.uuid) else {
+                    return Task::none();
+                };
+                for path in paths {
+                    let Some((extension, bytes)) = images::from_file(&path) else {
+                        continue;
+                    };
+                    match self.store.save_image(uuid, &extension, &bytes) {
+                        Ok(name) => self.insert_at_cursor(id, &images::link_line(&name)),
+                        Err(error) => tracing::error!(?error, "failed to save the dropped image"),
+                    }
+                }
                 Task::none()
             }
             Message::NoteDeleteStart(id) => {

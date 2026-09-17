@@ -1549,6 +1549,7 @@ dependencies = [
  "libcosmic",
  "rust-embed",
  "serde",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

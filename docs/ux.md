@@ -104,17 +104,20 @@ Modelled on the Windows Sticky Notes list window.
 
 ## Images in a note
 
-- **Putting one in:** paste it (Ctrl+V). The image lands where the cursor is. Pasting
-  text still pastes text.
-- **Still to come:** dragging an image file onto a note, **Save as**, and clicking a
-  thumbnail to scroll to its line in the text.
+- **Putting one in:** paste it (Ctrl+V), or drag image files onto the note. Either way
+  the image lands where the cursor is. Pasting text still pastes text, and a dropped
+  file that isn't an image Fleck can show is ignored.
 - **In the text:** the image shows as its own line — a picture icon and the file
   name — in the note's own colours. It is ordinary text, so it moves with the
   paragraph around it, and cut, paste, undo and search treat it like any other line.
 - **Under the note:** a row of thumbnails, in the order the images appear in the text.
   It is only there when the note has images.
-- **Opening one:** click a thumbnail to see the image full size over the note, with
-  **Copy**, **Remove** and **Cancel**.
+- **Finding one:** clicking a thumbnail puts the cursor on that image's line in the
+  text, scrolling there if needed.
+- **Opening one:** double-click a thumbnail to see the image full size over the note,
+  with **Copy**, **Save as** and **Remove**.
+- **Saving a copy:** **Save as** opens COSMIC's file picker and writes a copy where you
+  choose. The note keeps its own copy.
 - **Copying:** **Copy** puts the picture back on the clipboard, ready to paste
   anywhere else.
 - **Removing:** removing an image deletes its line from the text and its file from disk,
