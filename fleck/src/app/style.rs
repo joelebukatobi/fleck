@@ -340,7 +340,7 @@ pub(super) fn text_button_class() -> cosmic::theme::Button {
 }
 
 /// Corner radius of a note menu item's hover and pressed background.
-pub(super) const MENU_ITEM_RADIUS: f32 = 2.0;
+pub(super) const MENU_ITEM_RADIUS: f32 = 4.0;
 
 /// COSMIC's menu-item style, with `MENU_ITEM_RADIUS` corners on its hover and
 /// pressed background.
