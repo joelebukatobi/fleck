@@ -2,7 +2,7 @@
 
 use std::time::{Duration, SystemTime};
 
-use cosmic::iced::{Alignment, Length};
+use cosmic::iced::{Alignment, Color, Length};
 use cosmic::prelude::*;
 use cosmic::widget;
 use fleck_core::{display_name, Note};
@@ -116,6 +116,10 @@ pub(super) const CARD_ACTION_INNER_PADDING: u16 = 4;
 pub(super) const CARD_HEADING_PADDING_RIGHT: u16 = 0;
 /// Gap between the preview lines and the timestamp in a card's content.
 pub(super) const CARD_CONTENT_SPACING: u16 = 4;
+/// Space above and below the line between a card's preview and its time.
+pub(super) const CARD_TIME_DIVIDER_MARGIN: f32 = 1.6;
+/// Opacity of that line, drawn in the card's text colour.
+pub(super) const CARD_TIME_DIVIDER_ALPHA: f32 = 0.25;
 pub(super) const CARD_SPACING: u16 = 8;
 /// Dialogs over the notes list are this fraction of the list window's width.
 /// libcosmic's own default is a fixed 570 px, wider than the list window.
@@ -304,12 +308,31 @@ impl Fleck {
         let elapsed = SystemTime::now()
             .duration_since(self.note_mtime(uuid))
             .unwrap_or(Duration::ZERO);
-        content_col = content_col.push(
-            widget::text::caption(relative_time(elapsed))
-                .class(text_class(colour.text()))
-                .width(Length::Fill)
-                .align_x(cosmic::iced::alignment::Horizontal::Right),
-        );
+        // A faint line, in the card's text colour, sets the time apart from
+        // the preview above it.
+        let text_colour = colour.text().map(rgb);
+        let divider = widget::divider::horizontal::default().class(cosmic::theme::Rule::custom(
+            move |theme| cosmic::iced::widget::rule::Style {
+                color: Color {
+                    a: CARD_TIME_DIVIDER_ALPHA,
+                    ..text_colour.unwrap_or_else(|| {
+                        Color::from(theme.cosmic().background(theme.transparent).component.on)
+                    })
+                },
+                radius: 0.0.into(),
+                fill_mode: cosmic::iced::widget::rule::FillMode::Full,
+                snap: true,
+            },
+        ));
+        let content_col = widget::Column::with_capacity(3)
+            .push(content_col)
+            .push(widget::container(divider).padding([CARD_TIME_DIVIDER_MARGIN, 0.0]))
+            .push(
+                widget::text::caption(relative_time(elapsed))
+                    .class(text_class(colour.text()))
+                    .width(Length::Fill)
+                    .align_x(cosmic::iced::alignment::Horizontal::Right),
+            );
 
         let content = widget::container(content_col)
             .padding(CARD_PADDING)
