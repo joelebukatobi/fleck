@@ -151,13 +151,26 @@ pub(super) const SCROLLBAR_SCROLLER_WIDTH_REST: f32 = 4.0;
 pub(super) const SCROLLBAR_SCROLLER_WIDTH_HOVER: f32 = 8.0;
 
 /// A card's delete button, resting in `rest` when the card is coloured (see
-/// `tinted_icon_button_class`).
-fn card_delete_button<'a>(uuid: Uuid, rest: Option<cosmic::iced::Color>) -> Element<'a, Message> {
-    widget::button::icon(crate::icons::trash())
+/// `tinted_icon_button_class`). While `hovered` it shows the filled trash, in
+/// the dark red the button's hover style gives it.
+fn card_delete_button<'a>(
+    uuid: Uuid,
+    rest: Option<cosmic::iced::Color>,
+    hovered: bool,
+) -> Element<'a, Message> {
+    let icon = if hovered {
+        crate::icons::trash_filled()
+    } else {
+        crate::icons::trash()
+    };
+    let button = widget::button::icon(icon)
         .extra_small()
         .padding(CARD_ACTION_PADDING)
         .on_press(Message::DeleteStart(uuid))
-        .class(tinted_icon_button_class(IconHoverRole::Destructive, rest))
+        .class(tinted_icon_button_class(IconHoverRole::Destructive, rest));
+    widget::mouse_area(button)
+        .on_enter(Message::DeleteHover(Some(uuid)))
+        .on_exit(Message::DeleteHover(None))
         .into()
 }
 
@@ -198,7 +211,11 @@ impl Fleck {
             .spacing(CARD_HEADING_ROW_SPACING)
             .align_y(Alignment::Center)
             .push(title)
-            .push(card_delete_button(uuid, heading_text.map(rgb)));
+            .push(card_delete_button(
+                uuid,
+                heading_text.map(rgb),
+                self.delete_hovered == Some(uuid),
+            ));
 
         let heading = widget::container(heading_row)
             .class(cosmic::theme::Container::custom(card_heading_style(colour)))

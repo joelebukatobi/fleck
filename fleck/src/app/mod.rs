@@ -157,6 +157,8 @@ pub enum Message {
     /// The user pressed a card's trash button: ask for confirmation before
     /// deleting `Uuid`. A no-op while the restore dialog is showing.
     DeleteStart(Uuid),
+    /// The mouse entered (`Some`) or left (`None`) a card's delete button.
+    DeleteHover(Option<Uuid>),
     /// "Delete" on the confirmation dialog: delete the pending note through
     /// `delete_note`.
     DeleteConfirm,
@@ -326,6 +328,9 @@ pub struct Fleck {
     /// or cancelling. `dialog()` renders the confirmation from this alone;
     /// deletion itself always goes through `delete_note`.
     pending_delete: Option<Uuid>,
+    /// The card whose delete button the mouse is over, which shows the
+    /// filled trash icon.
+    delete_hovered: Option<Uuid>,
     /// Content rendered by `view_window` when a window id has no entry in
     /// `windows` (or its note has already been deleted). Never actually
     /// edited; it exists purely so every `view_window` return builds the
@@ -979,6 +984,7 @@ impl cosmic::Application for Fleck {
             search: String::new(),
             search_input_id: id::Id::unique(),
             pending_delete: None,
+            delete_hovered: None,
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
             closing_for_hide: HashSet::new(),
@@ -1221,6 +1227,10 @@ impl cosmic::Application for Fleck {
                 Some(uuid) => self.delete_note(uuid).1,
                 None => Task::none(),
             },
+            Message::DeleteHover(uuid) => {
+                self.delete_hovered = uuid;
+                Task::none()
+            }
             Message::DeleteCancel => {
                 self.pending_delete = None;
                 Task::none()
@@ -1475,6 +1485,7 @@ mod tests {
             search: String::new(),
             search_input_id: id::Id::unique(),
             pending_delete: None,
+            delete_hovered: None,
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
             closing_for_hide: HashSet::new(),

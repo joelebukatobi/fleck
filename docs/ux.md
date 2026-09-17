@@ -19,7 +19,7 @@ Plain notes on the experience we want. Not a spec.
 
 Modelled on the Windows Sticky Notes list window.
 
-- **Header:** an **Add note** button on the left (the same text-button style as a
+- **Header:** an **Add Note** button on the left (the same text-button style as a
   note's Settings), **Fleck** in the middle, then the window buttons on the right.
 - **Search bar** under the header. Filters as you type, matching note names and text.
   The placeholder starts right at the bar's padding, in line with the card titles.
@@ -116,8 +116,8 @@ Modelled on the Windows Sticky Notes list window.
   - Card content (preview and time): 8 px padding, including top and bottom.
   - The delete icon is 8 px from the
     card's right edge, in line with the search bar's magnifier.
-  - The delete icon shows no background on hover;
-    the icon turns the accent colour, or red for delete.
+  - The delete icon shows no background on hover; it fills in solid and turns dark red
+    (the theme's red at 70% brightness).
   - Hovering a card lightens it slightly; pressing darkens it slightly. The card
     itself is the clickable surface, so the effect lines up with its edges.
   - The card list's scrollbar is slim until the mouse is over it, then widens,

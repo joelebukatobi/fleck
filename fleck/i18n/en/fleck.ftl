@@ -1,5 +1,5 @@
 # Notes list
-add-note = Add note
+add-note = Add Note
 search-notes = Search notes
 
 # How long ago a note was last edited, shown on its card.

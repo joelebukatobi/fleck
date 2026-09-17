@@ -19,6 +19,9 @@ pub(super) const CARD_HOVER_LIGHTEN_FACTOR: f32 = 0.08;
 /// `HEADING_DARKEN_FACTOR`, which exists to contrast a whole strip rather
 /// than to read as a light "pressed" tap.
 pub(super) const CARD_PRESS_DARKEN_FACTOR: f32 = 0.90;
+/// How dark the delete icon's red gets while hovered or pressed: the theme's
+/// destructive red with each channel scaled by this factor.
+pub(super) const DELETE_HOVER_DARKEN_FACTOR: f32 = 0.70;
 
 /// Builds one state closure of the search bar's style: the theme's `Search`
 /// appearance for `state` (active/hovered/focused/error/disabled), with the
@@ -280,7 +283,9 @@ pub(super) fn icon_hover_color(role: IconHoverRole, theme: &cosmic::Theme) -> Co
     let cosmic = theme.cosmic();
     match role {
         IconHoverRole::Accent => cosmic.accent.base.into(),
-        IconHoverRole::Destructive => cosmic.destructive.base.into(),
+        IconHoverRole::Destructive => {
+            darken(cosmic.destructive.base.into(), DELETE_HOVER_DARKEN_FACTOR)
+        }
     }
 }
 
@@ -508,7 +513,10 @@ mod tests {
     #[test]
     fn icon_hover_color_maps_trash_to_destructive() {
         let theme = cosmic::Theme::dark();
-        let expected: Color = theme.cosmic().destructive.base.into();
+        let expected = darken(
+            theme.cosmic().destructive.base.into(),
+            DELETE_HOVER_DARKEN_FACTOR,
+        );
         assert_eq!(
             icon_hover_color(IconHoverRole::Destructive, &theme),
             expected
