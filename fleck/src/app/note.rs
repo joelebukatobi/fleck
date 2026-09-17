@@ -33,6 +33,10 @@ pub(super) const BODY_PADDING: f32 = 8.0;
 
 /// The note menu: its width, its inner padding, and each row's padding.
 const MENU_WIDTH: f32 = 200.0;
+/// The settings button: its icon size and the padding around the icon. The
+/// menu opens just below the button, its left edge in line with the icon.
+const MENU_BUTTON_ICON: u16 = 16;
+const MENU_BUTTON_PADDING: u16 = 8;
 const MENU_PADDING: u16 = 4;
 const MENU_ITEM_PADDING_Y: u16 = 8;
 const MENU_ITEM_PADDING_X: u16 = 16;
@@ -297,10 +301,15 @@ impl Fleck {
     fn note_header(&self, id: window::Id) -> Element<'_, Message> {
         let menu_button = widget::button::icon(crate::icons::settings())
             .extra_small()
+            .icon_size(MENU_BUTTON_ICON)
+            .padding(MENU_BUTTON_PADDING)
             .on_press(Message::NoteMenuToggle(id))
             .class(icon_button_class(IconHoverRole::Accent));
         let mut menu = widget::popover(menu_button)
-            .position(widget::popover::Position::Bottom)
+            .position(widget::popover::Position::Point(cosmic::iced::Point::new(
+                f32::from(MENU_BUTTON_PADDING),
+                f32::from(MENU_BUTTON_ICON + 2 * MENU_BUTTON_PADDING),
+            )))
             .on_close(Message::NoteMenuClose(id));
         if self.note_menu == Some(id) {
             menu = menu.popup(self.note_menu_popup(id));
