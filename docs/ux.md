@@ -102,6 +102,31 @@ Modelled on the Windows Sticky Notes list window.
 - Resizing the window fills the new space with lines.
 - Text must sit on the lines, and the lines scroll with the text.
 
+## Images in a note
+
+- **Putting one in:** paste it (Ctrl+V), or drag an image file onto the note. A
+  pasted image lands where the cursor is; a dropped one goes at the end.
+- **In the text:** the image shows as its own line — a picture icon and the file
+  name — in the note's own colours. It is ordinary text, so it moves with the
+  paragraph around it, and cut, paste, undo and search treat it like any other line.
+- **Under the note:** a row of thumbnails, in the order the images appear in the text.
+  It is only there when the note has images.
+- **The two halves point at each other:** clicking a thumbnail scrolls to its line in
+  the text and highlights it; putting the cursor on an image line highlights its
+  thumbnail.
+- **Opening one:** double-click a thumbnail, or press Enter on it, to see the image
+  full size over the note, with **Copy**, **Save as** and **Remove**.
+- **Copying:** right-click a thumbnail (or the full-size image) to copy the picture to
+  the clipboard, ready to paste anywhere else.
+- **Removing:** removing an image deletes its line from the text and its file from disk,
+  with the same confirmation style as deleting a note.
+- **On disk:** images are saved beside the note, in a folder named after it, and the
+  note's text holds an ordinary Markdown link (`![](picture.png)`). Notes stay readable
+  in any Markdown editor, and deleting a note deletes its images with it.
+- **Not doing:** cropping, resizing, or drawing on images. Fleck's editor is plain text,
+  so images cannot sit truly between two lines — the line plus its thumbnail is how
+  their place is shown.
+
 ## Look
 
 - Mostly theme defaults for now; the full design pass comes later.
