@@ -68,7 +68,7 @@ Modelled on the Windows Sticky Notes list window.
   - **Back to list** — opens the notes list, or brings it forward. The note stays open.
   - **Theme** — System, Light or Dark, for every Fleck window. System follows
     COSMIC. Remembered between runs.
-  - Picking anything, or clicking outside the menu, closes it.
+  - Picking anything, pressing the settings button again, or clicking in the note closes it.
 - The note text has no border.
 - The note text is ruled like lined paper: evenly spaced dotted lines, one per
   line of text, filling the window whether or not there is text on them.

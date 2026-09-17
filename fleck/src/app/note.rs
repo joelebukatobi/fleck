@@ -279,6 +279,9 @@ impl Fleck {
             .padding([NOTE_PADDING_Y, NOTE_PADDING_X])
             .width(Length::Fill)
             .height(Length::Fill);
+        // Clicking in the note closes its menu. Presses on the open menu never
+        // reach here: the menu is an overlay and takes them first.
+        let body = widget::mouse_area(body).on_press(Message::NoteMenuClose(id));
 
         let note = widget::container(widget::Column::with_capacity(2).push(header).push(body))
             // An explicit opaque background is a rendering requirement, not
@@ -312,12 +315,16 @@ impl Fleck {
             .padding(MENU_BUTTON_PADDING)
             .on_press(Message::NoteMenuToggle(id))
             .class(icon_button_class(IconHoverRole::Accent));
-        let mut menu = widget::popover(menu_button)
-            .position(widget::popover::Position::Point(cosmic::iced::Point::new(
+        let mut menu = widget::popover(menu_button).position(widget::popover::Position::Point(
+            cosmic::iced::Point::new(
                 f32::from(MENU_BUTTON_PADDING),
                 f32::from(MENU_BUTTON_ICON + 2 * MENU_BUTTON_PADDING),
-            )))
-            .on_close(Message::NoteMenuClose(id));
+            ),
+        ));
+        // No `on_close`: the popover fires it on any press outside the gear
+        // button - including presses inside the menu - which closed the menu
+        // before its items (which act on release) could respond. Clicking in
+        // the note's text closes it instead (see `view_note`).
         if self.note_menu == Some(id) {
             menu = menu.popup(self.note_menu_popup(id));
         }
