@@ -22,6 +22,9 @@ pub enum Colour {
 /// The dotted lines' brightness relative to the paper: each channel is
 /// scaled by this factor.
 const LINE_SHADE: f32 = 0.7;
+/// A heading strip's HSL lightness relative to the paper's; hue and
+/// saturation stay the same.
+const HEADING_LIGHTNESS: f32 = 0.8;
 const DARK_TEXT: (u8, u8, u8) = (0x1A, 0x1A, 0x1A);
 const LIGHT_TEXT: (u8, u8, u8) = (0xFF, 0xFF, 0xFF);
 
@@ -112,12 +115,57 @@ impl Colour {
         self.paper().map(readable_on)
     }
 
-    /// Text on a card's darker heading strip (the same shade as the lines):
-    /// dark or white, whichever contrasts more with that shade. `None` for
-    /// Default.
-    pub fn heading_text(self) -> Option<(u8, u8, u8)> {
-        self.line().map(readable_on)
+    /// A card's heading strip: a deeper shade of the paper that keeps its
+    /// saturation (yellow becomes gold, not olive). `None` for Default.
+    pub fn heading(self) -> Option<(u8, u8, u8)> {
+        self.paper().map(|paper| deepen(paper, HEADING_LIGHTNESS))
     }
+
+    /// Text on a card's heading strip: dark or white, whichever contrasts
+    /// more with it. `None` for Default.
+    pub fn heading_text(self) -> Option<(u8, u8, u8)> {
+        self.heading().map(readable_on)
+    }
+}
+
+/// `colour` with its HSL lightness scaled by `factor`, hue and saturation kept.
+fn deepen((r, g, b): (u8, u8, u8), factor: f32) -> (u8, u8, u8) {
+    let (r, g, b) = (
+        f32::from(r) / 255.0,
+        f32::from(g) / 255.0,
+        f32::from(b) / 255.0,
+    );
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let lightness = f32::midpoint(max, min);
+    let delta = max - min;
+    let (hue, saturation) = if delta == 0.0 {
+        (0.0, 0.0)
+    } else {
+        let saturation = delta / (1.0 - (2.0 * lightness - 1.0).abs());
+        let hue = if (max - r).abs() < f32::EPSILON {
+            ((g - b) / delta).rem_euclid(6.0)
+        } else if (max - g).abs() < f32::EPSILON {
+            (b - r) / delta + 2.0
+        } else {
+            (r - g) / delta + 4.0
+        };
+        (hue, saturation)
+    };
+    let lightness = lightness * factor;
+    let chroma = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
+    let second = chroma * (1.0 - (hue.rem_euclid(2.0) - 1.0).abs());
+    let (r, g, b) = match hue as u8 {
+        0 => (chroma, second, 0.0),
+        1 => (second, chroma, 0.0),
+        2 => (0.0, chroma, second),
+        3 => (0.0, second, chroma),
+        4 => (second, 0.0, chroma),
+        _ => (chroma, 0.0, second),
+    };
+    let offset = lightness - chroma / 2.0;
+    let channel = |c: f32| ((c + offset) * 255.0).round().clamp(0.0, 255.0) as u8;
+    (channel(r), channel(g), channel(b))
 }
 
 /// Dark or white, whichever contrasts more with `background`.
@@ -170,12 +218,29 @@ mod tests {
     fn every_colours_heading_text_meets_wcag_aa_for_large_text() {
         // The heading strip's title is heading-sized, so AA's large-text 3:1.
         for colour in Colour::ALL.into_iter().filter(|c| *c != Colour::Default) {
-            let ratio = contrast_ratio(colour.heading_text().unwrap(), colour.line().unwrap());
+            let ratio = contrast_ratio(colour.heading_text().unwrap(), colour.heading().unwrap());
             assert!(
                 ratio >= 3.0,
                 "{colour:?} heading has contrast {ratio:.2}, need 3"
             );
         }
+    }
+
+    #[test]
+    fn headings_are_darker_without_losing_saturation() {
+        for colour in Colour::ALL.into_iter().filter(|c| *c != Colour::Default) {
+            let (paper, heading) = (colour.paper().unwrap(), colour.heading().unwrap());
+            assert!(
+                relative_luminance(heading) < relative_luminance(paper),
+                "{colour:?}"
+            );
+        }
+        // Yellow deepens to gold, not olive: red and green stay well above blue.
+        let (r, g, b) = Colour::Yellow.heading().unwrap();
+        assert!(
+            r > 200 && g > 170 && b < 100,
+            "yellow heading was {r},{g},{b}"
+        );
     }
 
     #[test]

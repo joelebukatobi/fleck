@@ -58,7 +58,8 @@ Modelled on the Windows Sticky Notes list window.
 - Any other colour fills a note's paper and its card in the notes list, exactly as it is,
   in light and dark mode alike — no tints or shades.
 - The dotted lines are a darker shade of the note's colour.
-- In the notes list, a coloured card's heading strip is that same darker shade. The
+- In the notes list, a coloured card's heading strip is a deeper shade of its colour
+  that keeps the colour's saturation (yellow deepens to gold, not olive). The
   card's preview and time (right-aligned, below a faint line in the text colour with
   8 px above and below it) use the note's text colour; the strip's title and icons
   pick dark or white against the darker strip.
@@ -116,8 +117,9 @@ Modelled on the Windows Sticky Notes list window.
   - Card content (preview and time): 8 px padding, including top and bottom.
   - The delete icon is 8 px from the
     card's right edge, in line with the search bar's magnifier.
-  - The delete icon shows no background on hover; it fills in solid and turns dark red
-    (the theme's red at 70% brightness).
+  - The delete icon shows no background at rest. On hover a small red rounded badge
+    (the theme's destructive red) appears behind it and the trash fills in solid, in
+    the colour COSMIC draws on that red — readable on every note colour.
   - Hovering a card lightens it slightly; pressing darkens it slightly. The card
     itself is the clickable surface, so the effect lines up with its edges.
   - The card list's scrollbar is slim until the mouse is over it, then widens,
