@@ -1,5 +1,5 @@
 //! Bundled Iconoir icons (regular set): stroke 2 for the `+` and the panel
-//! icon, stroke 1 for the rest. Embedded with
+//! icon, stroke 1.5 for the rest. Embedded with
 //! `include_bytes!` so nothing is read from disk at runtime; each handle is
 //! marked `.symbolic(true)` so libcosmic tints it to the theme's icon colour -
 //! see `iced/widget/src/svg.rs` (`symbolic` field, used in `draw`) and
@@ -58,12 +58,12 @@ mod tests {
     }
 
     #[test]
-    fn plus_and_panel_icon_use_stroke_two_the_rest_stroke_one() {
+    fn plus_and_panel_icon_use_stroke_two_the_rest_stroke_one_and_a_half() {
         for bytes in [PLUS, PAGE_EDIT] {
             assert_eq!(stroke_width(bytes), "2");
         }
         for bytes in [EDIT_PENCIL, TRASH, SEARCH, XMARK] {
-            assert_eq!(stroke_width(bytes), "1");
+            assert_eq!(stroke_width(bytes), "1.5");
         }
     }
 
