@@ -324,6 +324,36 @@ pub(super) fn header_icon_button_class(role: IconHoverRole) -> cosmic::theme::Bu
     }
 }
 
+/// `icon_button_class`, resting in `rest` instead of the inherited icon colour
+/// when it's `Some`. For a coloured card's rename and delete icons.
+pub(super) fn tinted_icon_button_class(
+    role: IconHoverRole,
+    rest: Option<Color>,
+) -> cosmic::theme::Button {
+    let Some(rest) = rest else {
+        return icon_button_class(role);
+    };
+    let cosmic::theme::Button::Custom {
+        active,
+        disabled,
+        hovered,
+        pressed,
+    } = icon_button_class(role)
+    else {
+        unreachable!("icon_button_class always builds a custom class");
+    };
+    cosmic::theme::Button::Custom {
+        active: Box::new(move |focused, theme| {
+            let mut style = active(focused, theme);
+            style.icon_color = Some(rest);
+            style
+        }),
+        disabled,
+        hovered,
+        pressed,
+    }
+}
+
 /// A header icon button's (the `+` new-note button in `header_start`, and
 /// the pencil/trash buttons in `view_card`) full `Button::Custom` style
 /// class: no background in any state - removing libcosmic's default icon-

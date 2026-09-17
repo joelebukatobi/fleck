@@ -9,8 +9,8 @@ use fleck_core::{display_name, Note};
 use uuid::Uuid;
 
 use super::style::{
-    card_button_class, card_container_style, card_heading_style, icon_button_class,
-    search_input_style, IconHoverRole,
+    card_button_class, card_container_style, card_heading_style, rgb, search_input_style,
+    tinted_icon_button_class, IconHoverRole,
 };
 use super::{Fleck, Message, DEFAULT_WINDOW_SIZE};
 use crate::palette::Colour;
@@ -197,6 +197,39 @@ impl RenameState {
     }
 }
 
+/// A card's rename and delete buttons, resting in `rest` when the card is
+/// coloured (see `tinted_icon_button_class`).
+fn card_actions<'a>(uuid: Uuid, rest: Option<cosmic::iced::Color>) -> Element<'a, Message> {
+    widget::Row::with_capacity(2)
+        .spacing(CARD_ACTION_SPACING)
+        .align_y(Alignment::Center)
+        .push(
+            widget::button::icon(crate::icons::edit_pencil())
+                .extra_small()
+                .padding([
+                    CARD_ACTION_PADDING,
+                    CARD_ACTION_INNER_PADDING,
+                    CARD_ACTION_PADDING,
+                    CARD_ACTION_PADDING,
+                ])
+                .on_press(Message::RenameStart(uuid))
+                .class(tinted_icon_button_class(IconHoverRole::Accent, rest)),
+        )
+        .push(
+            widget::button::icon(crate::icons::trash())
+                .extra_small()
+                .padding([
+                    CARD_ACTION_PADDING,
+                    CARD_ACTION_PADDING,
+                    CARD_ACTION_PADDING,
+                    CARD_ACTION_INNER_PADDING,
+                ])
+                .on_press(Message::DeleteStart(uuid))
+                .class(tinted_icon_button_class(IconHoverRole::Destructive, rest)),
+        )
+        .into()
+}
+
 impl Fleck {
     /// A note's cached mtime, or `UNIX_EPOCH` for one never observed on
     /// disk yet (defensive only - every note in `self.notes` is either
@@ -219,6 +252,13 @@ impl Fleck {
     pub(super) fn view_card(&self, note: &Note) -> Element<'_, Message> {
         let uuid = note.frontmatter.uuid;
         let colour = Colour::from_name(&note.frontmatter.color);
+        // A coloured card sets its own text colours; Default leaves the theme's.
+        let text_class = |text: Option<(u8, u8, u8)>| {
+            text.map_or(cosmic::theme::Text::Default, |text| {
+                cosmic::theme::Text::Color(rgb(text))
+            })
+        };
+        let heading_text = colour.heading_text();
         let editing = self.rename.is_editing(uuid);
 
         // The title swaps for a text input in rename mode, but stays in the
@@ -234,6 +274,7 @@ impl Fleck {
                 .into()
         } else {
             widget::text::heading(display_name(note).to_string())
+                .class(text_class(heading_text))
                 .width(Length::Fill)
                 .into()
         };
@@ -242,35 +283,7 @@ impl Fleck {
             .spacing(CARD_HEADING_ROW_SPACING)
             .align_y(Alignment::Center)
             .push(title)
-            .push(
-                widget::Row::with_capacity(2)
-                    .spacing(CARD_ACTION_SPACING)
-                    .align_y(Alignment::Center)
-                    .push(
-                        widget::button::icon(crate::icons::edit_pencil())
-                            .extra_small()
-                            .padding([
-                                CARD_ACTION_PADDING,
-                                CARD_ACTION_INNER_PADDING,
-                                CARD_ACTION_PADDING,
-                                CARD_ACTION_PADDING,
-                            ])
-                            .on_press(Message::RenameStart(uuid))
-                            .class(icon_button_class(IconHoverRole::Accent)),
-                    )
-                    .push(
-                        widget::button::icon(crate::icons::trash())
-                            .extra_small()
-                            .padding([
-                                CARD_ACTION_PADDING,
-                                CARD_ACTION_PADDING,
-                                CARD_ACTION_PADDING,
-                                CARD_ACTION_INNER_PADDING,
-                            ])
-                            .on_press(Message::DeleteStart(uuid))
-                            .class(icon_button_class(IconHoverRole::Destructive)),
-                    ),
-            );
+            .push(card_actions(uuid, heading_text.map(rgb)));
 
         let heading = widget::container(heading_row)
             .class(cosmic::theme::Container::custom(card_heading_style(colour)))
@@ -285,12 +298,14 @@ impl Fleck {
         let mut content_col =
             widget::Column::with_capacity(1 + PREVIEW_LINES).spacing(CARD_CONTENT_SPACING);
         for line in preview_lines(note, PREVIEW_LINES) {
-            content_col = content_col.push(widget::text::body(line));
+            content_col =
+                content_col.push(widget::text::body(line).class(text_class(colour.text())));
         }
         let elapsed = SystemTime::now()
             .duration_since(self.note_mtime(uuid))
             .unwrap_or(Duration::ZERO);
-        content_col = content_col.push(widget::text::caption(relative_time(elapsed)));
+        content_col = content_col
+            .push(widget::text::caption(relative_time(elapsed)).class(text_class(colour.text())));
 
         let content = widget::container(content_col)
             .padding(CARD_PADDING)

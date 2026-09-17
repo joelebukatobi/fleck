@@ -109,16 +109,27 @@ impl Colour {
     /// The note's text: dark or white, whichever contrasts more with the
     /// paper. `None` for Default.
     pub fn text(self) -> Option<(u8, u8, u8)> {
-        let paper = self.paper()?;
-        Some(
-            if contrast_ratio(DARK_TEXT, paper) >= contrast_ratio(LIGHT_TEXT, paper) {
-                DARK_TEXT
-            } else {
-                LIGHT_TEXT
-            },
-        )
+        self.paper().map(readable_on)
+    }
+
+    /// Text on a card's darker heading strip (the same shade as the lines):
+    /// dark or white, whichever contrasts more with that shade. `None` for
+    /// Default.
+    pub fn heading_text(self) -> Option<(u8, u8, u8)> {
+        self.line().map(readable_on)
     }
 }
+
+/// Dark or white, whichever contrasts more with `background`.
+fn readable_on(background: (u8, u8, u8)) -> (u8, u8, u8) {
+    if contrast_ratio(DARK_TEXT, background) >= contrast_ratio(LIGHT_TEXT, background) {
+        DARK_TEXT
+    } else {
+        LIGHT_TEXT
+    }
+}
+
+impl Colour {}
 
 /// WCAG 2.1 relative luminance.
 fn relative_luminance((r, g, b): (u8, u8, u8)) -> f32 {
@@ -151,6 +162,18 @@ mod tests {
             assert!(
                 ratio >= 4.5,
                 "{colour:?} text has contrast {ratio:.2}, need 4.5"
+            );
+        }
+    }
+
+    #[test]
+    fn every_colours_heading_text_meets_wcag_aa_for_large_text() {
+        // The heading strip's title is heading-sized, so AA's large-text 3:1.
+        for colour in Colour::ALL.into_iter().filter(|c| *c != Colour::Default) {
+            let ratio = contrast_ratio(colour.heading_text().unwrap(), colour.line().unwrap());
+            assert!(
+                ratio >= 3.0,
+                "{colour:?} heading has contrast {ratio:.2}, need 3"
             );
         }
     }
