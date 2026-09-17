@@ -118,7 +118,7 @@ Modelled on the Windows Sticky Notes list window.
   - The delete icon is 8 px from the
     card's right edge, in line with the search bar's magnifier.
   - The delete icon shows no background, at rest or on hover. On hover the trash
-    fills in solid in the theme's destructive red.
+    fills in solid in a deep red (#C01C28), the same in light and dark mode.
   - Hovering a card lightens it slightly; pressing darkens it slightly. The card
     itself is the clickable surface, so the effect lines up with its edges.
   - The card list's scrollbar is slim until the mouse is over it, then widens,
