@@ -364,10 +364,10 @@ pub(super) fn icon_button_class(role: IconHoverRole) -> cosmic::theme::Button {
 }
 
 /// COSMIC's default text-button style (its own hover and pressed backgrounds),
-/// with the label in COSMIC's grey (`muted_color`) at rest, turning the accent
-/// colour while hovered or pressed - the same hover colour the icon buttons use
-/// (`icon_hover_color`).
-pub(super) fn text_button_class() -> cosmic::theme::Button {
+/// with the label turning the accent colour while hovered or pressed - the same
+/// hover colour the icon buttons use (`icon_hover_color`). At rest the label is
+/// `rest`, or COSMIC's grey (`muted_color`) when that's `None`.
+pub(super) fn text_button_class(rest: Option<Color>) -> cosmic::theme::Button {
     fn with_accent_text(
         mut style: cosmic::widget::button::Style,
         theme: &cosmic::Theme,
@@ -376,14 +376,14 @@ pub(super) fn text_button_class() -> cosmic::theme::Button {
         style
     }
     cosmic::theme::Button::Custom {
-        active: Box::new(|focused, theme| {
+        active: Box::new(move |focused, theme| {
             let mut style = <cosmic::Theme as cosmic::widget::button::Catalog>::active(
                 theme,
                 focused,
                 false,
                 &cosmic::theme::Button::Text,
             );
-            style.text_color = Some(muted_color(theme));
+            style.text_color = Some(rest.unwrap_or_else(|| muted_color(theme)));
             style
         }),
         disabled: Box::new(|theme| {

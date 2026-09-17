@@ -333,11 +333,14 @@ impl Fleck {
     /// Fleck's own header bar for a note window, like libcosmic's main
     /// window: the menu on the left, the note's name, then the window buttons.
     fn note_header(&self, id: window::Id) -> Element<'_, Message> {
+        // On a coloured note, the Settings label and the title use the note's
+        // text colour; Default keeps the theme's.
+        let colour = self.note_colour(id);
         let menu_button = widget::button::text(crate::fl!("settings"))
             .height(Length::Fixed(f32::from(MENU_BUTTON_HEIGHT)))
             .padding([0, MENU_BUTTON_PADDING_X])
             .on_press(Message::NoteMenuToggle(id))
-            .class(text_button_class());
+            .class(text_button_class(colour.text().map(rgb)));
         let mut menu = widget::popover(menu_button).position(widget::popover::Position::Point(
             cosmic::iced::Point::new(0.0, f32::from(MENU_BUTTON_HEIGHT)),
         ));
@@ -358,7 +361,16 @@ impl Fleck {
                 |note| display_name(note).to_string(),
             );
         let mut header = widget::header_bar()
-            .title(title)
+            .center(
+                widget::text::heading(title)
+                    .wrapping(cosmic::iced::widget::text::Wrapping::None)
+                    .ellipsize(cosmic::iced::advanced::text::Ellipsize::End(
+                        cosmic::iced::advanced::text::EllipsizeHeightLimit::Lines(1),
+                    ))
+                    .class(colour.text().map_or(cosmic::theme::Text::Default, |text| {
+                        cosmic::theme::Text::Color(rgb(text))
+                    })),
+            )
             .focused(self.core.focused_window() == Some(id))
             .start(menu)
             .on_drag(Message::NoteWindowDrag(id))

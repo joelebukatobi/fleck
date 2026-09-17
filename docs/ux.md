@@ -57,6 +57,8 @@ Modelled on the Windows Sticky Notes list window.
 - Any other colour fills a note's paper and its card in the notes list, exactly as it is,
   in light and dark mode alike — no tints or shades.
 - The dotted lines are a darker shade of the note's colour.
+- On a coloured note the title bar's Settings label and note name use the note's
+  text colour too.
 - The note's text is dark or white, whichever reads better on its colour (at least
   4.5:1 contrast), whatever COSMIC's light or dark mode.
 - The colour dialog shows the swatches three to a row.
