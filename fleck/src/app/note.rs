@@ -10,9 +10,10 @@ use cosmic::widget::text_editor;
 use fleck_core::display_name;
 
 use super::list::dialog_width;
-use super::style::{menu_item_button_class, text_button_class};
+use super::style::{menu_item_button_class, note_paper_style, swatch_style, text_button_class};
 use super::theme::AppTheme;
 use super::{Fleck, Message, NoteDialog, DEFAULT_WINDOW_SIZE};
+use crate::palette::Colour;
 use crate::ruled::RuledLines;
 use crate::undo::EditKind;
 
@@ -48,6 +49,12 @@ const HEADER_BAR_PADDING_X: u16 = 7;
 const NOTE_PADDING_X: u16 = HEADER_BAR_PADDING_X + MENU_BUTTON_PADDING_X;
 const NOTE_PADDING_Y: u16 = 12;
 const MENU_PADDING: u16 = 4;
+/// The colour dialog's swatch grid.
+const SWATCHES_PER_ROW: usize = 4;
+const SWATCH_SIZE: f32 = 32.0;
+const SWATCH_GAP: u16 = 8;
+const SWATCH_LABEL_GAP: u16 = 4;
+const SWATCH_PADDING: u16 = 8;
 const MENU_ITEM_PADDING_Y: u16 = 8;
 const MENU_ITEM_PADDING_X: u16 = 16;
 
@@ -301,7 +308,9 @@ impl Fleck {
             // default (`Container::Transparent`), the whole window would render
             // transparent - the desktop showing through, stale frames smearing,
             // exactly the failure mode this task's brief warns about.
-            .class(cosmic::theme::Container::WindowBackground)
+            .class(cosmic::theme::Container::custom(note_paper_style(
+                self.note_colour(id),
+            )))
             .width(Length::Fill)
             .height(Length::Fill);
 
@@ -359,6 +368,16 @@ impl Fleck {
         header.into()
     }
 
+    /// The colour of the note shown in window `id`; yellow if there isn't one.
+    fn note_colour(&self, id: window::Id) -> Colour {
+        self.windows
+            .get(&id)
+            .and_then(|window| self.notes.get(&window.uuid))
+            .map_or(Colour::Yellow, |note| {
+                Colour::from_name(&note.frontmatter.color)
+            })
+    }
+
     /// The menu under a note's settings button: rename, delete, back to the
     /// list, and the app-wide theme.
     fn note_menu_popup(&self, id: window::Id) -> Element<'_, Message> {
@@ -371,6 +390,10 @@ impl Fleck {
         };
         let mut menu = widget::Column::with_capacity(8)
             .push(item(crate::fl!("edit-name"), Message::NoteRenameStart(id)))
+            .push(item(
+                crate::fl!("change-colour"),
+                Message::NoteColourStart(id),
+            ))
             .push(item(
                 crate::fl!("delete-note"),
                 Message::NoteDeleteStart(id),
@@ -433,6 +456,44 @@ impl Fleck {
                         .on_press(Message::NoteDialogCancel(id)),
                 )
                 .into(),
+            NoteDialog::Colour => {
+                let current = self.note_colour(id);
+                let mut grid = widget::Column::with_capacity(2).spacing(SWATCH_GAP);
+                for row in Colour::ALL.chunks(SWATCHES_PER_ROW) {
+                    let mut swatches = widget::Row::with_capacity(row.len()).spacing(SWATCH_GAP);
+                    for &colour in row {
+                        let swatch = widget::Column::with_capacity(2)
+                            .spacing(SWATCH_LABEL_GAP)
+                            .align_x(cosmic::iced::Alignment::Center)
+                            .push(
+                                widget::container(widget::text(""))
+                                    .width(Length::Fixed(SWATCH_SIZE))
+                                    .height(Length::Fixed(SWATCH_SIZE))
+                                    .class(cosmic::theme::Container::custom(swatch_style(
+                                        colour,
+                                        colour == current,
+                                    ))),
+                            )
+                            .push(widget::text::caption(colour.label()));
+                        swatches = swatches.push(
+                            widget::button::custom(swatch)
+                                .class(menu_item_button_class())
+                                .padding(SWATCH_PADDING)
+                                .width(Length::Fill)
+                                .on_press(Message::NoteSetColour(id, colour)),
+                        );
+                    }
+                    grid = grid.push(swatches);
+                }
+                frame
+                    .title(crate::fl!("colour-title"))
+                    .control(grid)
+                    .secondary_action(
+                        widget::button::standard(crate::fl!("cancel"))
+                            .on_press(Message::NoteDialogCancel(id)),
+                    )
+                    .into()
+            }
             NoteDialog::Delete => {
                 let name = self.notes.get(&uuid).map_or("", display_name);
                 frame

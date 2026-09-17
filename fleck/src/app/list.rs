@@ -13,6 +13,7 @@ use super::style::{
     search_input_style, IconHoverRole,
 };
 use super::{Fleck, Message, DEFAULT_WINDOW_SIZE};
+use crate::palette::Colour;
 
 /// How many lines of body text a card previews.
 pub(super) const PREVIEW_LINES: usize = 2;
@@ -217,6 +218,7 @@ impl Fleck {
     /// reach the card's own `on_press`, same as the existing rename pencil.
     pub(super) fn view_card(&self, note: &Note) -> Element<'_, Message> {
         let uuid = note.frontmatter.uuid;
+        let colour = Colour::from_name(&note.frontmatter.color);
         let editing = self.rename.is_editing(uuid);
 
         // The title swaps for a text input in rename mode, but stays in the
@@ -271,7 +273,7 @@ impl Fleck {
             );
 
         let heading = widget::container(heading_row)
-            .class(cosmic::theme::Container::custom(card_heading_style))
+            .class(cosmic::theme::Container::custom(card_heading_style(colour)))
             .padding([
                 CARD_HEADING_PADDING_Y,
                 CARD_HEADING_PADDING_RIGHT,
@@ -311,15 +313,17 @@ impl Fleck {
         if editing {
             // Mid-rename, the card isn't a pick target - the text input
             // already owns clicks/focus here.
-            card.class(cosmic::theme::Container::custom(card_container_style))
-                .into()
+            card.class(cosmic::theme::Container::custom(move |theme| {
+                card_container_style(colour, theme)
+            }))
+            .into()
         } else {
             // No padding: libcosmic buttons default to 5 px, which inset the card from
             // the search bar and drew the hover state 5 px outside the card.
             widget::button::custom(card)
                 .padding(0)
                 .on_press(Message::PickNote(uuid))
-                .class(card_button_class())
+                .class(card_button_class(colour))
                 .width(Length::Fill)
                 .into()
         }

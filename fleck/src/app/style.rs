@@ -3,6 +3,8 @@
 
 use cosmic::iced::{Border, Color};
 
+use crate::palette::Colour;
+
 pub(super) const SEARCH_RADIUS: f32 = 4.0;
 pub(super) const CARD_RADIUS: f32 = 4.0;
 /// How much darker the card heading strip is than the card itself: each
@@ -32,18 +34,66 @@ pub(super) fn search_input_style(
     })
 }
 
-/// A card's style: the theme's `Card` appearance with the radius replaced
-/// by `CARD_RADIUS` instead of the theme's `radius_s`. Every other field -
-/// background, text/icon colours - stays exactly what the theme gives it.
+/// A note's colour for the current light or dark mode (see
+/// `Colour::background`), as an iced `Color`.
+pub(super) fn note_color(colour: Colour, theme: &cosmic::Theme) -> Color {
+    let (r, g, b) = colour.background(theme.cosmic().is_dark);
+    Color::from_rgb8(r, g, b)
+}
+
+/// A card's style: the theme's `Card` appearance with the note's colour as
+/// its background and `CARD_RADIUS` corners. Text and icon colours stay the
+/// theme's.
 pub(super) fn card_container_style(
+    colour: Colour,
     theme: &cosmic::Theme,
 ) -> cosmic::iced::widget::container::Style {
     let mut style = <cosmic::Theme as cosmic::iced::widget::container::Catalog>::style(
         theme,
         &cosmic::theme::Container::Card,
     );
+    style.background = Some(note_color(colour, theme).into());
     style.border.radius = CARD_RADIUS.into();
     style
+}
+
+/// The note window's paper: the theme's window background with the note's
+/// colour as its fill.
+pub(super) fn note_paper_style(
+    colour: Colour,
+) -> impl Fn(&cosmic::Theme) -> cosmic::iced::widget::container::Style {
+    move |theme| {
+        let mut style = <cosmic::Theme as cosmic::iced::widget::container::Catalog>::style(
+            theme,
+            &cosmic::theme::Container::WindowBackground,
+        );
+        style.background = Some(note_color(colour, theme).into());
+        style
+    }
+}
+
+/// One swatch in the colour dialog: the note colour, 4 px corners, and an
+/// accent border when it's the note's current colour.
+pub(super) fn swatch_style(
+    colour: Colour,
+    selected: bool,
+) -> impl Fn(&cosmic::Theme) -> cosmic::iced::widget::container::Style {
+    move |theme| {
+        let cosmic = theme.cosmic();
+        cosmic::iced::widget::container::Style {
+            background: Some(note_color(colour, theme).into()),
+            border: Border {
+                radius: CARD_RADIUS.into(),
+                width: if selected { 2.0 } else { 1.0 },
+                color: if selected {
+                    cosmic.accent.base.into()
+                } else {
+                    cosmic.background(theme.transparent).divider.into()
+                },
+            },
+            ..cosmic::iced::widget::container::Style::default()
+        }
+    }
 }
 
 /// Scales a colour's channels down by `factor`, leaving alpha untouched. A
@@ -79,29 +129,33 @@ pub(super) fn lighten(color: Color, factor: f32) -> Color {
 /// container's style function only ever receives the theme, not its
 /// parent button's interaction state, so there is no state to shift it
 /// with even if the design wanted that - see `view_card`.
-pub(super) fn card_heading_style(theme: &cosmic::Theme) -> cosmic::iced::widget::container::Style {
-    let card = card_container_style(theme);
-    cosmic::iced::widget::container::Style {
-        background: card.background.map(|background| match background {
-            cosmic::iced::Background::Color(c) => {
-                cosmic::iced::Background::Color(darken(c, HEADING_DARKEN_FACTOR))
-            }
-            gradient @ cosmic::iced::Background::Gradient(_) => gradient,
-        }),
-        border: Border {
-            radius: cosmic::iced::border::top(CARD_RADIUS),
-            ..Border::default()
-        },
-        ..card
+pub(super) fn card_heading_style(
+    colour: Colour,
+) -> impl Fn(&cosmic::Theme) -> cosmic::iced::widget::container::Style {
+    move |theme| {
+        let card = card_container_style(colour, theme);
+        cosmic::iced::widget::container::Style {
+            background: card.background.map(|background| match background {
+                cosmic::iced::Background::Color(c) => {
+                    cosmic::iced::Background::Color(darken(c, HEADING_DARKEN_FACTOR))
+                }
+                gradient @ cosmic::iced::Background::Gradient(_) => gradient,
+            }),
+            border: Border {
+                radius: cosmic::iced::border::top(CARD_RADIUS),
+                ..Border::default()
+            },
+            ..card
+        }
     }
 }
 
-/// The card's theme background colour alone (see `card_container_style`),
+/// The card's background colour alone (see `card_container_style`),
 /// for building the card button's hover/press variants. Falls back to
 /// transparent for the (never-hit-in-practice) case that the theme's Card
 /// container has no solid colour background.
-pub(super) fn card_color(theme: &cosmic::Theme) -> Color {
-    match card_container_style(theme).background {
+pub(super) fn card_color(colour: Colour, theme: &cosmic::Theme) -> Color {
+    match card_container_style(colour, theme).background {
         Some(cosmic::iced::Background::Color(c)) => c,
         _ => Color::TRANSPARENT,
     }
@@ -114,10 +168,11 @@ pub(super) fn card_color(theme: &cosmic::Theme) -> Color {
 /// Tab-focused button, so keyboard focus stays visible.
 pub(super) fn card_button_style(
     theme: &cosmic::Theme,
+    colour: Colour,
     focused: bool,
     background: Color,
 ) -> cosmic::widget::button::Style {
-    let card = card_container_style(theme);
+    let card = card_container_style(colour, theme);
     let mut style = cosmic::widget::button::Style {
         background: Some(cosmic::iced::Background::Color(background)),
         border_radius: card.border.radius,
@@ -140,22 +195,28 @@ pub(super) fn card_button_style(
 /// hover and darkened on press (see `lighten`/`darken`) - never a hardcoded
 /// colour. `disabled` is never actually reached (a card button is never
 /// disabled) but is required to build the class.
-pub(super) fn card_button_class() -> cosmic::theme::Button {
+pub(super) fn card_button_class(colour: Colour) -> cosmic::theme::Button {
     cosmic::theme::Button::Custom {
-        active: Box::new(|focused, theme| card_button_style(theme, focused, card_color(theme))),
-        disabled: Box::new(|theme| card_button_style(theme, false, card_color(theme))),
-        hovered: Box::new(|focused, theme| {
+        active: Box::new(move |focused, theme| {
+            card_button_style(theme, colour, focused, card_color(colour, theme))
+        }),
+        disabled: Box::new(move |theme| {
+            card_button_style(theme, colour, false, card_color(colour, theme))
+        }),
+        hovered: Box::new(move |focused, theme| {
             card_button_style(
                 theme,
+                colour,
                 focused,
-                lighten(card_color(theme), CARD_HOVER_LIGHTEN_FACTOR),
+                lighten(card_color(colour, theme), CARD_HOVER_LIGHTEN_FACTOR),
             )
         }),
-        pressed: Box::new(|focused, theme| {
+        pressed: Box::new(move |focused, theme| {
             card_button_style(
                 theme,
+                colour,
                 focused,
-                darken(card_color(theme), CARD_PRESS_DARKEN_FACTOR),
+                darken(card_color(colour, theme), CARD_PRESS_DARKEN_FACTOR),
             )
         }),
     }

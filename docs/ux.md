@@ -48,6 +48,15 @@ Modelled on the Windows Sticky Notes list window.
   same height. Where it appears on screen is up to COSMIC.
 - If you resize a note, it reopens at that size next time.
 
+## Note colours
+
+- Classic sticky-note yellow (the default for new notes), plus colours people know
+  from Linux: Pop cyan, Ubuntu orange, Debian red, Fedora blue, openSUSE green,
+  Arch blue and Manjaro teal-green.
+- A note's colour fills its paper (behind the lines) and its card in the notes list.
+- Light mode uses a soft tint of the colour, dark mode a deep shade, so COSMIC's
+  own text stays readable (at least 4.5:1 contrast) on every one.
+
 ## Window title bar
 
 - Fleck draws each note window's title bar itself, in the same style as the notes
@@ -63,6 +72,9 @@ Modelled on the Windows Sticky Notes list window.
 - **The note menu:**
   - **Edit name** — a small "Rename note" dialog over the note, with Save and
     Cancel. Enter saves.
+  - **Change colour** — a "Note colour" dialog with a swatch for each colour, the
+    current one outlined in the accent colour. Clicking a swatch recolours the note
+    and closes the dialog; Cancel leaves it as it was.
   - **Delete note** — the same "Delete note?" confirmation as the list. If no
     other window is open, the notes list opens afterwards.
   - **Back to list** — opens the notes list, or brings it forward. The note stays open.

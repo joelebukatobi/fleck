@@ -35,6 +35,7 @@ cancel = Cancel
 # Note window menu (the Settings button at the top-left of a note).
 settings = Settings
 edit-name = Edit name
+change-colour = Change colour
 delete-note = Delete note
 back-to-list = Back to list
 theme = Theme
@@ -46,3 +47,14 @@ theme-dark = Dark
 rename-title = Rename note
 rename-placeholder = Note name
 save = Save
+
+# Colour dialog, opened from a note's menu.
+colour-title = Note colour
+colour-yellow = Yellow
+colour-pop = Pop
+colour-ubuntu = Ubuntu
+colour-debian = Debian
+colour-fedora = Fedora
+colour-opensuse = openSUSE
+colour-arch = Arch
+colour-manjaro = Manjaro

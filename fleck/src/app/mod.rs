@@ -186,6 +186,10 @@ pub enum Message {
     NoteRenameInput(window::Id, String),
     /// "Save" (or Enter) in a note window's rename dialog.
     NoteRenameSave(window::Id),
+    /// "Change colour" in a note's menu: open the colour dialog.
+    NoteColourStart(window::Id),
+    /// A swatch clicked in a note window's colour dialog.
+    NoteSetColour(window::Id, Colour),
     /// "Delete note" in a note's menu: ask for confirmation.
     NoteDeleteStart(window::Id),
     /// "Delete" in a note window's confirmation dialog.
@@ -210,6 +214,8 @@ pub enum Message {
 pub(super) enum NoteDialog {
     /// Renaming, with the text typed so far.
     Rename(String),
+    /// Choosing the note's colour.
+    Colour,
     Delete,
 }
 
@@ -1299,6 +1305,22 @@ impl cosmic::Application for Fleck {
                 }
                 Task::none()
             }
+            Message::NoteColourStart(id) => {
+                self.note_menu = None;
+                if self.windows.contains_key(&id) {
+                    self.note_dialog = Some((id, NoteDialog::Colour));
+                }
+                Task::none()
+            }
+            Message::NoteSetColour(id, colour) => {
+                self.note_dialog.take_if(|(window, _)| *window == id);
+                let uuid = self.windows.get(&id).map(|window| window.uuid);
+                if let Some(note) = uuid.and_then(|uuid| self.notes.get_mut(&uuid)) {
+                    note.frontmatter.color = colour.name().to_string();
+                    self.dirty.insert(note.frontmatter.uuid, Instant::now());
+                }
+                Task::none()
+            }
             Message::NoteDeleteStart(id) => {
                 self.note_menu = None;
                 if self.windows.contains_key(&id) {
@@ -2327,6 +2349,27 @@ mod tests {
         assert!(
             app.dirty.contains_key(&uuid),
             "a rename is saved like any other edit"
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn picking_a_colour_recolours_the_note_and_closes_the_dialog() {
+        let (mut app, tmp, id, uuid) = app_with_open_note("note-colour");
+
+        let _ = app.update(Message::NoteMenuToggle(id));
+        let _ = app.update(Message::NoteColourStart(id));
+        assert_eq!(app.note_menu, None);
+        assert_eq!(app.note_dialog, Some((id, NoteDialog::Colour)));
+
+        let _ = app.update(Message::NoteSetColour(id, Colour::Pop));
+
+        assert_eq!(app.note_dialog, None);
+        assert_eq!(app.notes[&uuid].frontmatter.color, "pop");
+        assert!(
+            app.dirty.contains_key(&uuid),
+            "a colour change is saved like any edit"
         );
 
         std::fs::remove_dir_all(&tmp).ok();
