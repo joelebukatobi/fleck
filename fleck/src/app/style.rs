@@ -50,9 +50,11 @@ pub(super) fn card_container_style(
         theme,
         &cosmic::theme::Container::Card,
     );
-    style.background = Some(rgb(colour.paper()).into());
-    style.text_color = Some(rgb(colour.text()));
-    style.icon_color = Some(rgb(colour.text()));
+    if let (Some(paper), Some(text)) = (colour.paper(), colour.text()) {
+        style.background = Some(rgb(paper).into());
+        style.text_color = Some(rgb(text));
+        style.icon_color = Some(rgb(text));
+    }
     style.border.radius = CARD_RADIUS.into();
     style
 }
@@ -67,15 +69,18 @@ pub(super) fn note_paper_style(
             theme,
             &cosmic::theme::Container::WindowBackground,
         );
-        style.background = Some(rgb(colour.paper()).into());
-        style.text_color = Some(rgb(colour.text()));
-        style.icon_color = Some(rgb(colour.text()));
+        if let (Some(paper), Some(text)) = (colour.paper(), colour.text()) {
+            style.background = Some(rgb(paper).into());
+            style.text_color = Some(rgb(text));
+            style.icon_color = Some(rgb(text));
+        }
         style
     }
 }
 
-/// One swatch in the colour dialog: the note colour, 4 px corners, and an
-/// accent border when it's the note's current colour.
+/// One swatch in the colour dialog: the note colour (the theme's background
+/// for Default), 4 px corners, and an accent border when it's the note's
+/// current colour.
 pub(super) fn swatch_style(
     colour: Colour,
     selected: bool,
@@ -83,7 +88,15 @@ pub(super) fn swatch_style(
     move |theme| {
         let cosmic = theme.cosmic();
         cosmic::iced::widget::container::Style {
-            background: Some(rgb(colour.paper()).into()),
+            background: Some(
+                colour
+                    .paper()
+                    .map_or_else(
+                        || Color::from(cosmic.background(theme.transparent).base),
+                        rgb,
+                    )
+                    .into(),
+            ),
             border: Border {
                 radius: CARD_RADIUS.into(),
                 width: if selected { 2.0 } else { 1.0 },

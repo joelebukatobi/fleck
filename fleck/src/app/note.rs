@@ -234,7 +234,9 @@ impl Fleck {
                 .line_height(LineHeight::Absolute(Pixels(BODY_LINE_HEIGHT)))
                 .min_height(body_min_height(size.height))
                 .style(move |theme: &cosmic::Theme, _status| {
-                    let value = rgb(colour.text());
+                    let value = colour
+                        .text()
+                        .map_or_else(|| Color::from(theme.current_container().on), rgb);
                     let mut placeholder = value;
                     placeholder.a *= 0.7;
                     text_editor::Style {
@@ -257,7 +259,7 @@ impl Fleck {
             let lines = widget::canvas(RuledLines {
                 line_height: BODY_LINE_HEIGHT,
                 padding_top: BODY_PADDING,
-                color: rgb(colour.line()),
+                color: colour.line().map(rgb),
             })
             .width(Length::Fill)
             .height(Length::Fill);
@@ -376,7 +378,7 @@ impl Fleck {
         self.windows
             .get(&id)
             .and_then(|window| self.notes.get(&window.uuid))
-            .map_or(Colour::Yellow, |note| {
+            .map_or(Colour::Default, |note| {
                 Colour::from_name(&note.frontmatter.color)
             })
     }

@@ -91,7 +91,7 @@ async fn cli_new_note(store: &Store) -> i32 {
                 FAILED
             }
         },
-        Err(_) => match store.create(&now_rfc3339(), palette::Colour::Yellow.name()) {
+        Err(_) => match store.create(&now_rfc3339(), palette::Colour::Default.name()) {
             Ok(note) => {
                 println!("{}", note.frontmatter.uuid);
                 OK

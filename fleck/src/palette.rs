@@ -1,10 +1,13 @@
-//! Note colours: classic sticky-note yellow plus colours people know from
-//! Linux distributions. A note's paper and its card use the colour exactly as
-//! it is, in light and dark mode alike; its dotted lines use a darker shade,
-//! and its text is dark or white, whichever reads better on that colour.
+//! Note colours: Default (the COSMIC theme's own look), classic sticky-note
+//! yellow, and colours people know from Linux distributions. A coloured note's
+//! paper and card use the colour exactly as it is, in light and dark mode
+//! alike; its dotted lines use a darker shade, and its text is dark or white,
+//! whichever reads better on that colour.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Colour {
+    /// The theme's own background, text and line colours.
+    Default,
     Yellow,
     Pop,
     Ubuntu,
@@ -23,8 +26,9 @@ const DARK_TEXT: (u8, u8, u8) = (0x1A, 0x1A, 0x1A);
 const LIGHT_TEXT: (u8, u8, u8) = (0xFF, 0xFF, 0xFF);
 
 impl Colour {
-    /// In the order the colour dialog shows them. Yellow first: the default.
-    pub const ALL: [Colour; 9] = [
+    /// In the order the colour dialog shows them. Default first.
+    pub const ALL: [Colour; 10] = [
+        Colour::Default,
         Colour::Yellow,
         Colour::Pop,
         Colour::Ubuntu,
@@ -39,6 +43,7 @@ impl Colour {
     /// The name stored in a note's frontmatter.
     pub fn name(self) -> &'static str {
         match self {
+            Colour::Default => "default",
             Colour::Yellow => "yellow",
             Colour::Pop => "pop",
             Colour::Ubuntu => "ubuntu",
@@ -52,17 +57,18 @@ impl Colour {
     }
 
     /// The colour for a stored name. Anything unknown, including names from
-    /// Fleck's earlier palette, is yellow.
+    /// Fleck's earlier palette, is Default.
     pub fn from_name(name: &str) -> Colour {
         Colour::ALL
             .into_iter()
             .find(|c| c.name() == name)
-            .unwrap_or(Colour::Yellow)
+            .unwrap_or(Colour::Default)
     }
 
     /// The label shown in the colour dialog.
     pub fn label(self) -> String {
         match self {
+            Colour::Default => crate::fl!("colour-default"),
             Colour::Yellow => crate::fl!("colour-yellow"),
             Colour::Pop => crate::fl!("colour-pop"),
             Colour::Ubuntu => crate::fl!("colour-ubuntu"),
@@ -76,9 +82,11 @@ impl Colour {
     }
 
     /// The note's paper and card colour: classic sticky-note yellow, or the
-    /// distribution's own colour. The same in light and dark mode.
-    pub fn paper(self) -> (u8, u8, u8) {
-        match self {
+    /// distribution's own colour, the same in light and dark mode. `None` for
+    /// Default, which uses the theme's.
+    pub fn paper(self) -> Option<(u8, u8, u8)> {
+        Some(match self {
+            Colour::Default => return None,
             Colour::Yellow => (0xF8, 0xE4, 0x8C),
             Colour::Pop => (0x48, 0xB9, 0xC7),
             Colour::Ubuntu => (0xE9, 0x54, 0x20),
@@ -88,24 +96,27 @@ impl Colour {
             Colour::Arch => (0x17, 0x93, 0xD1),
             Colour::Manjaro => (0x35, 0xBF, 0xA4),
             Colour::Mint => (0x87, 0xCF, 0x3E),
-        }
+        })
     }
 
-    /// The dotted lines: a darker shade of the paper.
-    pub fn line(self) -> (u8, u8, u8) {
-        let (r, g, b) = self.paper();
+    /// The dotted lines: a darker shade of the paper. `None` for Default.
+    pub fn line(self) -> Option<(u8, u8, u8)> {
+        let (r, g, b) = self.paper()?;
         let shade = |c: u8| (f32::from(c) * LINE_SHADE).round() as u8;
-        (shade(r), shade(g), shade(b))
+        Some((shade(r), shade(g), shade(b)))
     }
 
-    /// The note's text: dark or white, whichever contrasts more with the paper.
-    pub fn text(self) -> (u8, u8, u8) {
-        let paper = self.paper();
-        if contrast_ratio(DARK_TEXT, paper) >= contrast_ratio(LIGHT_TEXT, paper) {
-            DARK_TEXT
-        } else {
-            LIGHT_TEXT
-        }
+    /// The note's text: dark or white, whichever contrasts more with the
+    /// paper. `None` for Default.
+    pub fn text(self) -> Option<(u8, u8, u8)> {
+        let paper = self.paper()?;
+        Some(
+            if contrast_ratio(DARK_TEXT, paper) >= contrast_ratio(LIGHT_TEXT, paper) {
+                DARK_TEXT
+            } else {
+                LIGHT_TEXT
+            },
+        )
     }
 }
 
@@ -135,8 +146,8 @@ mod tests {
 
     #[test]
     fn every_colours_text_meets_wcag_aa() {
-        for colour in Colour::ALL {
-            let ratio = contrast_ratio(colour.text(), colour.paper());
+        for colour in Colour::ALL.into_iter().filter(|c| *c != Colour::Default) {
+            let ratio = contrast_ratio(colour.text().unwrap(), colour.paper().unwrap());
             assert!(
                 ratio >= 4.5,
                 "{colour:?} text has contrast {ratio:.2}, need 4.5"
@@ -146,14 +157,17 @@ mod tests {
 
     #[test]
     fn debian_red_gets_white_text_and_yellow_gets_dark_text() {
-        assert_eq!(Colour::Debian.text(), LIGHT_TEXT);
-        assert_eq!(Colour::Yellow.text(), DARK_TEXT);
+        assert_eq!(Colour::Debian.text(), Some(LIGHT_TEXT));
+        assert_eq!(Colour::Yellow.text(), Some(DARK_TEXT));
     }
 
     #[test]
     fn lines_are_a_darker_shade_of_the_paper() {
-        for colour in Colour::ALL {
-            assert!(relative_luminance(colour.line()) < relative_luminance(colour.paper()));
+        for colour in Colour::ALL.into_iter().filter(|c| *c != Colour::Default) {
+            assert!(
+                relative_luminance(colour.line().unwrap())
+                    < relative_luminance(colour.paper().unwrap())
+            );
         }
     }
 
@@ -175,9 +189,16 @@ mod tests {
     }
 
     #[test]
-    fn unknown_and_old_palette_names_are_yellow() {
+    fn unknown_and_old_palette_names_are_default() {
         for name in ["", "green", "pink", "purple", "grey", "nonsense"] {
-            assert_eq!(Colour::from_name(name), Colour::Yellow);
+            assert_eq!(Colour::from_name(name), Colour::Default);
         }
+    }
+
+    #[test]
+    fn default_takes_every_colour_from_the_theme() {
+        assert_eq!(Colour::Default.paper(), None);
+        assert_eq!(Colour::Default.line(), None);
+        assert_eq!(Colour::Default.text(), None);
     }
 }

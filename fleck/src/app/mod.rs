@@ -628,7 +628,7 @@ impl Fleck {
     /// D-Bus's `NewNote` can hand it back to the caller.
     fn create_note(&mut self) -> (Option<Uuid>, Task<Message>) {
         let now = crate::now_rfc3339();
-        match self.store.create(&now, Colour::Yellow.name()) {
+        match self.store.create(&now, Colour::Default.name()) {
             Ok(note) => {
                 let uuid = note.frontmatter.uuid;
                 self.notes.insert(uuid, note);

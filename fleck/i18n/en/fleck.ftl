@@ -50,6 +50,7 @@ save = Save
 
 # Colour dialog, opened from a note's menu.
 colour-title = Note colour
+colour-default = Default
 colour-yellow = Yellow
 colour-pop = Pop
 colour-ubuntu = Ubuntu

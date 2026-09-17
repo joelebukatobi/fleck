@@ -57,8 +57,8 @@ pub struct RuledLines {
     /// Must equal the `text_editor`'s own top padding, in pixels - see
     /// `app::BODY_PADDING`.
     pub padding_top: f32,
-    /// The dotted lines' colour.
-    pub color: Color,
+    /// The dotted lines' colour; `None` uses the theme's divider colour.
+    pub color: Option<Color>,
 }
 
 /// The canvas's state across views: the tessellated lines, and the colour
@@ -86,7 +86,7 @@ impl<Message> canvas::Program<Message, Theme> for RuledLines {
         &self,
         state: &LinesState,
         renderer: &cosmic::Renderer,
-        _theme: &Theme,
+        theme: &Theme,
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry<cosmic::Renderer>> {
@@ -96,7 +96,10 @@ impl<Message> canvas::Program<Message, Theme> for RuledLines {
         // `bounds` the canvas widget reports, whose x/y shifts whenever an
         // ancestor's layout does) avoids spurious cache misses.
         let local_bounds = Rectangle::with_size(bounds.size());
-        if state.color.replace(Some(self.color)) != Some(self.color) {
+        let color = self
+            .color
+            .unwrap_or_else(|| Color::from(theme.current_container().divider));
+        if state.color.replace(Some(color)) != Some(color) {
             state.cache.clear();
         }
         let geometry = state
@@ -104,7 +107,7 @@ impl<Message> canvas::Program<Message, Theme> for RuledLines {
             .draw_with_bounds(renderer, local_bounds, |frame| {
                 let dash = [1.0_f32, 3.0];
                 let stroke = canvas::Stroke {
-                    style: canvas::Style::Solid(self.color),
+                    style: canvas::Style::Solid(color),
                     width: 1.0,
                     line_dash: canvas::LineDash {
                         segments: &dash,
