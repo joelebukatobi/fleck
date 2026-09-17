@@ -83,12 +83,12 @@ Modelled on the Windows Sticky Notes list window.
 - **The note menu:**
   - **Rename** — a small "Rename note" dialog over the note, with Save and
     Cancel. Enter saves.
-  - **Change colour** — a "Note colour" dialog with a swatch for each colour, the
+  - **Colour** — a "Note colour" dialog with a swatch for each colour, the
     current one outlined in the accent colour. Clicking a swatch recolours the note
     and closes the dialog; Cancel leaves it as it was.
   - **Delete** — the same "Delete note?" confirmation as the list. If no
     other window is open, the notes list opens afterwards.
-  - **Back to list** — opens the notes list, or brings it forward. The note stays open.
+  - **Notes** — opens the notes list, or brings it forward. The note stays open.
   - **Theme** — System, Light or Dark, for every Fleck window. System follows
     COSMIC. Remembered between runs.
   - Picking anything, pressing the settings button again, or clicking in the note closes it.

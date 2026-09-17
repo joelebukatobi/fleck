@@ -35,9 +35,9 @@ cancel = Cancel
 # Note window menu (the Settings button at the top-left of a note).
 settings = Settings
 edit-name = Rename
-change-colour = Change colour
+change-colour = Colour
 delete-note = Delete
-back-to-list = Back to list
+back-to-list = Notes
 theme = Theme
 theme-system = System
 theme-light = Light
