@@ -433,17 +433,16 @@ impl Fleck {
                 continue;
             };
             any = true;
-            // A click puts the cursor on the image's line; a double-click
-            // opens the picture full size.
-            let thumbnail = widget::button::custom(
-                widget::image(widget::image::Handle::from_path(path))
-                    .height(Length::Fixed(THUMBNAIL_HEIGHT)),
-            )
-            .class(menu_item_button_class())
-            .padding(THUMBNAIL_PADDING)
-            .on_press(Message::NoteImageScrollTo(id, line));
+            // A click puts the cursor on the image's line; a second click
+            // opens the picture full size (see `Message::NoteImageClicked`).
             row = row.push(
-                widget::mouse_area(thumbnail).on_double_press(Message::NoteImageOpen(id, name)),
+                widget::button::custom(
+                    widget::image(widget::image::Handle::from_path(path))
+                        .height(Length::Fixed(THUMBNAIL_HEIGHT)),
+                )
+                .class(menu_item_button_class())
+                .padding(THUMBNAIL_PADDING)
+                .on_press(Message::NoteImageClicked(id, line, name)),
             );
         }
         any.then(|| {
