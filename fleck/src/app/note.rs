@@ -10,7 +10,7 @@ use cosmic::widget::text_editor;
 use fleck_core::display_name;
 
 use super::list::dialog_width;
-use super::style::text_button_class;
+use super::style::{menu_item_button_class, text_button_class};
 use super::theme::AppTheme;
 use super::{Fleck, Message, NoteDialog, DEFAULT_WINDOW_SIZE};
 use crate::ruled::RuledLines;
@@ -364,7 +364,7 @@ impl Fleck {
     fn note_menu_popup(&self, id: window::Id) -> Element<'_, Message> {
         let item = |label: String, message: Message| {
             widget::button::custom(widget::text::body(label))
-                .class(cosmic::theme::Button::MenuItem)
+                .class(menu_item_button_class())
                 .padding([MENU_ITEM_PADDING_Y, MENU_ITEM_PADDING_X])
                 .width(Length::Fill)
                 .on_press(message)

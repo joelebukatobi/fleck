@@ -339,6 +339,52 @@ pub(super) fn text_button_class() -> cosmic::theme::Button {
     }
 }
 
+/// Corner radius of a note menu item's hover and pressed background.
+pub(super) const MENU_ITEM_RADIUS: f32 = 2.0;
+
+/// COSMIC's menu-item style, with `MENU_ITEM_RADIUS` corners on its hover and
+/// pressed background.
+pub(super) fn menu_item_button_class() -> cosmic::theme::Button {
+    fn rounded(mut style: cosmic::widget::button::Style) -> cosmic::widget::button::Style {
+        style.border_radius = MENU_ITEM_RADIUS.into();
+        style
+    }
+    cosmic::theme::Button::Custom {
+        active: Box::new(|focused, theme| {
+            rounded(<cosmic::Theme as cosmic::widget::button::Catalog>::active(
+                theme,
+                focused,
+                false,
+                &cosmic::theme::Button::MenuItem,
+            ))
+        }),
+        disabled: Box::new(|theme| {
+            rounded(
+                <cosmic::Theme as cosmic::widget::button::Catalog>::disabled(
+                    theme,
+                    &cosmic::theme::Button::MenuItem,
+                ),
+            )
+        }),
+        hovered: Box::new(|focused, theme| {
+            rounded(<cosmic::Theme as cosmic::widget::button::Catalog>::hovered(
+                theme,
+                focused,
+                false,
+                &cosmic::theme::Button::MenuItem,
+            ))
+        }),
+        pressed: Box::new(|focused, theme| {
+            rounded(<cosmic::Theme as cosmic::widget::button::Catalog>::pressed(
+                theme,
+                focused,
+                false,
+                &cosmic::theme::Button::MenuItem,
+            ))
+        }),
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // exact pixel values are the point of these tests
 mod tests {
