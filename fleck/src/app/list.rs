@@ -304,8 +304,12 @@ impl Fleck {
         let elapsed = SystemTime::now()
             .duration_since(self.note_mtime(uuid))
             .unwrap_or(Duration::ZERO);
-        content_col = content_col
-            .push(widget::text::caption(relative_time(elapsed)).class(text_class(colour.text())));
+        content_col = content_col.push(
+            widget::text::caption(relative_time(elapsed))
+                .class(text_class(colour.text()))
+                .width(Length::Fill)
+                .align_x(cosmic::iced::alignment::Horizontal::Right),
+        );
 
         let content = widget::container(content_col)
             .padding(CARD_PADDING)
