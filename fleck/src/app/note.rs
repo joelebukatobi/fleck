@@ -37,12 +37,17 @@ const MENU_WIDTH: f32 = 200.0;
 /// menu opens just below the button, its left edge in line with the icon.
 const MENU_BUTTON_ICON: u16 = 16;
 const MENU_BUTTON_PADDING: u16 = 8;
+/// Left padding of the settings button, wider than the rest so the visible
+/// gear sits as far from the window's left edge (~19 px) as the visible close
+/// cross does from the right: COSMIC's `window-close-symbolic` draws its cross
+/// 4 px inside its 16 px box, while the gear nearly fills its box.
+const MENU_BUTTON_PADDING_LEFT: u16 = 11;
 /// libcosmic's header bar padding on each side (Standard density, not
 /// maximised). Fixed inside libcosmic; mirrored here only for alignment.
 const HEADER_BAR_PADDING_X: u16 = 7;
-/// The lined area's side padding: in line with the settings icon (and the
-/// menu under it) on the left, and with the close button's icon on the right.
-const NOTE_PADDING_X: u16 = HEADER_BAR_PADDING_X + MENU_BUTTON_PADDING;
+/// The lined area's side padding: in line with the settings icon and the menu
+/// under it on the left, and the same distance in from the right.
+const NOTE_PADDING_X: u16 = HEADER_BAR_PADDING_X + MENU_BUTTON_PADDING_LEFT;
 const NOTE_PADDING_Y: u16 = 12;
 const MENU_PADDING: u16 = 4;
 const MENU_ITEM_PADDING_Y: u16 = 8;
@@ -312,12 +317,17 @@ impl Fleck {
         let menu_button = widget::button::icon(crate::icons::settings())
             .extra_small()
             .icon_size(MENU_BUTTON_ICON)
-            .padding(MENU_BUTTON_PADDING)
+            .padding([
+                MENU_BUTTON_PADDING,
+                MENU_BUTTON_PADDING,
+                MENU_BUTTON_PADDING,
+                MENU_BUTTON_PADDING_LEFT,
+            ])
             .on_press(Message::NoteMenuToggle(id))
             .class(icon_button_class(IconHoverRole::Accent));
         let mut menu = widget::popover(menu_button).position(widget::popover::Position::Point(
             cosmic::iced::Point::new(
-                f32::from(MENU_BUTTON_PADDING),
+                f32::from(MENU_BUTTON_PADDING_LEFT),
                 f32::from(MENU_BUTTON_ICON + 2 * MENU_BUTTON_PADDING),
             ),
         ));
