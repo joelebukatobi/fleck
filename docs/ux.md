@@ -115,14 +115,11 @@ Modelled on the Windows Sticky Notes list window.
 - **Under the note:** a row of thumbnails, in the order the images appear in the text.
   It is only there when the note has images.
 - **Opening one:** clicking a thumbnail puts the cursor on that image's line in the
-  text and opens the picture full size over the note, with **Copy**, **Save as**,
-  **Remove** and **Close**.
-- **Saving a copy:** **Save as** opens COSMIC's file picker and writes a copy where you
-  choose. The note keeps its own copy.
+  text and opens the picture full size over the note, with **Copy**, **Delete** and
+  **Cancel**.
 - **Copying:** **Copy** puts the picture back on the clipboard, ready to paste
   anywhere else.
-- **Removing:** removing an image deletes its line from the text and its file from disk,
-  with the same confirmation style as deleting a note.
+- **Deleting:** **Delete** removes the image's line from the text and its file from disk.
 - **On disk:** images are saved beside the note, in a folder named after it, and the
   note's text holds an ordinary Markdown link (`![](picture.png)`). Notes stay readable
   in any Markdown editor, and deleting a note deletes its images with it.

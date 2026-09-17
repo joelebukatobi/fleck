@@ -208,10 +208,6 @@ pub enum Message {
     NoteImageCopy(window::Id, String),
     /// "Remove" in the image dialog: delete the image and its line.
     NoteImageRemove(window::Id, String),
-    /// "Save as" in the image dialog: ask where to put a copy.
-    NoteImageSaveAs(window::Id, String),
-    /// Where the save dialog said to put it, if anywhere.
-    NoteImageSaveTo(String, Option<PathBuf>),
     /// A click on a thumbnail: put the cursor on that image's line and open
     /// the image full size.
     NoteImageClicked(window::Id, usize, String),
@@ -1442,45 +1438,6 @@ impl cosmic::Application for Fleck {
             Message::NoteImageRemove(id, name) => {
                 self.note_dialog.take_if(|(window, _)| *window == id);
                 self.remove_image(id, &name);
-                Task::none()
-            }
-            Message::NoteImageSaveAs(id, name) => {
-                let Some(path) = self
-                    .windows
-                    .get(&id)
-                    .map(|window| window.uuid)
-                    .and_then(|uuid| self.store.image_path(uuid, &name))
-                else {
-                    return Task::none();
-                };
-                self.note_dialog.take_if(|(window, _)| *window == id);
-                let title = crate::fl!("image-save-as");
-                Task::perform(
-                    async move {
-                        cosmic::dialog::file_chooser::save::Dialog::new()
-                            .title(title)
-                            .file_name(name)
-                            .save_file()
-                            .await
-                            .ok()
-                            .and_then(|response| {
-                                response.url().and_then(|url| url.to_file_path().ok())
-                            })
-                    },
-                    move |destination| {
-                        cosmic::Action::App(Message::NoteImageSaveTo(
-                            path.to_string_lossy().to_string(),
-                            destination,
-                        ))
-                    },
-                )
-            }
-            Message::NoteImageSaveTo(source, destination) => {
-                if let Some(destination) = destination {
-                    if let Err(error) = std::fs::copy(&source, &destination) {
-                        tracing::error!(?error, "failed to save a copy of the image");
-                    }
-                }
                 Task::none()
             }
             Message::NoteImageClicked(id, line, name) => {

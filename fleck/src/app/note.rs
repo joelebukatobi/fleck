@@ -62,8 +62,6 @@ const SWATCH_PADDING: u16 = 8;
 const THUMBNAIL_HEIGHT: f32 = 64.0;
 const THUMBNAIL_GAP: u16 = 8;
 const THUMBNAIL_PADDING: u16 = 4;
-/// Gap between the image dialog's picture and its Remove button.
-const IMAGE_DIALOG_SPACING: u16 = 8;
 const MENU_ITEM_PADDING_Y: u16 = 8;
 const MENU_ITEM_PADDING_X: u16 = 16;
 
@@ -596,37 +594,22 @@ impl Fleck {
                 frame
                     .title(name.clone())
                     .control(
-                        widget::Column::with_capacity(2)
-                            .spacing(IMAGE_DIALOG_SPACING)
-                            .push(
-                                widget::container(image.map_or_else(
-                                    || {
-                                        Element::from(widget::text::body(crate::fl!(
-                                            "image-missing"
-                                        )))
-                                    },
-                                    Element::from,
-                                ))
-                                .center_x(Length::Fill),
-                            )
-                            .push(
-                                widget::container(
-                                    widget::button::destructive(crate::fl!("image-remove"))
-                                        .on_press(Message::NoteImageRemove(id, name.clone())),
-                                )
-                                .align_right(Length::Fill),
-                            ),
+                        widget::container(image.map_or_else(
+                            || Element::from(widget::text::body(crate::fl!("image-missing"))),
+                            Element::from,
+                        ))
+                        .center_x(Length::Fill),
                     )
                     .primary_action(
                         widget::button::suggested(crate::fl!("image-copy"))
                             .on_press(Message::NoteImageCopy(id, name.clone())),
                     )
                     .secondary_action(
-                        widget::button::standard(crate::fl!("image-save-as"))
-                            .on_press(Message::NoteImageSaveAs(id, name.clone())),
+                        widget::button::destructive(crate::fl!("image-delete"))
+                            .on_press(Message::NoteImageRemove(id, name.clone())),
                     )
                     .tertiary_action(
-                        widget::button::standard(crate::fl!("close"))
+                        widget::button::standard(crate::fl!("cancel"))
                             .on_press(Message::NoteDialogCancel(id)),
                     )
                     .into()
