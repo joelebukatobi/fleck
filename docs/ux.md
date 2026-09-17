@@ -59,6 +59,8 @@ Modelled on the Windows Sticky Notes list window.
 - The dotted lines are a darker shade of the note's colour.
 - The title bar always keeps the COSMIC theme's colours — its background, the note's
   name, Settings and the window buttons — whatever the note's colour.
+- With COSMIC's frosted glass turned on, the title bar is translucent and blurred
+  like other COSMIC apps; the note's paper always stays solid.
 - The note's text is dark or white, whichever reads better on its colour (at least
   4.5:1 contrast), whatever COSMIC's light or dark mode.
 - The colour dialog shows the swatches three to a row.

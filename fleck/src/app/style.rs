@@ -70,19 +70,23 @@ pub(super) fn note_paper_style(
             theme,
             &cosmic::theme::Container::WindowBackground,
         );
-        if let (Some(paper), Some(text)) = (colour.paper(), colour.text()) {
-            style.background = Some(rgb(paper).into());
-            style.text_color = Some(rgb(text));
-            style.icon_color = Some(rgb(text));
-        }
+        // Always opaque, even with COSMIC's frosted glass on: only the title
+        // bar is see-through. Default uses the theme's solid background.
+        let solid = theme.cosmic().background(false);
+        let paper = colour.paper().map_or_else(|| Color::from(solid.base), rgb);
+        let text = colour.text().map_or_else(|| Color::from(solid.on), rgb);
+        style.background = Some(paper.into());
+        style.text_color = Some(text);
+        style.icon_color = Some(text);
         style.border.radius.top_left = 0.0;
         style.border.radius.top_right = 0.0;
         style
     }
 }
 
-/// The note window's title bar: the theme's window background, rounded only
-/// at the top to follow the window's corners, square where the paper starts.
+/// The note window's title bar: the theme's window background - translucent
+/// when COSMIC's frosted glass is on - rounded only at the top to follow the
+/// window's corners, square where the paper starts.
 pub(super) fn note_title_bar_style(
     theme: &cosmic::Theme,
 ) -> cosmic::iced::widget::container::Style {

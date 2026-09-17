@@ -1075,7 +1075,15 @@ impl cosmic::Application for Fleck {
             }
             Message::NoteOpened(id) => {
                 if let Some(window) = self.windows.get(&id) {
-                    widget::text_input::focus(window.input_id.clone())
+                    let focus = widget::text_input::focus(window.input_id.clone());
+                    // COSMIC's frosted glass: libcosmic only blurs the main
+                    // window, so note windows ask for it themselves. Only the
+                    // title bar is translucent, so only it shows the blur.
+                    if cosmic::theme::active().transparent {
+                        Task::batch([focus, window::enable_blur(id)])
+                    } else {
+                        focus
+                    }
                 } else {
                     Task::none()
                 }
@@ -1366,6 +1374,23 @@ impl cosmic::Application for Fleck {
                 Task::none()
             }
         }
+    }
+
+    /// Follows COSMIC's frosted glass setting being switched while note
+    /// windows are open (see `Message::NoteOpened`).
+    fn system_theme_update(
+        &mut self,
+        _keys: &[&'static str],
+        new_theme: &cosmic::cosmic_theme::Theme,
+    ) -> Task<Message> {
+        let frosted = self.core.frosted(new_theme);
+        Task::batch(self.windows.keys().map(|&id| {
+            if frosted {
+                window::enable_blur(id)
+            } else {
+                window::disable_blur(id)
+            }
+        }))
     }
 
     fn on_app_exit(&mut self) -> Option<Message> {
