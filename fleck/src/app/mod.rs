@@ -23,7 +23,7 @@ use crate::dbus;
 use crate::palette::Colour;
 use crate::undo::UndoHistory;
 
-use list::{dialog_width, RenameState};
+use list::dialog_width;
 use note::{edit_kind, note_window_settings};
 use style::{header_icon_button_class, IconHoverRole};
 use theme::AppTheme;
@@ -154,14 +154,6 @@ pub enum Message {
     Dbus(DbusRequest),
     /// The notes-list search bar's text changed.
     SearchChanged(String),
-    /// The user activated a card's rename control.
-    RenameStart(Uuid),
-    /// A keystroke in the active rename text input.
-    RenameInput(String),
-    /// Enter in the active rename text input: save the new name.
-    RenameSave,
-    /// Escape (or losing focus) in the active rename text input: discard it.
-    RenameCancel,
     /// The user pressed a card's trash button: ask for confirmation before
     /// deleting `Uuid`. A no-op while the restore dialog is showing.
     DeleteStart(Uuid),
@@ -329,10 +321,6 @@ pub struct Fleck {
     /// (never `Id::new(name)` - see `register_window`'s doc comment on why
     /// a stable-but-unique id matters for this app's widget tree).
     search_input_id: id::Id,
-    /// Which card (if any) is in rename mode, and its in-progress text.
-    rename: RenameState,
-    /// Stable id for the (single, at most one at a time) rename text input.
-    rename_input_id: id::Id,
     /// The note a "Delete note?" confirmation is currently pending for, if
     /// any - set by pressing a card's trash button, cleared by confirming
     /// or cancelling. `dialog()` renders the confirmation from this alone;
@@ -990,8 +978,6 @@ impl cosmic::Application for Fleck {
             mtimes,
             search: String::new(),
             search_input_id: id::Id::unique(),
-            rename: RenameState::default(),
-            rename_input_id: id::Id::unique(),
             pending_delete: None,
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
@@ -1222,39 +1208,12 @@ impl cosmic::Application for Fleck {
                 self.search = text;
                 Task::none()
             }
-            Message::RenameStart(uuid) => {
-                let current = self.notes.get(&uuid).map(|n| n.frontmatter.name.clone());
-                let Some(current) = current else {
-                    return Task::none();
-                };
-                self.rename = RenameState::start(uuid, &current);
-                widget::text_input::focus(self.rename_input_id.clone())
-            }
-            Message::RenameInput(text) => {
-                self.rename = std::mem::take(&mut self.rename).with_input(text);
-                Task::none()
-            }
-            Message::RenameSave => {
-                if let RenameState::Editing { uuid, text } = std::mem::take(&mut self.rename) {
-                    self.rename_note(uuid, &text);
-                }
-                Task::none()
-            }
-            Message::RenameCancel => {
-                self.rename = RenameState::Idle;
-                Task::none()
-            }
             Message::DeleteStart(uuid) => {
                 // The restore dialog takes precedence - see
                 // `restore_dialog_active`'s doc comment.
                 if self.restore_dialog_active() {
                     return Task::none();
                 }
-                // Trash on any card cancels an in-progress rename on any
-                // card first, without saving it - the card's structure
-                // (button vs. text input) must never change while a second
-                // dialog is also appearing.
-                self.rename = RenameState::Idle;
                 self.pending_delete = Some(uuid);
                 Task::none()
             }
@@ -1514,8 +1473,6 @@ mod tests {
             mtimes: HashMap::new(),
             search: String::new(),
             search_input_id: id::Id::unique(),
-            rename: RenameState::default(),
-            rename_input_id: id::Id::unique(),
             pending_delete: None,
             fallback_content: text_editor::Content::new(),
             fallback_input_id: id::Id::unique(),
@@ -2040,71 +1997,18 @@ mod tests {
     }
 
     #[test]
-    fn rename_save_writes_the_new_name_and_marks_the_note_dirty() {
-        let tmp = std::env::temp_dir().join(format!("fleck-test-rename-{}", Uuid::new_v4()));
-        let store = Store::new(&tmp);
-        let mut app = make_fleck(store);
-        let note = sample_note();
-        let uuid = note.frontmatter.uuid;
-        app.notes.insert(uuid, note);
-        app.rename = RenameState::start(uuid, "");
+    fn renaming_from_the_note_menu_allows_an_empty_name() {
+        let (mut app, tmp, id, uuid) = app_with_open_note("rename-empty");
+        app.notes.get_mut(&uuid).unwrap().frontmatter.name = "Old name".to_string();
 
-        let _ = app.update(Message::RenameInput("Shopping List".to_string()));
-        let _ = app.update(Message::RenameSave);
-
-        assert_eq!(app.notes[&uuid].frontmatter.name, "Shopping List");
-        assert!(
-            app.dirty.contains_key(&uuid),
-            "a saved rename must be flushed like any other edit"
-        );
-        assert_eq!(
-            app.rename,
-            RenameState::Idle,
-            "saving must leave rename mode"
-        );
-
-        std::fs::remove_dir_all(&tmp).ok();
-    }
-
-    #[test]
-    fn rename_save_allows_an_empty_name() {
-        let tmp = std::env::temp_dir().join(format!("fleck-test-rename-empty-{}", Uuid::new_v4()));
-        let store = Store::new(&tmp);
-        let mut app = make_fleck(store);
-        let mut note = sample_note();
-        note.frontmatter.name = "Old name".to_string();
-        let uuid = note.frontmatter.uuid;
-        app.notes.insert(uuid, note);
-        app.rename = RenameState::start(uuid, "Old name");
-
-        let _ = app.update(Message::RenameInput(String::new()));
-        let _ = app.update(Message::RenameSave);
+        let _ = app.update(Message::NoteRenameStart(id));
+        let _ = app.update(Message::NoteRenameInput(id, String::new()));
+        let _ = app.update(Message::NoteRenameSave(id));
 
         assert_eq!(
             app.notes[&uuid].frontmatter.name, "",
             "an empty name must be allowed"
         );
-
-        std::fs::remove_dir_all(&tmp).ok();
-    }
-
-    #[test]
-    fn rename_cancel_discards_the_edit_and_leaves_the_note_untouched() {
-        let tmp = std::env::temp_dir().join(format!("fleck-test-rename-cancel-{}", Uuid::new_v4()));
-        let store = Store::new(&tmp);
-        let mut app = make_fleck(store);
-        let mut note = sample_note();
-        note.frontmatter.name = "Original".to_string();
-        let uuid = note.frontmatter.uuid;
-        app.notes.insert(uuid, note);
-        app.rename = RenameState::start(uuid, "Original");
-
-        let _ = app.update(Message::RenameInput("Discarded".to_string()));
-        let _ = app.update(Message::RenameCancel);
-
-        assert_eq!(app.notes[&uuid].frontmatter.name, "Original");
-        assert!(!app.dirty.contains_key(&uuid));
-        assert_eq!(app.rename, RenameState::Idle);
 
         std::fs::remove_dir_all(&tmp).ok();
     }
@@ -2268,37 +2172,6 @@ mod tests {
             app.pending_delete, None,
             "trash must not open a second dialog on top of the restore dialog"
         );
-
-        std::fs::remove_dir_all(&tmp).ok();
-    }
-
-    #[test]
-    fn delete_start_cancels_an_in_progress_rename_without_saving() {
-        let tmp = std::env::temp_dir().join(format!("fleck-test-delete-rename-{}", Uuid::new_v4()));
-        let store = Store::new(&tmp);
-        let mut app = make_fleck(store);
-        let mut renaming_note = sample_note();
-        renaming_note.frontmatter.name = "Original".to_string();
-        let renaming_id = renaming_note.frontmatter.uuid;
-        app.notes.insert(renaming_id, renaming_note);
-        let other_note = sample_note();
-        let other_id = other_note.frontmatter.uuid;
-        app.notes.insert(other_id, other_note);
-        app.rename = RenameState::start(renaming_id, "Original");
-        let _ = app.update(Message::RenameInput("Discarded".to_string()));
-
-        let _ = app.update(Message::DeleteStart(other_id));
-
-        assert_eq!(
-            app.rename,
-            RenameState::Idle,
-            "trash must cancel the in-progress rename"
-        );
-        assert_eq!(
-            app.notes[&renaming_id].frontmatter.name, "Original",
-            "the cancelled rename must not be saved"
-        );
-        assert_eq!(app.pending_delete, Some(other_id));
 
         std::fs::remove_dir_all(&tmp).ok();
     }

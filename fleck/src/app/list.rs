@@ -9,8 +9,8 @@ use fleck_core::{display_name, Note};
 use uuid::Uuid;
 
 use super::style::{
-    card_button_class, card_container_style, card_heading_style, rgb, search_input_style,
-    tinted_icon_button_class, IconHoverRole,
+    card_button_class, card_heading_style, rgb, search_input_style, tinted_icon_button_class,
+    IconHoverRole,
 };
 use super::{Fleck, Message, DEFAULT_WINDOW_SIZE};
 use crate::palette::Colour;
@@ -98,19 +98,12 @@ pub(super) const CARD_HEADING_PADDING_Y: u16 = 4;
 pub(super) const CARD_HEADING_PADDING_X: u16 = 8;
 /// Gap between the heading strip and the content section below it.
 pub(super) const CARD_HEADING_GAP: u16 = 4;
-/// Gap between a card's title and its rename pencil, within the heading row.
+/// Gap between a card's title and its delete button, within the heading row.
 pub(super) const CARD_HEADING_ROW_SPACING: u16 = 8;
-/// Gap between the pencil and trash buttons. 0: their facing paddings
-/// (`CARD_ACTION_INNER_PADDING`) set the distance between the icons.
-pub(super) const CARD_ACTION_SPACING: u16 = 0;
-/// Padding on the outer sides of the rename and delete buttons (top, bottom,
-/// and the side away from the other button). Matches libcosmic's own
-/// `extra_small` icon-button padding, so the delete icon stays 8 px from the
-/// card's right edge.
+/// Padding around the delete button. Matches libcosmic's own `extra_small`
+/// icon-button padding, so the delete icon stays 8 px from the card's right
+/// edge.
 pub(super) const CARD_ACTION_PADDING: u16 = 8;
-/// Padding on the side where the rename and delete buttons face each other.
-/// 4 + 4 puts their icons 8 px apart.
-pub(super) const CARD_ACTION_INNER_PADDING: u16 = 4;
 /// Right padding of the card heading. 0 so the trash icon, inside its own
 /// 8 px button padding, sits 8 px from the card's right edge.
 pub(super) const CARD_HEADING_PADDING_RIGHT: u16 = 0;
@@ -157,80 +150,14 @@ pub(super) const SCROLLBAR_SCROLLER_WIDTH_REST: f32 = 4.0;
 /// ~line 616 in the pinned iced fork).
 pub(super) const SCROLLBAR_SCROLLER_WIDTH_HOVER: f32 = 8.0;
 
-/// Whether the notes list's rename control is currently editing `uuid`'s
-/// card - the pure question a card's view asks to pick between its display
-/// and rename widget tree.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub(super) enum RenameState {
-    #[default]
-    Idle,
-    Editing {
-        uuid: Uuid,
-        text: String,
-    },
-}
-
-impl RenameState {
-    pub(super) fn start(uuid: Uuid, current_name: &str) -> Self {
-        RenameState::Editing {
-            uuid,
-            text: current_name.to_string(),
-        }
-    }
-
-    pub(super) fn is_editing(&self, uuid: Uuid) -> bool {
-        matches!(self, RenameState::Editing { uuid: u, .. } if *u == uuid)
-    }
-
-    pub(super) fn text(&self) -> &str {
-        match self {
-            RenameState::Editing { text, .. } => text,
-            RenameState::Idle => "",
-        }
-    }
-
-    /// Updates the in-progress text, a no-op if nothing is being edited.
-    pub(super) fn with_input(self, new_text: String) -> Self {
-        match self {
-            RenameState::Editing { uuid, .. } => RenameState::Editing {
-                uuid,
-                text: new_text,
-            },
-            RenameState::Idle => RenameState::Idle,
-        }
-    }
-}
-
-/// A card's rename and delete buttons, resting in `rest` when the card is
-/// coloured (see `tinted_icon_button_class`).
-fn card_actions<'a>(uuid: Uuid, rest: Option<cosmic::iced::Color>) -> Element<'a, Message> {
-    widget::Row::with_capacity(2)
-        .spacing(CARD_ACTION_SPACING)
-        .align_y(Alignment::Center)
-        .push(
-            widget::button::icon(crate::icons::edit_pencil())
-                .extra_small()
-                .padding([
-                    CARD_ACTION_PADDING,
-                    CARD_ACTION_INNER_PADDING,
-                    CARD_ACTION_PADDING,
-                    CARD_ACTION_PADDING,
-                ])
-                .on_press(Message::RenameStart(uuid))
-                .class(tinted_icon_button_class(IconHoverRole::Accent, rest)),
-        )
-        .push(
-            widget::button::icon(crate::icons::trash())
-                .extra_small()
-                .padding([
-                    CARD_ACTION_PADDING,
-                    CARD_ACTION_PADDING,
-                    CARD_ACTION_PADDING,
-                    CARD_ACTION_INNER_PADDING,
-                ])
-                .on_press(Message::DeleteStart(uuid))
-                .class(tinted_icon_button_class(IconHoverRole::Destructive, rest)),
-        )
+/// A card's delete button, resting in `rest` when the card is coloured (see
+/// `tinted_icon_button_class`).
+fn card_delete_button<'a>(uuid: Uuid, rest: Option<cosmic::iced::Color>) -> Element<'a, Message> {
+    widget::button::icon(crate::icons::trash())
+        .extra_small()
+        .padding(CARD_ACTION_PADDING)
+        .on_press(Message::DeleteStart(uuid))
+        .class(tinted_icon_button_class(IconHoverRole::Destructive, rest))
         .into()
 }
 
@@ -263,31 +190,15 @@ impl Fleck {
             })
         };
         let heading_text = colour.heading_text();
-        let editing = self.rename.is_editing(uuid);
-
-        // The title swaps for a text input in rename mode, but stays in the
-        // same slot of the same heading row - the pencil button next to it
-        // never moves or disappears, so the row's shape never changes.
-        let title: Element<'_, Message> = if editing {
-            widget::text_input("", self.rename.text())
-                .id(self.rename_input_id.clone())
-                .on_input(Message::RenameInput)
-                .on_submit(|_| Message::RenameSave)
-                .on_unfocus(Message::RenameCancel)
-                .width(Length::Fill)
-                .into()
-        } else {
-            widget::text::heading(display_name(note).to_string())
-                .class(text_class(heading_text))
-                .width(Length::Fill)
-                .into()
-        };
+        let title = widget::text::heading(display_name(note).to_string())
+            .class(text_class(heading_text))
+            .width(Length::Fill);
 
         let heading_row = widget::Row::with_capacity(2)
             .spacing(CARD_HEADING_ROW_SPACING)
             .align_y(Alignment::Center)
             .push(title)
-            .push(card_actions(uuid, heading_text.map(rgb)));
+            .push(card_delete_button(uuid, heading_text.map(rgb)));
 
         let heading = widget::container(heading_row)
             .class(cosmic::theme::Container::custom(card_heading_style(colour)))
@@ -343,32 +254,17 @@ impl Fleck {
             .push(heading)
             .push(content);
 
-        // Bare (no background) in both branches, so rename mode and the
-        // button-wrapped display mode size and position identically - only
-        // one of them actually paints a card surface. In display mode the
-        // button itself is that surface (see `card_button_class`); in
-        // rename mode, with no button to paint it, this container carries
-        // the same resting-card style directly so the card still reads as
-        // a card while its name is being edited.
         let card = widget::container(card_body).width(Length::Fill);
 
-        if editing {
-            // Mid-rename, the card isn't a pick target - the text input
-            // already owns clicks/focus here.
-            card.class(cosmic::theme::Container::custom(move |theme| {
-                card_container_style(colour, theme)
-            }))
+        // No padding: libcosmic buttons default to 5 px, which inset the card from
+        // the search bar and drew the hover state 5 px outside the card. The
+        // button itself is the card's surface (see `card_button_class`).
+        widget::button::custom(card)
+            .padding(0)
+            .on_press(Message::PickNote(uuid))
+            .class(card_button_class(colour))
+            .width(Length::Fill)
             .into()
-        } else {
-            // No padding: libcosmic buttons default to 5 px, which inset the card from
-            // the search bar and drew the hover state 5 px outside the card.
-            widget::button::custom(card)
-                .padding(0)
-                .on_press(Message::PickNote(uuid))
-                .class(card_button_class(colour))
-                .width(Length::Fill)
-                .into()
-        }
     }
 
     /// The notes list: a search bar filtering the cards below it (most
@@ -615,43 +511,5 @@ mod tests {
     fn relative_time_weeks_boundary() {
         assert_eq!(relative_time(Duration::from_hours(168)), "1 week ago");
         assert_eq!(relative_time(Duration::from_hours(504)), "3 weeks ago");
-    }
-
-    #[test]
-    fn rename_state_starts_idle() {
-        assert_eq!(RenameState::default(), RenameState::Idle);
-    }
-
-    #[test]
-    fn rename_state_start_enters_editing_with_the_current_name() {
-        let uuid = Uuid::new_v4();
-        let state = RenameState::start(uuid, "Old name");
-        assert!(state.is_editing(uuid));
-        assert_eq!(state.text(), "Old name");
-    }
-
-    #[test]
-    fn rename_state_only_the_started_note_is_editing() {
-        let uuid = Uuid::new_v4();
-        let other = Uuid::new_v4();
-        let state = RenameState::start(uuid, "");
-        assert!(
-            !state.is_editing(other),
-            "only one card may be in rename mode at a time"
-        );
-    }
-
-    #[test]
-    fn rename_state_with_input_updates_text_while_editing() {
-        let uuid = Uuid::new_v4();
-        let state = RenameState::start(uuid, "").with_input("New name".to_string());
-        assert_eq!(state.text(), "New name");
-        assert!(state.is_editing(uuid));
-    }
-
-    #[test]
-    fn rename_state_with_input_is_a_no_op_when_idle() {
-        let state = RenameState::Idle.with_input("typed while idle".to_string());
-        assert_eq!(state, RenameState::Idle);
     }
 }

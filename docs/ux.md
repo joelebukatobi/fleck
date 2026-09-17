@@ -29,7 +29,8 @@ Modelled on the Windows Sticky Notes list window.
   of its text, and when it was last edited.
 - **Plain cards for now** — theme defaults. Card colours come with the design pass.
 - Renaming a note is an action on its card.
-- Deleting a note is an action on its card: a trash icon after the rename pencil.
+- Deleting a note is an action on its card: a trash icon in its heading strip.
+- Renaming happens from the note's own menu, not the list.
   It asks first — "Delete note?" with **Delete** (destructive style) and
   **Cancel**. If the note is open in a window, that window closes.
 - The darker panel the cards sit on has an **even gap on all four sides** between
@@ -109,14 +110,14 @@ Modelled on the Windows Sticky Notes list window.
   - Search bar: 8 px padding left and right, 4 px corner radius.
   - Cards: 4 px corner radius, 8 px between cards.
   - Card heading: a darker strip across the top of the card, edge to edge, with
-    the title on the left and the rename pencil on the right of the same row.
+    the title on the left and the delete icon on the right of the same row.
     8 px padding inside it. Darker is derived from the card's theme colour.
   - 8 px between the heading strip and the card's content.
   - Card content (preview and time): 8 px padding, including top and bottom.
-  - Rename and delete icons sit 8 px apart; the delete icon is 8 px from the
+  - The delete icon is 8 px from the
     card's right edge, in line with the search bar's magnifier.
   - The + rests in COSMIC's grey, like the note's Settings label.
-  - Icon buttons (+, rename, delete) show no background on hover;
+  - Icon buttons (+, delete) show no background on hover;
     the icon turns the accent colour, or red for delete.
   - Hovering a card lightens it slightly; pressing darkens it slightly. The card
     itself is the clickable surface, so the effect lines up with its edges.
@@ -145,7 +146,7 @@ Modelled on the Windows Sticky Notes list window.
 - Fleck uses its own bundled icons from **Iconoir** (MIT), not the system icon theme,
   so they look the same whatever COSMIC's icon theme is set to.
 - **Stroke 2** for `plus` (new note) and `page-edit` (panel icon).
-- **Stroke 1.5** for `search`, `edit-pencil` (rename), `trash` (delete).
+- **Stroke 1.5** for `search` and `trash` (delete).
 - Icons follow the theme's text colour, so they work in light and dark mode.
 - Fleck's own app icon, for the panel list and the app library, comes with the design pass.
 

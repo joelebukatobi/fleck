@@ -7,7 +7,6 @@
 use cosmic::widget;
 
 const PLUS: &[u8] = include_bytes!("../../data/icons/iconoir/plus.svg");
-const EDIT_PENCIL: &[u8] = include_bytes!("../../data/icons/iconoir/edit-pencil.svg");
 const TRASH: &[u8] = include_bytes!("../../data/icons/iconoir/trash.svg");
 const SEARCH: &[u8] = include_bytes!("../../data/icons/iconoir/search.svg");
 const PAGE_EDIT: &[u8] = include_bytes!("../../data/icons/iconoir/page-edit.svg");
@@ -15,11 +14,6 @@ const PAGE_EDIT: &[u8] = include_bytes!("../../data/icons/iconoir/page-edit.svg"
 /// The `+` new-note button in the list window header.
 pub fn plus() -> widget::icon::Handle {
     widget::icon::from_svg_bytes(PLUS).symbolic(true)
-}
-
-/// The rename button on each card.
-pub fn edit_pencil() -> widget::icon::Handle {
-    widget::icon::from_svg_bytes(EDIT_PENCIL).symbolic(true)
 }
 
 /// The delete button on each card.
@@ -56,14 +50,14 @@ mod tests {
         for bytes in [PLUS, PAGE_EDIT] {
             assert_eq!(stroke_width(bytes), "2");
         }
-        for bytes in [EDIT_PENCIL, TRASH, SEARCH] {
+        for bytes in [TRASH, SEARCH] {
             assert_eq!(stroke_width(bytes), "1.5");
         }
     }
 
     #[test]
     fn handles_are_marked_symbolic() {
-        for handle in [plus(), edit_pencil(), trash(), search(), page_edit()] {
+        for handle in [plus(), trash(), search(), page_edit()] {
             assert!(handle.symbolic);
         }
     }
