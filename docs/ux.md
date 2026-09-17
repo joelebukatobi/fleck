@@ -107,8 +107,8 @@ Modelled on the Windows Sticky Notes list window.
 
 - Fleck uses its own bundled icons from **Iconoir** (MIT), not the system icon theme,
   so they look the same whatever COSMIC's icon theme is set to.
-- **Stroke 1** on every icon: `plus` (new note), `search`, `xmark` (clear search),
-  `edit-pencil` (rename), `trash` (delete), `page-edit` (panel icon).
+- **Stroke 2** for `plus` (new note) and `page-edit` (panel icon).
+- **Stroke 1** for `search`, `xmark` (clear search), `edit-pencil` (rename) and `trash` (delete).
 - Icons follow the theme's text colour, so they work in light and dark mode.
 - Fleck's own app icon, for the panel list and the app library, comes with the design pass.
 

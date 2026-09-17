@@ -1,4 +1,5 @@
-//! Bundled Iconoir icons (regular set, stroke width 1). Embedded with
+//! Bundled Iconoir icons (regular set): stroke 2 for the `+` and the panel
+//! icon, stroke 1 for the rest. Embedded with
 //! `include_bytes!` so nothing is read from disk at runtime; each handle is
 //! marked `.symbolic(true)` so libcosmic tints it to the theme's icon colour -
 //! see `iced/widget/src/svg.rs` (`symbolic` field, used in `draw`) and
@@ -46,17 +47,23 @@ pub fn page_edit() -> widget::icon::Handle {
 mod tests {
     use super::*;
 
-    const ALL: [&[u8]; 6] = [PLUS, EDIT_PENCIL, TRASH, SEARCH, XMARK, PAGE_EDIT];
+    fn stroke_width(bytes: &[u8]) -> &str {
+        let svg = std::str::from_utf8(bytes).expect("SVGs are UTF-8");
+        assert!(svg.trim_start().starts_with("<svg"));
+        let start = svg
+            .find(r#"stroke-width=""#)
+            .expect("icon sets a stroke width")
+            + 14;
+        &svg[start..start + svg[start..].find('"').unwrap()]
+    }
 
     #[test]
-    fn embedded_svgs_are_well_formed_with_a_stroke_of_one() {
-        for bytes in ALL {
-            let svg = std::str::from_utf8(bytes).expect("SVGs are UTF-8");
-            assert!(svg.trim_start().starts_with("<svg"));
-            assert!(
-                svg.contains(r#"stroke-width="1""#),
-                "every icon uses stroke 1"
-            );
+    fn plus_and_panel_icon_use_stroke_two_the_rest_stroke_one() {
+        for bytes in [PLUS, PAGE_EDIT] {
+            assert_eq!(stroke_width(bytes), "2");
+        }
+        for bytes in [EDIT_PENCIL, TRASH, SEARCH, XMARK] {
+            assert_eq!(stroke_width(bytes), "1");
         }
     }
 
