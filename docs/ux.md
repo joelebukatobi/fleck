@@ -117,9 +117,8 @@ Modelled on the Windows Sticky Notes list window.
   - Card content (preview and time): 8 px padding, including top and bottom.
   - The delete icon is 8 px from the
     card's right edge, in line with the search bar's magnifier.
-  - The delete icon shows no background at rest. On hover a small red rounded badge
-    (the theme's destructive red) appears behind it and the trash fills in solid, in
-    the colour COSMIC draws on that red — readable on every note colour.
+  - The delete icon shows no background, at rest or on hover. On hover the trash
+    fills in solid in the theme's destructive red.
   - Hovering a card lightens it slightly; pressing darkens it slightly. The card
     itself is the clickable surface, so the effect lines up with its edges.
   - The card list's scrollbar is slim until the mouse is over it, then widens,

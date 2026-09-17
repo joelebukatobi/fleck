@@ -283,12 +283,10 @@ pub(super) enum IconHoverRole {
 /// red the delete confirmation dialog's `widget::button::destructive`
 /// draws", not a new colour.
 pub(super) fn icon_hover_color(role: IconHoverRole, theme: &cosmic::Theme) -> Color {
-    // Destructive: the icon sits on a red badge (`icon_hover_background`), so
-    // it takes the colour drawn on that red.
     let cosmic = theme.cosmic();
     match role {
         IconHoverRole::Accent => cosmic.accent.base.into(),
-        IconHoverRole::Destructive => cosmic.destructive.on.into(),
+        IconHoverRole::Destructive => cosmic.destructive.base.into(),
     }
 }
 
@@ -337,28 +335,6 @@ pub(super) fn tinted_icon_button_class(
     }
 }
 
-/// The background a hovered icon button shows, if any: none for accent
-/// buttons, a red badge (the theme's destructive red) for delete - readable on
-/// every note colour. `pressed` darkens it slightly.
-pub(super) fn icon_hover_background(
-    role: IconHoverRole,
-    pressed: bool,
-    theme: &cosmic::Theme,
-) -> Option<cosmic::iced::Background> {
-    match role {
-        IconHoverRole::Accent => None,
-        IconHoverRole::Destructive => {
-            let red: Color = theme.cosmic().destructive.base.into();
-            let red = if pressed {
-                darken(red, CARD_PRESS_DARKEN_FACTOR)
-            } else {
-                red
-            };
-            Some(red.into())
-        }
-    }
-}
-
 /// A header icon button's (the `+` new-note button in `header_start`, and
 /// the pencil/trash buttons in `view_card`) full `Button::Custom` style
 /// class: no background in any state - removing libcosmic's default icon-
@@ -403,8 +379,6 @@ pub(super) fn icon_button_class(role: IconHoverRole) -> cosmic::theme::Button {
                     &cosmic::theme::Button::Icon,
                 ));
             style.icon_color = Some(icon_hover_color(role, theme));
-            style.background = icon_hover_background(role, false, theme);
-            style.border_radius = CARD_RADIUS.into();
             style
         }),
         pressed: Box::new(move |focused, theme| {
@@ -416,8 +390,6 @@ pub(super) fn icon_button_class(role: IconHoverRole) -> cosmic::theme::Button {
                     &cosmic::theme::Button::Icon,
                 ));
             style.icon_color = Some(icon_hover_color(role, theme));
-            style.background = icon_hover_background(role, true, theme);
-            style.border_radius = CARD_RADIUS.into();
             style
         }),
     }
@@ -540,18 +512,12 @@ mod tests {
     }
 
     #[test]
-    fn hovered_delete_is_a_red_badge_with_the_colour_drawn_on_red() {
+    fn icon_hover_color_maps_trash_to_destructive() {
         let theme = cosmic::Theme::dark();
-        let red: Color = theme.cosmic().destructive.base.into();
-        let on_red: Color = theme.cosmic().destructive.on.into();
+        let expected: Color = theme.cosmic().destructive.base.into();
         assert_eq!(
-            icon_hover_background(IconHoverRole::Destructive, false, &theme),
-            Some(red.into())
-        );
-        assert_eq!(icon_hover_color(IconHoverRole::Destructive, &theme), on_red);
-        assert_eq!(
-            icon_hover_background(IconHoverRole::Accent, false, &theme),
-            None
+            icon_hover_color(IconHoverRole::Destructive, &theme),
+            expected
         );
     }
 
