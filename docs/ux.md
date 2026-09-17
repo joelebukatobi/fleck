@@ -60,7 +60,7 @@ Modelled on the Windows Sticky Notes list window.
 - The dotted lines are a darker shade of the note's colour.
 - In the notes list, a coloured card's heading strip is that same darker shade. The
   card's preview and time (right-aligned, below a faint line in the text colour with
-  1.6 px above and below it) use the note's text colour; the strip's title and icons
+  4 px above and below it) use the note's text colour; the strip's title and icons
   pick dark or white against the darker strip.
 - The title bar always keeps the COSMIC theme's colours — its background, the note's
   name, Settings and the window buttons — whatever the note's colour.

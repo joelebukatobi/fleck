@@ -110,7 +110,7 @@ pub(super) const CARD_HEADING_PADDING_RIGHT: u16 = 0;
 /// Gap between the preview lines and the timestamp in a card's content.
 pub(super) const CARD_CONTENT_SPACING: u16 = 4;
 /// Space above and below the line between a card's preview and its time.
-pub(super) const CARD_TIME_DIVIDER_MARGIN: f32 = 1.6;
+pub(super) const CARD_TIME_DIVIDER_MARGIN: f32 = 4.0;
 /// Opacity of that line, drawn in the card's text colour.
 pub(super) const CARD_TIME_DIVIDER_ALPHA: f32 = 0.25;
 pub(super) const CARD_SPACING: u16 = 8;
