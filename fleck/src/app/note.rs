@@ -15,7 +15,7 @@ use super::style::{
     text_button_class,
 };
 use super::theme::AppTheme;
-use super::{Fleck, Message, NoteDialog, DEFAULT_WINDOW_SIZE};
+use super::{images, Fleck, Message, NoteDialog, DEFAULT_WINDOW_SIZE};
 use crate::palette::Colour;
 use crate::ruled::RuledLines;
 use crate::undo::EditKind;
@@ -175,10 +175,6 @@ impl Fleck {
         // No name field: per `docs/ux.md`'s "Inside a note", a note's name
         // is its first line of text until renamed, from the note's menu or
         // the notes list.
-        let (input_id, content) = match self.windows.get(&id) {
-            Some(window) => (window.input_id.clone(), &window.content),
-            None => (self.fallback_input_id.clone(), &self.fallback_content),
-        };
 
         // The body: a transparent `text_editor` stacked on top of a canvas
         // that paints the ruled-paper background (and, critically, an
@@ -197,7 +193,122 @@ impl Fleck {
         // the real, finite space the window gives the body, which is
         // exactly the height a short note's lines should fill.
         let colour = self.note_colour(id);
-        let body = widget::responsive(move |size| {
+        let body = self.note_body(id, colour);
+
+        let header = self.note_header(id);
+
+        let thumbnails = self.note_thumbnails(id);
+
+        // The paper starts where the title bar ends, like any other app's
+        // content; the title bar keeps the theme's colours.
+        let body = widget::container(
+            widget::Column::with_capacity(2)
+                .push(body)
+                .push_maybe(thumbnails),
+        )
+        .class(cosmic::theme::Container::custom(note_paper_style(colour)))
+        .padding([NOTE_PADDING_Y, NOTE_PADDING_X])
+        .width(Length::Fill)
+        .height(Length::Fill);
+        // Clicking in the note closes its menu. Presses on the open menu never
+        // reach here: the menu is an overlay and takes them first.
+        let body = widget::mouse_area(body).on_press(Message::NoteMenuClose(id));
+        // Dropped files arrive this way on Wayland: the window toolkit's own
+        // file-drop event is X11-only (see `Message::NoteFilesDropped`).
+        let body = widget::dnd_destination(body, vec![images::URI_LIST.into()])
+            .on_enter(move |_, _, mimes| Message::NoteDragEntered(id, mimes))
+            .on_leave(move || Message::NoteDragLeft(id))
+            .on_finish(move |_mime, data, _action, _, _| {
+                Message::NoteUriListDropped(id, std::sync::Arc::new(data))
+            });
+
+        let note = widget::container(widget::Column::with_capacity(2).push(header).push(body))
+            // No background of its own: the title bar and the paper each paint
+            // one and together cover the whole window. A window-wide background
+            // here doubled up behind the title bar, so COSMIC's translucent
+            // frosted-glass background stacked twice and looked nearly solid.
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        // A modal popover rather than `Application::dialog`, which libcosmic
+        // only draws on the main window (the notes list). The note stays at
+        // index 0 of the popover's children, so the editor keeps its state
+        // whether or not a dialog is showing.
+        let mut note = widget::popover(note).modal(true);
+        if let Some(dialog) = self.note_dialog_view(id) {
+            note = note.popup(dialog);
+        }
+        note.into()
+    }
+
+    /// Fleck's own header bar for a note window, like libcosmic's main
+    /// window: the menu on the left, the note's name, then the window buttons.
+    fn note_header(&self, id: window::Id) -> Element<'_, Message> {
+        let menu_button = widget::button::text(crate::fl!("settings"))
+            .height(Length::Fixed(f32::from(MENU_BUTTON_HEIGHT)))
+            .padding([0, MENU_BUTTON_PADDING_X])
+            .on_press(Message::NoteMenuToggle(id))
+            .class(text_button_class());
+        let mut menu = widget::popover(menu_button).position(widget::popover::Position::Point(
+            cosmic::iced::Point::new(0.0, f32::from(MENU_BUTTON_HEIGHT)),
+        ));
+        // No `on_close`: the popover fires it on any press outside the
+        // Settings button - including presses inside the menu - which closed the menu
+        // before its items (which act on release) could respond. Clicking in
+        // the note's text closes it instead (see `view_note`).
+        if self.note_menu == Some(id) {
+            menu = menu.popup(self.note_menu_popup(id));
+        }
+
+        let title = self
+            .windows
+            .get(&id)
+            .and_then(|window| self.notes.get(&window.uuid))
+            .map_or_else(
+                || fleck_core::UNNAMED.to_string(),
+                |note| display_name(note).to_string(),
+            );
+        let mut header = widget::header_bar()
+            .title(title)
+            .focused(self.core.focused_window() == Some(id))
+            .start(menu)
+            .on_drag(Message::NoteWindowDrag(id))
+            .on_double_click(Message::NoteWindowMaximize(id))
+            .on_close(Message::CloseRequested(id));
+        if cosmic::config::show_maximize() {
+            header = header.on_maximize(Message::NoteWindowMaximize(id));
+        }
+        if cosmic::config::show_minimize() {
+            header = header.on_minimize(Message::NoteWindowMinimize(id));
+        }
+        // libcosmic's header bar is transparent. Painting the theme's window
+        // background behind it keeps the title bar - title, Settings and
+        // window buttons - in the COSMIC theme's own colours, with no rounding
+        // at its bottom edge where the note's paper starts.
+        widget::container(header)
+            .class(cosmic::theme::Container::custom(note_title_bar_style))
+            .width(Length::Fill)
+            .into()
+    }
+
+    /// The colour of the note shown in window `id`; yellow if there isn't one.
+    fn note_colour(&self, id: window::Id) -> Colour {
+        self.windows
+            .get(&id)
+            .and_then(|window| self.notes.get(&window.uuid))
+            .map_or(Colour::Default, |note| {
+                Colour::from_name(&note.frontmatter.color)
+            })
+    }
+
+    /// A note's body: the text editor over its ruled-paper canvas, inside a
+    /// scrollable so the two move together.
+    fn note_body(&self, id: window::Id, colour: Colour) -> Element<'_, Message> {
+        let (input_id, content) = match self.windows.get(&id) {
+            Some(window) => (window.input_id.clone(), &window.content),
+            None => (self.fallback_input_id.clone(), &self.fallback_content),
+        };
+        widget::responsive(move |size| {
             let editor = text_editor::text_editor(content)
                 .on_action(move |action| Message::BodyAction(id, action))
                 .id(input_id.clone())
@@ -306,104 +417,8 @@ impl Fleck {
                 .into()
         })
         .width(Length::Fill)
-        .height(Length::Fill);
-
-        let header = self.note_header(id);
-
-        let thumbnails = self.note_thumbnails(id);
-
-        // The paper starts where the title bar ends, like any other app's
-        // content; the title bar keeps the theme's colours.
-        let body = widget::container(
-            widget::Column::with_capacity(2)
-                .push(body)
-                .push_maybe(thumbnails),
-        )
-        .class(cosmic::theme::Container::custom(note_paper_style(colour)))
-        .padding([NOTE_PADDING_Y, NOTE_PADDING_X])
-        .width(Length::Fill)
-        .height(Length::Fill);
-        // Clicking in the note closes its menu. Presses on the open menu never
-        // reach here: the menu is an overlay and takes them first.
-        let body = widget::mouse_area(body).on_press(Message::NoteMenuClose(id));
-
-        let note = widget::container(widget::Column::with_capacity(2).push(header).push(body))
-            // No background of its own: the title bar and the paper each paint
-            // one and together cover the whole window. A window-wide background
-            // here doubled up behind the title bar, so COSMIC's translucent
-            // frosted-glass background stacked twice and looked nearly solid.
-            .width(Length::Fill)
-            .height(Length::Fill);
-
-        // A modal popover rather than `Application::dialog`, which libcosmic
-        // only draws on the main window (the notes list). The note stays at
-        // index 0 of the popover's children, so the editor keeps its state
-        // whether or not a dialog is showing.
-        let mut note = widget::popover(note).modal(true);
-        if let Some(dialog) = self.note_dialog_view(id) {
-            note = note.popup(dialog);
-        }
-        note.into()
-    }
-
-    /// Fleck's own header bar for a note window, like libcosmic's main
-    /// window: the menu on the left, the note's name, then the window buttons.
-    fn note_header(&self, id: window::Id) -> Element<'_, Message> {
-        let menu_button = widget::button::text(crate::fl!("settings"))
-            .height(Length::Fixed(f32::from(MENU_BUTTON_HEIGHT)))
-            .padding([0, MENU_BUTTON_PADDING_X])
-            .on_press(Message::NoteMenuToggle(id))
-            .class(text_button_class());
-        let mut menu = widget::popover(menu_button).position(widget::popover::Position::Point(
-            cosmic::iced::Point::new(0.0, f32::from(MENU_BUTTON_HEIGHT)),
-        ));
-        // No `on_close`: the popover fires it on any press outside the
-        // Settings button - including presses inside the menu - which closed the menu
-        // before its items (which act on release) could respond. Clicking in
-        // the note's text closes it instead (see `view_note`).
-        if self.note_menu == Some(id) {
-            menu = menu.popup(self.note_menu_popup(id));
-        }
-
-        let title = self
-            .windows
-            .get(&id)
-            .and_then(|window| self.notes.get(&window.uuid))
-            .map_or_else(
-                || fleck_core::UNNAMED.to_string(),
-                |note| display_name(note).to_string(),
-            );
-        let mut header = widget::header_bar()
-            .title(title)
-            .focused(self.core.focused_window() == Some(id))
-            .start(menu)
-            .on_drag(Message::NoteWindowDrag(id))
-            .on_double_click(Message::NoteWindowMaximize(id))
-            .on_close(Message::CloseRequested(id));
-        if cosmic::config::show_maximize() {
-            header = header.on_maximize(Message::NoteWindowMaximize(id));
-        }
-        if cosmic::config::show_minimize() {
-            header = header.on_minimize(Message::NoteWindowMinimize(id));
-        }
-        // libcosmic's header bar is transparent. Painting the theme's window
-        // background behind it keeps the title bar - title, Settings and
-        // window buttons - in the COSMIC theme's own colours, with no rounding
-        // at its bottom edge where the note's paper starts.
-        widget::container(header)
-            .class(cosmic::theme::Container::custom(note_title_bar_style))
-            .width(Length::Fill)
-            .into()
-    }
-
-    /// The colour of the note shown in window `id`; yellow if there isn't one.
-    fn note_colour(&self, id: window::Id) -> Colour {
-        self.windows
-            .get(&id)
-            .and_then(|window| self.notes.get(&window.uuid))
-            .map_or(Colour::Default, |note| {
-                Colour::from_name(&note.frontmatter.color)
-            })
+        .height(Length::Fill)
+        .into()
     }
 
     /// The row of thumbnails under a note's text, one per image it links to,

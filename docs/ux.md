@@ -107,6 +107,8 @@ Modelled on the Windows Sticky Notes list window.
 - **Putting one in:** paste it (Ctrl+V), or drag image files onto the note. Either way
   the image lands where the cursor is. Pasting text still pastes text, and a dropped
   file that isn't an image Fleck can show is ignored.
+- Drops come through COSMIC's own drag-and-drop, so they work on Wayland; the window
+  toolkit's file-drop event is X11-only.
 - **In the text:** the image shows as its own line — a picture icon and the file
   name — in the note's own colours. It is ordinary text, so it moves with the
   paragraph around it, and cut, paste, undo and search treat it like any other line.

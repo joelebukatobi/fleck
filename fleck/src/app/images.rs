@@ -51,6 +51,42 @@ pub(super) fn to_clipboard(path: &Path) -> Result<(), String> {
 /// `widget::image` and the copy-to-clipboard path can read.
 const DROPPABLE: [&str; 6] = ["png", "jpg", "jpeg", "webp", "gif", "bmp"];
 
+/// The mime type a file manager offers when files are dragged: a list of
+/// `file://` URIs, one per line.
+pub(super) const URI_LIST: &str = "text/uri-list";
+
+/// The file paths in a `text/uri-list` drop. Anything that isn't a local
+/// file - a URL dragged from a browser, say - is skipped.
+pub(super) fn paths_from_uri_list(data: &[u8]) -> Vec<std::path::PathBuf> {
+    String::from_utf8_lossy(data)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .filter_map(|line| line.strip_prefix("file://"))
+        .map(|path| std::path::PathBuf::from(percent_decode(path)))
+        .collect()
+}
+
+/// `%20`-style escapes turned back into bytes; anything else is kept as is.
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let decoded = (bytes[i] == b'%' && i + 2 < bytes.len())
+            .then(|| u8::from_str_radix(&text[i + 1..i + 3], 16).ok())
+            .flatten();
+        if let Some(byte) = decoded {
+            out.push(byte);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// A dropped file's contents and extension, or `None` when it isn't an image
 /// Fleck can show.
 pub(super) fn from_file(path: &Path) -> Option<(String, Vec<u8>)> {
@@ -73,6 +109,20 @@ pub(super) fn link_line(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uri_list_drops_yield_local_file_paths() {
+        let data = b"file:///home/joel/My%20Pictures/shot.png\r\n\
+                     https://example.com/remote.png\r\n\
+                     file:///tmp/a.jpg\r\n";
+        assert_eq!(
+            paths_from_uri_list(data),
+            vec![
+                std::path::PathBuf::from("/home/joel/My Pictures/shot.png"),
+                std::path::PathBuf::from("/tmp/a.jpg"),
+            ]
+        );
+    }
 
     #[test]
     fn only_readable_image_files_are_accepted_from_a_drop() {

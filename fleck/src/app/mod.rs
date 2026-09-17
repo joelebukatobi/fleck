@@ -216,6 +216,12 @@ pub enum Message {
     NoteImageScrollTo(window::Id, usize),
     /// Files dropped on a note window: the images among them are added.
     NoteFilesDropped(window::Id, Vec<PathBuf>),
+    /// A drag entered a note window, offering these mime types.
+    NoteDragEntered(window::Id, Vec<String>),
+    /// A drag left a note window without dropping.
+    NoteDragLeft(window::Id),
+    /// A Wayland drop finished: the raw `text/uri-list` it carried.
+    NoteUriListDropped(window::Id, Arc<Vec<u8>>),
     /// Dragging a note window's header bar.
     NoteWindowDrag(window::Id),
     /// The maximize button, or a double-click, on a note window's header bar.
@@ -403,6 +409,8 @@ pub struct Fleck {
     note_dialog: Option<(window::Id, NoteDialog)>,
     /// Stable id for the rename dialog's text input, so it can be focused.
     note_rename_input_id: id::Id,
+    /// The note window a drag carrying files is currently over.
+    drag_over_note: Option<window::Id>,
 }
 
 impl Fleck {
@@ -1070,6 +1078,7 @@ impl cosmic::Application for Fleck {
             note_menu: None,
             note_dialog: None,
             note_rename_input_id: id::Id::unique(),
+            drag_over_note: None,
         };
 
         let apply_theme = app.theme.apply();
@@ -1498,6 +1507,24 @@ impl cosmic::Application for Fleck {
                 }
                 Task::none()
             }
+            Message::NoteDragEntered(id, mimes) => {
+                self.drag_over_note = mimes
+                    .iter()
+                    .any(|mime| mime == images::URI_LIST)
+                    .then_some(id);
+                Task::none()
+            }
+            Message::NoteDragLeft(id) => {
+                if self.drag_over_note == Some(id) {
+                    self.drag_over_note = None;
+                }
+                Task::none()
+            }
+            Message::NoteUriListDropped(id, data) => {
+                self.drag_over_note = None;
+                let paths = images::paths_from_uri_list(&data);
+                self.update(Message::NoteFilesDropped(id, paths))
+            }
             Message::NoteDeleteStart(id) => {
                 self.note_menu = None;
                 if self.windows.contains_key(&id) {
@@ -1698,6 +1725,7 @@ mod tests {
             note_menu: None,
             note_dialog: None,
             note_rename_input_id: id::Id::unique(),
+            drag_over_note: None,
         }
     }
 
