@@ -468,12 +468,17 @@ impl Fleck {
                 .into(),
             NoteDialog::Colour => {
                 let current = self.note_colour(id);
-                let mut grid = widget::Column::with_capacity(3).spacing(SWATCH_GAP);
+                let mut grid =
+                    widget::Column::with_capacity(Colour::ALL.len().div_ceil(SWATCHES_PER_ROW))
+                        .spacing(SWATCH_GAP);
                 for row in Colour::ALL.chunks(SWATCHES_PER_ROW) {
-                    let mut swatches = widget::Row::with_capacity(row.len()).spacing(SWATCH_GAP);
+                    let mut swatches =
+                        widget::Row::with_capacity(SWATCHES_PER_ROW).spacing(SWATCH_GAP);
                     for &colour in row {
+                        // Full width, so the swatch and its label centre in the cell.
                         let swatch = widget::Column::with_capacity(2)
                             .spacing(SWATCH_LABEL_GAP)
+                            .width(Length::Fill)
                             .align_x(cosmic::iced::Alignment::Center)
                             .push(
                                 widget::container(widget::text(""))
@@ -492,6 +497,12 @@ impl Fleck {
                                 .width(Length::Fill)
                                 .on_press(Message::NoteSetColour(id, colour)),
                         );
+                    }
+                    // Pad a short last row with empty cells, so its swatches keep
+                    // the same width as the rows above.
+                    for _ in row.len()..SWATCHES_PER_ROW {
+                        swatches =
+                            swatches.push(widget::container(widget::text("")).width(Length::Fill));
                     }
                     grid = grid.push(swatches);
                 }
