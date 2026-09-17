@@ -40,13 +40,14 @@ development: debug builds of libcosmic are very slow.
 
 ## Installing
 
-Copy the program somewhere on your `PATH` and install the two desktop entries,
-one for the app and one for the panel applet:
+Copy the program somewhere on your `PATH`, install the two desktop entries (one
+for the app, one for the panel applet) and the panel applet's icon:
 
 ```bash
 install -Dm755 target/release/fleck ~/.local/bin/fleck
 install -Dm644 data/io.github.joelebukatobi.Fleck.desktop ~/.local/share/applications/
 install -Dm644 data/io.github.joelebukatobi.FleckApplet.desktop ~/.local/share/applications/
+install -Dm644 data/icons/iconoir/page-edit.svg ~/.local/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.FleckApplet-symbolic.svg
 ```
 
 To add the panel icon, open COSMIC Settings, go to Desktop, then Panel, then
