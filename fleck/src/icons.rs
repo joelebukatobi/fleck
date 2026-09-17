@@ -1,20 +1,13 @@
-//! Bundled Iconoir icons (regular set): stroke 2 for the `+` and the panel
-//! icon, stroke 1.5 for the rest. Embedded with
+//! Bundled Iconoir icons (regular set): stroke 2 for the panel icon, stroke 1.5 for the rest. Embedded with
 //! `include_bytes!` so nothing is read from disk at runtime; each handle is
 //! marked `.symbolic(true)` so libcosmic tints it to the theme's icon colour -
 //! see `iced/widget/src/svg.rs` (`symbolic` field, used in `draw`) and
 //! `widget/icon/mod.rs` (`Svg::symbolic(self.handle.symbolic)`).
 use cosmic::widget;
 
-const PLUS: &[u8] = include_bytes!("../../data/icons/iconoir/plus.svg");
 const TRASH: &[u8] = include_bytes!("../../data/icons/iconoir/trash.svg");
 const SEARCH: &[u8] = include_bytes!("../../data/icons/iconoir/search.svg");
 const PAGE_EDIT: &[u8] = include_bytes!("../../data/icons/iconoir/page-edit.svg");
-
-/// The `+` new-note button in the list window header.
-pub fn plus() -> widget::icon::Handle {
-    widget::icon::from_svg_bytes(PLUS).symbolic(true)
-}
 
 /// The delete button on each card.
 pub fn trash() -> widget::icon::Handle {
@@ -46,10 +39,8 @@ mod tests {
     }
 
     #[test]
-    fn plus_and_panel_icon_use_stroke_two_the_rest_stroke_one_and_a_half() {
-        for bytes in [PLUS, PAGE_EDIT] {
-            assert_eq!(stroke_width(bytes), "2");
-        }
+    fn panel_icon_uses_stroke_two_the_rest_stroke_one_and_a_half() {
+        assert_eq!(stroke_width(PAGE_EDIT), "2");
         for bytes in [TRASH, SEARCH] {
             assert_eq!(stroke_width(bytes), "1.5");
         }
@@ -57,7 +48,7 @@ mod tests {
 
     #[test]
     fn handles_are_marked_symbolic() {
-        for handle in [plus(), trash(), search(), page_edit()] {
+        for handle in [trash(), search(), page_edit()] {
             assert!(handle.symbolic);
         }
     }

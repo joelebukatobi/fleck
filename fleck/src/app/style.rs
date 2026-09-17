@@ -299,31 +299,6 @@ pub(super) fn muted_color(theme: &cosmic::Theme) -> Color {
     }
 }
 
-/// Like `icon_button_class`, but the icon rests in COSMIC's grey
-/// (`muted_color`) instead of the header bar's accent colour. For the `+`
-/// in the notes list's header.
-pub(super) fn header_icon_button_class(role: IconHoverRole) -> cosmic::theme::Button {
-    let cosmic::theme::Button::Custom {
-        active,
-        disabled,
-        hovered,
-        pressed,
-    } = icon_button_class(role)
-    else {
-        unreachable!("icon_button_class always builds a custom class");
-    };
-    cosmic::theme::Button::Custom {
-        active: Box::new(move |focused, theme| {
-            let mut style = active(focused, theme);
-            style.icon_color = Some(muted_color(theme));
-            style
-        }),
-        disabled,
-        hovered,
-        pressed,
-    }
-}
-
 /// `icon_button_class`, resting in `rest` instead of the inherited icon colour
 /// when it's `Some`. For a coloured card's rename and delete icons.
 pub(super) fn tinted_icon_button_class(

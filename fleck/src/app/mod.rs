@@ -25,7 +25,7 @@ use crate::undo::UndoHistory;
 
 use list::dialog_width;
 use note::{edit_kind, note_window_settings};
-use style::{header_icon_button_class, IconHoverRole};
+use style::text_button_class;
 use theme::AppTheme;
 
 /// How long to wait after the last keystroke before writing a note to disk.
@@ -1372,19 +1372,20 @@ impl cosmic::Application for Fleck {
     // every other window id is dispatched straight to `view_window` with
     // no header or dialog of its own layered on top (`Cosmic::view` in
     // libcosmic's `src/app/cosmic.rs`). The main window is the notes list
-    // now, not a note, so this is where the `+` new-note button and the
-    // app name live. Secondary note windows (`window::open`, used for
+    // now, not a note, so this is where the Add note button and the app
+    // name live. Secondary note windows (`window::open`, used for
     // every note) default to `decorations: true`, i.e. a compositor-drawn
     // title bar with no client content slots at all, so they keep whatever
     // title bar the compositor gives them.
     fn header_start(&self) -> Vec<Element<'_, Message>> {
-        vec![
-            widget::button::icon(crate::icons::plus())
-                .on_press(Message::NewNote)
-                .class(header_icon_button_class(IconHoverRole::Accent))
-                .into(),
-            widget::text::body("Fleck").into(),
-        ]
+        vec![widget::button::text(crate::fl!("add-note"))
+            .on_press(Message::NewNote)
+            .class(text_button_class())
+            .into()]
+    }
+
+    fn header_center(&self) -> Vec<Element<'_, Message>> {
+        vec![widget::text::body("Fleck").into()]
     }
 
     /// The restore prompt: a modal dialog overlaying (and dimming) the

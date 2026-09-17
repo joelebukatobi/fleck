@@ -19,8 +19,8 @@ Plain notes on the experience we want. Not a spec.
 
 Modelled on the Windows Sticky Notes list window.
 
-- **Header:** a `+` button on the left for a new note, then **Fleck**, then the
-  window buttons on the right.
+- **Header:** an **Add note** button on the left (the same text-button style as a
+  note's Settings), **Fleck** in the middle, then the window buttons on the right.
 - **Search bar** under the header. Filters as you type, matching note names and text.
   The placeholder starts right at the bar's padding, in line with the card titles.
   The magnifier sits at the right edge; there is no clear button.
@@ -116,8 +116,7 @@ Modelled on the Windows Sticky Notes list window.
   - Card content (preview and time): 8 px padding, including top and bottom.
   - The delete icon is 8 px from the
     card's right edge, in line with the search bar's magnifier.
-  - The + rests in COSMIC's grey, like the note's Settings label.
-  - Icon buttons (+, delete) show no background on hover;
+  - The delete icon shows no background on hover;
     the icon turns the accent colour, or red for delete.
   - Hovering a card lightens it slightly; pressing darkens it slightly. The card
     itself is the clickable surface, so the effect lines up with its edges.
@@ -145,7 +144,7 @@ Modelled on the Windows Sticky Notes list window.
 
 - Fleck uses its own bundled icons from **Iconoir** (MIT), not the system icon theme,
   so they look the same whatever COSMIC's icon theme is set to.
-- **Stroke 2** for `plus` (new note) and `page-edit` (panel icon).
+- **Stroke 2** for `page-edit` (panel icon).
 - **Stroke 1.5** for `search` and `trash` (delete).
 - Icons follow the theme's text colour, so they work in light and dark mode.
 - Fleck's own app icon, for the panel list and the app library, comes with the design pass.
