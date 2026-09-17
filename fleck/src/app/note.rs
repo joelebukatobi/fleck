@@ -310,14 +310,10 @@ impl Fleck {
         let body = widget::mouse_area(body).on_press(Message::NoteMenuClose(id));
 
         let note = widget::container(widget::Column::with_capacity(2).push(header).push(body))
-            // An explicit opaque background is a rendering requirement, not
-            // decoration: `view_window` is used directly for every secondary
-            // note window with nothing else wrapping it (see `Cosmic::view` in
-            // libcosmic), so if this container's background were left at its
-            // default (`Container::Transparent`), the whole window would render
-            // transparent - the desktop showing through, stale frames smearing,
-            // exactly the failure mode this task's brief warns about.
-            .class(cosmic::theme::Container::WindowBackground)
+            // No background of its own: the title bar and the paper each paint
+            // one and together cover the whole window. A window-wide background
+            // here doubled up behind the title bar, so COSMIC's translucent
+            // frosted-glass background stacked twice and looked nearly solid.
             .width(Length::Fill)
             .height(Length::Fill);
 
