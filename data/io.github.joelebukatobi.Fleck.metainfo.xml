@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.joelebukatobi.Fleck</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Fleck</name>
+  <summary>Sticky notes for the COSMIC desktop</summary>
+
+  <description>
+    <p>
+      Fleck keeps sticky notes on your desktop. Each note is its own window on
+      lined paper, saved as you type, and a notes list lets you search, open,
+      rename and delete them. A panel icon brings the list up from anywhere.
+    </p>
+    <p>Fleck follows your COSMIC theme, accent colour and light or dark mode.</p>
+    <p>Features:</p>
+    <ul>
+      <li>A note per window, saved as you type</li>
+      <li>A notes list with search, most recently edited first</li>
+      <li>Nine note colours, or the theme's own look</li>
+      <li>Images pasted or dragged into a note</li>
+      <li>Reopens the notes you had open when you last quit</li>
+      <li>Undo and redo in every note</li>
+      <li>Notes are plain Markdown files you can read anywhere</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.joelebukatobi.Fleck.desktop</launchable>
+
+  <developer id="io.github.joelebukatobi">
+    <name>Joel Onwuanaku</name>
+  </developer>
+
+  <url type="homepage">https://github.com/joelebukatobi/fleck</url>
+  <url type="bugtracker">https://github.com/joelebukatobi/fleck/issues</url>
+  <url type="vcs-browser">https://github.com/joelebukatobi/fleck</url>
+
+  <categories>
+    <category>Utility</category>
+  </categories>
+
+  <keywords>
+    <keyword>notes</keyword>
+    <keyword>sticky</keyword>
+    <keyword>memo</keyword>
+    <keyword>cosmic</keyword>
+  </keywords>
+
+  <provides>
+    <binary>fleck</binary>
+    <dbus type="session">io.github.joelebukatobi.Fleck</dbus>
+  </provides>
+
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2026-09-30">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

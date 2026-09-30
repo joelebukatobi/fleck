@@ -48,7 +48,14 @@ install -Dm755 target/release/fleck ~/.local/bin/fleck
 install -Dm644 data/io.github.joelebukatobi.Fleck.desktop ~/.local/share/applications/
 install -Dm644 data/io.github.joelebukatobi.FleckApplet.desktop ~/.local/share/applications/
 install -Dm644 data/icons/iconoir/page-edit.svg ~/.local/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.FleckApplet-symbolic.svg
+install -Dm644 data/io.github.joelebukatobi.Fleck.metainfo.xml ~/.local/share/metainfo/
+sed "s|^Exec=.*|Exec=$HOME/.local/bin/fleck|" data/io.github.joelebukatobi.Fleck.service \
+  > ~/.local/share/dbus-1/services/io.github.joelebukatobi.Fleck.service
 ```
+
+The last line lets the session start Fleck on demand: with it in place, `fleck --new-note`
+and the panel icon work even when Fleck isn't running. The AppStream file is what software
+centres read to list Fleck.
 
 To add the panel icon, open COSMIC Settings, go to Desktop, then Panel, then
 Configure panel applets, and add **Fleck**.

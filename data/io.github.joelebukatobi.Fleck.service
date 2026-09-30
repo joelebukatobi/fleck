@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=io.github.joelebukatobi.Fleck
+Exec=/usr/bin/fleck
