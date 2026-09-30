@@ -92,3 +92,4 @@ reminder-date = Date
 reminder-time = Time
 reminder-repeat = Repeat
 reminder-invalid = Enter a date as 2026-10-01 and a time as 09:30.
+remind-me = Remind me

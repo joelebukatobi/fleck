@@ -31,6 +31,12 @@ use reminders::{ListView, ReminderForm};
 use style::IconHoverRole;
 use theme::AppTheme;
 
+/// The icon notifications show beside Fleck's name.
+pub const FLECK_ICON: &str = "io.github.joelebukatobi.Fleck";
+
+/// How often Fleck looks for reminders that have come due.
+const REMINDER_TICK: Duration = Duration::from_secs(30);
+
 /// The size of the list header's + icon.
 const HEADER_ICON: u16 = 16;
 
@@ -64,6 +70,8 @@ pub struct Flags {
     pub window_state: WindowState,
     pub state_path: PathBuf,
     pub reminders_path: PathBuf,
+    /// `--background`: run with no windows, waiting to fire reminders.
+    pub background: bool,
     pub dbus_connection: zbus::Connection,
     pub dbus_rx: mpsc::Receiver<dbus::Request>,
 }
@@ -218,6 +226,12 @@ pub enum Message {
     ReminderCancel,
     /// A reminder's trash button.
     ReminderDelete(Uuid),
+    /// Time to look for reminders that have come due.
+    ReminderTick,
+    /// Nothing to do: a background task finished.
+    Done,
+    /// "Remind me" in a note's menu: a reminder about that note.
+    NoteRemindStart(window::Id),
     /// Ctrl+V in a note: look for an image on the clipboard first.
     NotePasteImage(window::Id),
     /// What the clipboard held: an image (encoded PNG), or nothing usable, in
@@ -436,6 +450,9 @@ pub struct Fleck {
     reminders_path: PathBuf,
     /// Which half of the list window is showing.
     list_view: ListView,
+    /// Started with `--background`: no windows, just waiting for reminders.
+    /// Closing the last window doesn't quit in that mode.
+    background: bool,
     /// The reminder being added or edited, if any.
     reminder_form: Option<ReminderForm>,
     /// The note window a drag carrying files is currently over.
@@ -891,6 +908,35 @@ impl Fleck {
         self.dirty.insert(uuid, Instant::now());
     }
 
+    /// Fires every reminder that has come due: a notification, and the note it
+    /// is about opens. Repeats move to their next occurrence; one-offs are
+    /// done and go.
+    fn fire_due_reminders(&mut self) -> Task<Message> {
+        let now = chrono::Local::now();
+        let due: Vec<fleck_core::Reminder> = self.reminders.due(now).into_iter().cloned().collect();
+        if due.is_empty() {
+            return Task::none();
+        }
+        let mut tasks = Vec::with_capacity(due.len() * 2);
+        for reminder in due {
+            let summary = self.reminder_title(&reminder);
+            let body = reminder
+                .note
+                .and_then(|uuid| self.notes.get(&uuid))
+                .map(|note| fleck_core::title(note).to_string())
+                .unwrap_or_default();
+            tasks.push(Task::perform(crate::notify::send(summary, body), |()| {
+                cosmic::Action::App(Message::Done)
+            }));
+            if let Some(uuid) = reminder.note {
+                tasks.push(self.show_note(uuid));
+            }
+            self.reminders.reschedule(reminder.uuid);
+        }
+        self.save_reminders();
+        Task::batch(tasks)
+    }
+
     /// Writes the reminders file. Errors are logged, not retried: a lost
     /// reminder is worth less than a crash at startup.
     fn save_reminders(&self) {
@@ -1048,6 +1094,7 @@ impl cosmic::Application for Fleck {
             window_state,
             state_path,
             reminders_path,
+            background,
             dbus_connection,
             dbus_rx,
         } = flags;
@@ -1095,6 +1142,7 @@ impl cosmic::Application for Fleck {
             reminders_path,
             list_view: ListView::default(),
             reminder_form: None,
+            background,
             window_state_dirty: false,
             windows: HashMap::new(),
             list_window,
@@ -1124,7 +1172,14 @@ impl cosmic::Application for Fleck {
         };
 
         let apply_theme = app.theme.apply();
-        (app, apply_theme)
+        let start = if app.background {
+            // Nothing to show: close the window libcosmic opened and wait for
+            // a reminder, a panel click, or a command.
+            app.list_window.map_or_else(Task::none, window::close)
+        } else {
+            Task::none()
+        };
+        (app, Task::batch([apply_theme, start]))
     }
 
     fn subscription(&self) -> Subscription<Message> {
@@ -1149,7 +1204,11 @@ impl cosmic::Application for Fleck {
             _ => None,
         });
 
-        let mut subscriptions = vec![events, dbus_subscription(&self.dbus_rx)];
+        let mut subscriptions = vec![
+            events,
+            dbus_subscription(&self.dbus_rx),
+            cosmic::iced::time::every(REMINDER_TICK).map(|_| Message::ReminderTick),
+        ];
         if !self.dirty.is_empty() || self.window_state_dirty {
             subscriptions.push(
                 cosmic::iced::time::every(Duration::from_millis(500))
@@ -1224,7 +1283,7 @@ impl cosmic::Application for Fleck {
                     // `update()` call that requested the close - so this
                     // check never races the asynchronous completion of
                     // `window::open` for that note.
-                    return if self.intent_visible.is_empty() {
+                    return if self.intent_visible.is_empty() && !self.background {
                         self.exit_app()
                     } else {
                         Task::none()
@@ -1263,7 +1322,7 @@ impl cosmic::Application for Fleck {
                     self.windows.remove(&id);
                     return Task::none();
                 }
-                if self.windows.len() == 1 && self.list_window.is_none() {
+                if self.windows.len() == 1 && self.list_window.is_none() && !self.background {
                     // This is the closing window whose note ended the
                     // session - snapshot while it's still in `self.windows`
                     // (browser tab-restore semantics: the last note you
@@ -1485,6 +1544,18 @@ impl cosmic::Application for Fleck {
                 self.reminders.remove(uuid);
                 self.save_reminders();
                 Task::none()
+            }
+            Message::ReminderTick => self.fire_due_reminders(),
+            Message::Done => Task::none(),
+            Message::NoteRemindStart(id) => {
+                self.note_menu = None;
+                let Some(uuid) = self.windows.get(&id).map(|window| window.uuid) else {
+                    return Task::none();
+                };
+                // The form is a dialog on the list window, so bring that up.
+                self.list_view = ListView::Reminders;
+                self.reminder_form = Some(ReminderForm::new(Some(uuid), String::new()));
+                self.show_list()
             }
             Message::NotePasteImage(id) => Task::perform(
                 // Off the UI thread: reading the clipboard blocks.
@@ -1803,6 +1874,7 @@ mod tests {
                 .join(format!("fleck-test-reminders-{}.toml", Uuid::new_v4())),
             list_view: ListView::default(),
             reminder_form: None,
+            background: false,
             window_state_dirty: false,
             windows: HashMap::new(),
             list_window: None,
@@ -2640,6 +2712,56 @@ mod tests {
             "its line is gone from the note"
         );
 
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn a_due_reminder_opens_its_note_and_moves_on() {
+        let (mut app, tmp, _, uuid) = app_with_open_note("reminder-fires");
+        let overdue = chrono::Local::now() - chrono::Duration::minutes(5);
+        let daily = fleck_core::Reminder::new(
+            "water the plants".into(),
+            overdue,
+            fleck_core::Repeat::Daily,
+            Some(uuid),
+        );
+        let once = fleck_core::Reminder::new(
+            "post the letter".into(),
+            overdue,
+            fleck_core::Repeat::Once,
+            None,
+        );
+        app.reminders.insert(daily.clone());
+        app.reminders.insert(once);
+
+        let _ = app.update(Message::ReminderTick);
+
+        assert!(app.is_visible(uuid), "the note it points at opens");
+        assert_eq!(app.reminders.reminders.len(), 1, "the one-off is finished");
+        let moved = &app.reminders.reminders[0];
+        assert_eq!(moved.uuid, daily.uuid);
+        assert!(
+            moved.due_at().unwrap() > chrono::Local::now(),
+            "the daily one is set for its next occurrence"
+        );
+
+        std::fs::remove_file(&app.reminders_path).ok();
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn a_reminder_that_is_not_due_yet_stays_put() {
+        let (mut app, tmp, _, _) = app_with_open_note("reminder-waits");
+        app.reminders.insert(fleck_core::Reminder::new(
+            "later".into(),
+            chrono::Local::now() + chrono::Duration::hours(1),
+            fleck_core::Repeat::Once,
+            None,
+        ));
+
+        let _ = app.update(Message::ReminderTick);
+
+        assert_eq!(app.reminders.reminders.len(), 1, "nothing fired");
         std::fs::remove_dir_all(&tmp).ok();
     }
 

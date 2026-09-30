@@ -476,6 +476,7 @@ impl Fleck {
                 crate::fl!("change-colour"),
                 Message::NoteColourStart(id),
             ))
+            .push(item(crate::fl!("remind-me"), Message::NoteRemindStart(id)))
             .push(item(
                 crate::fl!("delete-note"),
                 Message::NoteDeleteStart(id),

@@ -129,6 +129,26 @@ Modelled on the Windows Sticky Notes list window.
   so images cannot sit truly between two lines — the line plus its thumbnail is how
   their place is shown.
 
+## Reminders
+
+- The list window's dropdown switches between **Notes** and **Reminders**; **+** adds
+  one of whichever is showing.
+- A reminder is its own thing: its own text, a date and time, and how often it repeats
+  (once, every day, weekdays, every week, every month). It may also be about a note.
+- **Remind me** in a note's menu makes a reminder about that note, and opens the form
+  with the note already linked.
+- Reminders are listed soonest first, showing when they are due in words ("Today at
+  17:00", "Tue at 09:00"), and how often they repeat. One about a note wears that
+  note's colour. Clicking one opens it for editing; the trash button deletes it.
+- **When one comes due:** a desktop notification, and the note it is about opens. A
+  repeating reminder moves to its next occurrence; a one-off is done and goes.
+- A reminder missed while Fleck was closed fires as soon as Fleck starts, and a
+  repeating one moves to the next occurrence still ahead rather than firing for every
+  one it slept through.
+- With the autostart entry installed, Fleck waits in the background (`fleck
+  --background`, no windows) so reminders fire without it being open.
+- Reminders live in `~/.local/share/fleck/reminders.toml`.
+
 ## Look
 
 - Mostly theme defaults for now; the full design pass comes later.

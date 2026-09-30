@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Fleck reminders
+Comment=Waits in the background to remind you
+Exec=fleck --background
+Icon=io.github.joelebukatobi.Fleck
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

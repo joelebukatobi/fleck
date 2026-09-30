@@ -3,6 +3,7 @@ mod applet;
 mod dbus;
 mod i18n;
 mod icons;
+mod notify;
 mod palette;
 mod ruled;
 mod undo;
@@ -341,6 +342,10 @@ fn main() -> cosmic::iced::Result {
         return applet::run();
     }
 
+    // `--background` starts Fleck with no windows: it waits to fire reminders,
+    // and shows itself when the panel icon or a command asks it to.
+    let background = std::env::args().any(|arg| arg == "--background");
+
     // Must run before anything below reads notes_dir()/window_state_path(),
     // so a pre-rename (Fleck) install's notes and window state are in place
     // by the time they're loaded.
@@ -444,6 +449,7 @@ fn main() -> cosmic::iced::Result {
             window_state,
             state_path,
             reminders_path: reminders_path(),
+            background,
             dbus_connection: connection,
             dbus_rx,
         },

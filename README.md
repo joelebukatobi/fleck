@@ -53,7 +53,13 @@ sed "s|^Exec=.*|Exec=$HOME/.local/bin/fleck|" data/io.github.joelebukatobi.Fleck
   > ~/.local/share/dbus-1/services/io.github.joelebukatobi.Fleck.service
 ```
 
-The last line lets the session start Fleck on demand: with it in place, `fleck --new-note`
+For reminders to fire while Fleck is closed, also install the autostart entry:
+
+```bash
+install -Dm644 data/io.github.joelebukatobi.Fleck-autostart.desktop ~/.config/autostart/
+```
+
+The D-Bus service line lets the session start Fleck on demand: with it in place, `fleck --new-note`
 and the panel icon work even when Fleck isn't running. The AppStream file is what software
 centres read to list Fleck.
 
@@ -68,6 +74,7 @@ The app and the panel applet are the same program:
 | --- | --- |
 | `fleck` | Opens the notes list, or brings it forward if Fleck is already running. |
 | `fleck --applet` | Runs the panel applet. The panel starts this for you. |
+| `fleck --background` | Runs with no windows, waiting to fire reminders. Used by the autostart entry. |
 | `fleck --list` | Prints every note: id, name, and whether it is open. |
 | `fleck --new-note` | Creates a note and prints its id. |
 | `fleck --show <id>` | Opens a note. |
