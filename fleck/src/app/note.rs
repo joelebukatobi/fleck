@@ -11,8 +11,8 @@ use fleck_core::display_name;
 
 use super::list::dialog_width;
 use super::style::{
-    menu_item_button_class, note_paper_style, note_title_bar_style, rgb, swatch_style,
-    text_button_class,
+    icon_button_class, menu_item_button_class, note_paper_style, note_title_bar_style, rgb,
+    swatch_style, text_button_class, IconHoverRole,
 };
 use super::theme::AppTheme;
 use super::{images, Fleck, Message, NoteDialog, DEFAULT_WINDOW_SIZE};
@@ -62,6 +62,9 @@ const SWATCH_PADDING: u16 = 8;
 const THUMBNAIL_HEIGHT: f32 = 64.0;
 const THUMBNAIL_GAP: u16 = 8;
 const THUMBNAIL_PADDING: u16 = 4;
+/// The close button in a dialog's top-right corner.
+const DIALOG_CLOSE_ICON: u16 = 16;
+const DIALOG_CLOSE_INSET: u16 = 8;
 const MENU_ITEM_PADDING_Y: u16 = 8;
 const MENU_ITEM_PADDING_X: u16 = 16;
 
@@ -547,9 +550,28 @@ impl Fleck {
         frame
             .title(crate::fl!("colour-title"))
             .control(grid)
-            .secondary_action(
-                widget::button::standard(crate::fl!("cancel"))
-                    .on_press(Message::NoteDialogCancel(id)),
+            .apply(|dialog| Self::with_close_button(id, dialog.into()))
+    }
+
+    /// A dialog with a close button in its top-right corner, where every other
+    /// window puts one. For the dialogs that only pick or dismiss; the rename
+    /// and delete confirmations keep a Cancel button of their own.
+    fn with_close_button(id: window::Id, dialog: Element<'_, Message>) -> Element<'_, Message> {
+        let close = widget::button::icon(
+            widget::icon::from_name("window-close-symbolic").size(DIALOG_CLOSE_ICON),
+        )
+        .extra_small()
+        .on_press(Message::NoteDialogCancel(id))
+        .class(icon_button_class(IconHoverRole::Accent));
+        Stack::new()
+            .push(dialog)
+            .push(
+                widget::container(close)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(cosmic::iced::alignment::Horizontal::Right)
+                    .align_y(cosmic::iced::alignment::Vertical::Top)
+                    .padding(DIALOG_CLOSE_INSET),
             )
             .into()
     }
@@ -608,11 +630,7 @@ impl Fleck {
                         widget::button::destructive(crate::fl!("image-delete"))
                             .on_press(Message::NoteImageRemove(id, name.clone())),
                     )
-                    .tertiary_action(
-                        widget::button::standard(crate::fl!("cancel"))
-                            .on_press(Message::NoteDialogCancel(id)),
-                    )
-                    .into()
+                    .apply(|dialog| Self::with_close_button(id, dialog.into()))
             }
             NoteDialog::Delete => {
                 let name = self.notes.get(&uuid).map_or("", display_name);

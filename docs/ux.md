@@ -115,8 +115,8 @@ Modelled on the Windows Sticky Notes list window.
 - **Under the note:** a row of thumbnails, in the order the images appear in the text.
   It is only there when the note has images.
 - **Opening one:** clicking a thumbnail puts the cursor on that image's line in the
-  text and opens the picture full size over the note, with **Copy**, **Delete** and
-  **Cancel**.
+  text and opens the picture full size over the note, with **Copy**, **Delete** and a
+  close button in the dialog's top-right corner.
 - **Copying:** **Copy** puts the picture back on the clipboard, ready to paste
   anywhere else.
 - **Deleting:** **Delete** removes the image's line from the text and its file from disk.
