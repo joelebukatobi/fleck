@@ -925,6 +925,7 @@ impl Fleck {
                 .and_then(|uuid| self.notes.get(&uuid))
                 .map(|note| fleck_core::title(note).to_string())
                 .unwrap_or_default();
+            crate::notify::play_alarm();
             tasks.push(Task::perform(crate::notify::send(summary, body), |()| {
                 cosmic::Action::App(Message::Done)
             }));

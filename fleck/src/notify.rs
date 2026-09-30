@@ -12,9 +12,21 @@ const NEVER_EXPIRE: i32 = 0;
 /// straight into the tray - the difference between being reminded and finding
 /// out later.
 const URGENCY_CRITICAL: u8 = 2;
-/// The freedesktop sound for an alarm going off. COSMIC's notification service
-/// advertises the `sound` capability and plays it.
+/// The freedesktop sound for an alarm going off, asked for by name in the
+/// notification's hints.
 const ALARM_SOUND: &str = "alarm-clock-elapsed";
+/// ...and played by Fleck itself as well: COSMIC's notification service
+/// advertises the `sound` capability but stays silent, and a reminder nobody
+/// hears is a reminder missed. The sound is part of the freedesktop sound
+/// theme, which every desktop ships.
+const ALARM_SOUND_FILES: [&str; 2] = [
+    "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga",
+    "/usr/share/sounds/freedesktop/stereo/complete.oga",
+];
+/// Players to try, in order. Both come with PipeWire and PulseAudio, so one of
+/// them is present on a COSMIC desktop; if neither is, the reminder is still
+/// shown, just silently.
+const PLAYERS: [&str; 2] = ["pw-play", "paplay"];
 
 #[zbus::proxy(
     interface = "org.freedesktop.Notifications",
@@ -65,4 +77,28 @@ pub async fn send(summary: String, body: String) {
     if let Err(error) = sent {
         tracing::warn!(?error, "failed to show a notification");
     }
+}
+
+/// Plays the alarm sound, if a player and a sound file can be found. Detached
+/// and reaped on its own thread, so a stuck player can't hold up the UI.
+pub fn play_alarm() {
+    let Some(sound) = ALARM_SOUND_FILES
+        .iter()
+        .find(|path| std::path::Path::new(path).is_file())
+    else {
+        tracing::debug!("no alarm sound file found");
+        return;
+    };
+    for player in PLAYERS {
+        match std::process::Command::new(player).arg(sound).spawn() {
+            Ok(mut child) => {
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+                return;
+            }
+            Err(error) => tracing::debug!(?error, player, "player not available"),
+        }
+    }
+    tracing::debug!("no audio player found; the reminder is silent");
 }
