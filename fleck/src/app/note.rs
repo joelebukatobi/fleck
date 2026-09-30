@@ -62,6 +62,8 @@ const SWATCH_PADDING: u16 = 8;
 const THUMBNAIL_HEIGHT: f32 = 64.0;
 const THUMBNAIL_GAP: u16 = 8;
 const THUMBNAIL_PADDING: u16 = 4;
+/// The tallest a picture is drawn in the image dialog.
+const IMAGE_DIALOG_MAX_HEIGHT: f32 = 320.0;
 /// The close button in a dialog's top-right corner.
 const DIALOG_CLOSE_ICON: u16 = 16;
 const DIALOG_CLOSE_INSET: u16 = 8;
@@ -609,12 +611,16 @@ impl Fleck {
                 .into(),
             NoteDialog::Colour => self.colour_dialog(id, frame),
             NoteDialog::Image(name) => {
-                let image = self
-                    .store
-                    .image_path(uuid, name)
-                    .map(|path| widget::image(widget::image::Handle::from_path(path)));
+                // No title: the file name is a uuid, which says nothing and
+                // runs under the close button. Bounded height so a big
+                // picture can't push the dialog past the window.
+                let image = self.store.image_path(uuid, name).map(|path| {
+                    widget::image(widget::image::Handle::from_path(path))
+                        .width(Length::Fill)
+                        .height(Length::Fixed(IMAGE_DIALOG_MAX_HEIGHT))
+                        .content_fit(cosmic::iced::ContentFit::Contain)
+                });
                 frame
-                    .title(name.clone())
                     .control(
                         widget::container(image.map_or_else(
                             || Element::from(widget::text::body(crate::fl!("image-missing"))),
