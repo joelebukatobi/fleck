@@ -5,9 +5,16 @@
 
 use std::collections::HashMap;
 
-/// How long COSMIC should show the notification: -1 leaves it to the desktop's
-/// own setting rather than second-guessing it.
-const DEFAULT_TIMEOUT: i32 = -1;
+/// A reminder's notification stays until it is dismissed: 0 means "never
+/// expire". A reminder that flashed past unseen has failed at its one job.
+const NEVER_EXPIRE: i32 = 0;
+/// Critical urgency, so the desktop shows it as a banner rather than filing it
+/// straight into the tray - the difference between being reminded and finding
+/// out later.
+const URGENCY_CRITICAL: u8 = 2;
+/// The freedesktop sound for an alarm going off. COSMIC's notification service
+/// advertises the `sound` capability and plays it.
+const ALARM_SOUND: &str = "alarm-clock-elapsed";
 
 #[zbus::proxy(
     interface = "org.freedesktop.Notifications",
@@ -29,12 +36,18 @@ trait Notifications {
     ) -> zbus::Result<u32>;
 }
 
-/// Shows a notification. Failure is logged, not retried: a missed notification
-/// must never take Fleck down with it, and the reminder is still in the list.
+/// Shows a notification for a reminder: a banner that stays, with the alarm
+/// sound. Failure is logged, not retried: a missed notification must never
+/// take Fleck down with it, and the reminder is still in the list.
 pub async fn send(summary: String, body: String) {
     let sent = async {
         let connection = zbus::Connection::session().await?;
         let proxy = NotificationsProxy::new(&connection).await?;
+        let hints = HashMap::from([
+            ("urgency", zbus::zvariant::Value::U8(URGENCY_CRITICAL)),
+            ("sound-name", zbus::zvariant::Value::from(ALARM_SOUND)),
+            ("category", zbus::zvariant::Value::from("x-fleck.reminder")),
+        ]);
         proxy
             .notify(
                 "Fleck",
@@ -43,8 +56,8 @@ pub async fn send(summary: String, body: String) {
                 &summary,
                 &body,
                 &[],
-                HashMap::new(),
-                DEFAULT_TIMEOUT,
+                hints,
+                NEVER_EXPIRE,
             )
             .await
     }

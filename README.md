@@ -48,6 +48,7 @@ install -Dm755 target/release/fleck ~/.local/bin/fleck
 install -Dm644 data/io.github.joelebukatobi.Fleck.desktop ~/.local/share/applications/
 install -Dm644 data/io.github.joelebukatobi.FleckApplet.desktop ~/.local/share/applications/
 install -Dm644 data/icons/iconoir/page-edit.svg ~/.local/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.FleckApplet-symbolic.svg
+install -Dm644 data/icons/iconoir/page-edit.svg ~/.local/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.Fleck.svg
 install -Dm644 data/io.github.joelebukatobi.Fleck.metainfo.xml ~/.local/share/metainfo/
 sed "s|^Exec=.*|Exec=$HOME/.local/bin/fleck|" data/io.github.joelebukatobi.Fleck.service \
   > ~/.local/share/dbus-1/services/io.github.joelebukatobi.Fleck.service
