@@ -28,8 +28,11 @@ use crate::undo::{EditKind, UndoHistory};
 use list::dialog_width;
 use note::{edit_kind, note_window_settings};
 use reminders::{ListView, ReminderForm};
-use style::text_button_class;
+use style::IconHoverRole;
 use theme::AppTheme;
+
+/// The size of the list header's + icon.
+const HEADER_ICON: u16 = 16;
 
 /// How long to wait after the last keystroke before writing a note to disk.
 const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -1682,28 +1685,31 @@ impl cosmic::Application for Fleck {
     // every note) default to `decorations: true`, i.e. a compositor-drawn
     // title bar with no client content slots at all, so they keep whatever
     // title bar the compositor gives them.
+    /// Which half of the window is showing: a dropdown on the left of the
+    /// header, so switching is one click and the header's width never shifts.
     fn header_start(&self) -> Vec<Element<'_, Message>> {
-        let (label, message) = match self.list_view {
-            ListView::Notes => (crate::fl!("add-note"), Message::NewNote),
-            ListView::Reminders => (crate::fl!("add-reminder"), Message::ReminderAddStart),
+        let views = vec![crate::fl!("tab-notes"), crate::fl!("tab-reminders")];
+        let selected = match self.list_view {
+            ListView::Notes => 0,
+            ListView::Reminders => 1,
         };
-        vec![widget::button::text(label)
-            .on_press(message)
-            .class(text_button_class())
-            .into()]
-    }
-
-    /// The two halves of the list window, as tabs on the right of its header.
-    fn header_end(&self) -> Vec<Element<'_, Message>> {
-        let tab = |label: String, view: ListView| {
-            widget::button::text(label)
-                .on_press(Message::ListViewChanged(view))
-                .class(style::tab_button_class(self.list_view == view))
-                .into()
+        let add = match self.list_view {
+            ListView::Notes => Message::NewNote,
+            ListView::Reminders => Message::ReminderAddStart,
         };
         vec![
-            tab(crate::fl!("tab-notes"), ListView::Notes),
-            tab(crate::fl!("tab-reminders"), ListView::Reminders),
+            widget::dropdown(views, Some(selected), |index| {
+                Message::ListViewChanged(if index == 0 {
+                    ListView::Notes
+                } else {
+                    ListView::Reminders
+                })
+            })
+            .into(),
+            widget::button::icon(widget::icon::from_name("list-add-symbolic").size(HEADER_ICON))
+                .on_press(add)
+                .class(style::header_icon_button_class(IconHoverRole::Accent))
+                .into(),
         ]
     }
 

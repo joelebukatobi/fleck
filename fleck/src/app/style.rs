@@ -498,24 +498,22 @@ pub(super) fn menu_item_button_class() -> cosmic::theme::Button {
     }
 }
 
-/// A tab in the list window's header: COSMIC's text-button style, the active
-/// one in the accent colour, the other in COSMIC's grey (`muted_color`).
-pub(super) fn tab_button_class(active: bool) -> cosmic::theme::Button {
+/// `icon_button_class`, resting in COSMIC's grey (`muted_color`) instead of
+/// the header bar's accent colour. For the list window's + button.
+pub(super) fn header_icon_button_class(role: IconHoverRole) -> cosmic::theme::Button {
     let cosmic::theme::Button::Custom {
-        active: rest,
+        active,
         disabled,
         hovered,
         pressed,
-    } = text_button_class()
+    } = icon_button_class(role)
     else {
-        unreachable!("text_button_class always builds a custom class");
+        unreachable!("icon_button_class always builds a custom class");
     };
     cosmic::theme::Button::Custom {
         active: Box::new(move |focused, theme| {
-            let mut style = rest(focused, theme);
-            if active {
-                style.text_color = Some(icon_hover_color(IconHoverRole::Accent, theme));
-            }
+            let mut style = active(focused, theme);
+            style.icon_color = Some(muted_color(theme));
             style
         }),
         disabled,

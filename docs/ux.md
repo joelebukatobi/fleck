@@ -19,8 +19,9 @@ Plain notes on the experience we want. Not a spec.
 
 Modelled on the Windows Sticky Notes list window.
 
-- **Header:** an **Add Note** button on the left (the same text-button style as a
-  note's Settings), **Fleck** in the middle, then the window buttons on the right.
+- **Header:** a dropdown on the left switching between **Notes** and **Reminders**,
+  then a **+** that adds one of whichever is showing, **Fleck** in the middle, and the
+  window's own buttons on the right.
 - **Search bar** under the header. Filters as you type, matching note names and text.
   The placeholder starts right at the bar's padding, in line with the card titles.
   The magnifier sits at the right edge; there is no clear button.
