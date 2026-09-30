@@ -306,6 +306,11 @@ fn notes_dir() -> std::path::PathBuf {
 
 /// `$XDG_STATE_HOME/fleck/windows.toml`, falling back to
 /// `$HOME/.local/state/fleck/windows.toml`.
+/// `$XDG_DATA_HOME/fleck/reminders.toml`: every reminder, in one file.
+fn reminders_path() -> std::path::PathBuf {
+    xdg_data_home().join("fleck/reminders.toml")
+}
+
 fn window_state_path() -> std::path::PathBuf {
     xdg_state_home().join("fleck/windows.toml")
 }
@@ -438,6 +443,7 @@ fn main() -> cosmic::iced::Result {
             store,
             window_state,
             state_path,
+            reminders_path: reminders_path(),
             dbus_connection: connection,
             dbus_rx,
         },

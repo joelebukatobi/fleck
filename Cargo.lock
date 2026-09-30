@@ -1554,6 +1554,7 @@ name = "fleck"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "chrono",
  "fleck-core",
  "i18n-embed",
  "i18n-embed-fl",

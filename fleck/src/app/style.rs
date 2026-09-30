@@ -498,6 +498,32 @@ pub(super) fn menu_item_button_class() -> cosmic::theme::Button {
     }
 }
 
+/// A tab in the list window's header: COSMIC's text-button style, the active
+/// one in the accent colour, the other in COSMIC's grey (`muted_color`).
+pub(super) fn tab_button_class(active: bool) -> cosmic::theme::Button {
+    let cosmic::theme::Button::Custom {
+        active: rest,
+        disabled,
+        hovered,
+        pressed,
+    } = text_button_class()
+    else {
+        unreachable!("text_button_class always builds a custom class");
+    };
+    cosmic::theme::Button::Custom {
+        active: Box::new(move |focused, theme| {
+            let mut style = rest(focused, theme);
+            if active {
+                style.text_color = Some(icon_hover_color(IconHoverRole::Accent, theme));
+            }
+            style
+        }),
+        disabled,
+        hovered,
+        pressed,
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // exact pixel values are the point of these tests
 mod tests {

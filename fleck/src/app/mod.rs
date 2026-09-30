@@ -6,6 +6,7 @@ use std::time::{Duration, Instant, SystemTime};
 mod images;
 mod list;
 mod note;
+mod reminders;
 mod style;
 mod theme;
 
@@ -26,6 +27,7 @@ use crate::undo::{EditKind, UndoHistory};
 
 use list::dialog_width;
 use note::{edit_kind, note_window_settings};
+use reminders::{ListView, ReminderForm};
 use style::text_button_class;
 use theme::AppTheme;
 
@@ -58,6 +60,7 @@ pub struct Flags {
     pub store: Store,
     pub window_state: WindowState,
     pub state_path: PathBuf,
+    pub reminders_path: PathBuf,
     pub dbus_connection: zbus::Connection,
     pub dbus_rx: mpsc::Receiver<dbus::Request>,
 }
@@ -195,6 +198,23 @@ pub enum Message {
     NoteBackToList(window::Id),
     /// A theme picked in a note's menu, for every Fleck window.
     SetTheme(AppTheme),
+    /// The list window switched between notes and reminders.
+    ListViewChanged(ListView),
+    /// "Add Reminder": open an empty reminder form.
+    ReminderAddStart,
+    /// A reminder card was clicked: open it for editing.
+    ReminderEditStart(Uuid),
+    /// Keystrokes in the reminder form.
+    ReminderFormText(String),
+    ReminderFormDate(String),
+    ReminderFormTime(String),
+    ReminderFormRepeat(fleck_core::Repeat),
+    /// "Save" in the reminder form.
+    ReminderSave,
+    /// "Cancel" in the reminder form.
+    ReminderCancel,
+    /// A reminder's trash button.
+    ReminderDelete(Uuid),
     /// Ctrl+V in a note: look for an image on the clipboard first.
     NotePasteImage(window::Id),
     /// What the clipboard held: an image (encoded PNG), or nothing usable, in
@@ -408,6 +428,13 @@ pub struct Fleck {
     note_dialog: Option<(window::Id, NoteDialog)>,
     /// Stable id for the rename dialog's text input, so it can be focused.
     note_rename_input_id: id::Id,
+    /// Every reminder, and where they are kept.
+    reminders: fleck_core::Reminders,
+    reminders_path: PathBuf,
+    /// Which half of the list window is showing.
+    list_view: ListView,
+    /// The reminder being added or edited, if any.
+    reminder_form: Option<ReminderForm>,
     /// The note window a drag carrying files is currently over.
     drag_over_note: Option<window::Id>,
 }
@@ -861,6 +888,14 @@ impl Fleck {
         self.dirty.insert(uuid, Instant::now());
     }
 
+    /// Writes the reminders file. Errors are logged, not retried: a lost
+    /// reminder is worth less than a crash at startup.
+    fn save_reminders(&self) {
+        if let Err(error) = self.reminders.save(&self.reminders_path) {
+            tracing::error!(?error, "failed to save the reminders");
+        }
+    }
+
     /// Types `text` into note window `id` at the cursor, as a paste: the
     /// editor, the note and the undo history all see it exactly as they would
     /// a Ctrl+V of that text.
@@ -1009,6 +1044,7 @@ impl cosmic::Application for Fleck {
             store,
             window_state,
             state_path,
+            reminders_path,
             dbus_connection,
             dbus_rx,
         } = flags;
@@ -1052,6 +1088,10 @@ impl cosmic::Application for Fleck {
             store,
             window_state,
             state_path,
+            reminders: fleck_core::Reminders::load(&reminders_path),
+            reminders_path,
+            list_view: ListView::default(),
+            reminder_form: None,
             window_state_dirty: false,
             windows: HashMap::new(),
             list_window,
@@ -1386,6 +1426,63 @@ impl cosmic::Application for Fleck {
                 }
                 Task::none()
             }
+            Message::ListViewChanged(view) => {
+                self.list_view = view;
+                Task::none()
+            }
+            Message::ReminderAddStart => {
+                self.reminder_form = Some(ReminderForm::new(None, String::new()));
+                Task::none()
+            }
+            Message::ReminderEditStart(uuid) => {
+                self.reminder_form = self
+                    .reminders
+                    .reminders
+                    .iter()
+                    .find(|reminder| reminder.uuid == uuid)
+                    .map(ReminderForm::editing);
+                Task::none()
+            }
+            Message::ReminderFormText(text) => {
+                if let Some(form) = &mut self.reminder_form {
+                    form.text = text;
+                }
+                Task::none()
+            }
+            Message::ReminderFormDate(date) => {
+                if let Some(form) = &mut self.reminder_form {
+                    form.date = date;
+                }
+                Task::none()
+            }
+            Message::ReminderFormTime(time) => {
+                if let Some(form) = &mut self.reminder_form {
+                    form.time = time;
+                }
+                Task::none()
+            }
+            Message::ReminderFormRepeat(repeat) => {
+                if let Some(form) = &mut self.reminder_form {
+                    form.repeat = repeat;
+                }
+                Task::none()
+            }
+            Message::ReminderSave => {
+                if let Some(reminder) = self.reminder_form.take().and_then(|form| form.build()) {
+                    self.reminders.insert(reminder);
+                    self.save_reminders();
+                }
+                Task::none()
+            }
+            Message::ReminderCancel => {
+                self.reminder_form = None;
+                Task::none()
+            }
+            Message::ReminderDelete(uuid) => {
+                self.reminders.remove(uuid);
+                self.save_reminders();
+                Task::none()
+            }
             Message::NotePasteImage(id) => Task::perform(
                 // Off the UI thread: reading the clipboard blocks.
                 async {
@@ -1586,10 +1683,28 @@ impl cosmic::Application for Fleck {
     // title bar with no client content slots at all, so they keep whatever
     // title bar the compositor gives them.
     fn header_start(&self) -> Vec<Element<'_, Message>> {
-        vec![widget::button::text(crate::fl!("add-note"))
-            .on_press(Message::NewNote)
+        let (label, message) = match self.list_view {
+            ListView::Notes => (crate::fl!("add-note"), Message::NewNote),
+            ListView::Reminders => (crate::fl!("add-reminder"), Message::ReminderAddStart),
+        };
+        vec![widget::button::text(label)
+            .on_press(message)
             .class(text_button_class())
             .into()]
+    }
+
+    /// The two halves of the list window, as tabs on the right of its header.
+    fn header_end(&self) -> Vec<Element<'_, Message>> {
+        let tab = |label: String, view: ListView| {
+            widget::button::text(label)
+                .on_press(Message::ListViewChanged(view))
+                .class(style::tab_button_class(self.list_view == view))
+                .into()
+        };
+        vec![
+            tab(crate::fl!("tab-notes"), ListView::Notes),
+            tab(crate::fl!("tab-reminders"), ListView::Reminders),
+        ]
     }
 
     fn header_center(&self) -> Vec<Element<'_, Message>> {
@@ -1602,6 +1717,9 @@ impl cosmic::Application for Fleck {
     /// it replaces - Reopen opens every candidate and closes the list, No
     /// thanks just dismisses the dialog.
     fn dialog(&self) -> Option<Element<'_, Message>> {
+        if let Some(form) = &self.reminder_form {
+            return Some(self.view_reminder_form(form));
+        }
         if self.restore_dialog_active() {
             let count = self.restore_candidates.len();
             return Some(
@@ -1652,7 +1770,10 @@ impl cosmic::Application for Fleck {
 
     fn view_window(&self, id: window::Id) -> Element<'_, Message> {
         if Some(id) == self.list_window {
-            return self.view_list();
+            return match self.list_view {
+                ListView::Notes => self.view_list(),
+                ListView::Reminders => self.view_reminders(),
+            };
         }
         self.view_note(id)
     }
@@ -1671,6 +1792,11 @@ mod tests {
             window_state: WindowState::default(),
             state_path: std::env::temp_dir()
                 .join(format!("fleck-test-windows-{}.toml", Uuid::new_v4())),
+            reminders: fleck_core::Reminders::default(),
+            reminders_path: std::env::temp_dir()
+                .join(format!("fleck-test-reminders-{}.toml", Uuid::new_v4())),
+            list_view: ListView::default(),
+            reminder_form: None,
             window_state_dirty: false,
             windows: HashMap::new(),
             list_window: None,
