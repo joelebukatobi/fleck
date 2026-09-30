@@ -22,8 +22,11 @@ use crate::palette::Colour;
 /// The date and time formats the form's fields use.
 const DATE_FORMAT: &str = "%Y-%m-%d";
 const TIME_FORMAT: &str = "%H:%M";
-/// How far ahead a new reminder is set by default.
-const DEFAULT_LEAD_HOURS: i64 = 1;
+/// How far ahead a new reminder is set by default, rounded up to the next
+/// `DEFAULT_ROUNDING` minutes. Short, because "remind me shortly" is the
+/// common case and a wrong default is easy to accept without reading.
+const DEFAULT_LEAD_MINUTES: i64 = 10;
+const DEFAULT_ROUNDING: i64 = 5;
 
 /// Which half of the list window is showing. `pub(crate)` only because it
 /// rides through `Message`.
@@ -50,7 +53,7 @@ pub(super) struct ReminderForm {
 impl ReminderForm {
     /// A new reminder, due an hour from now, optionally about `note`.
     pub(super) fn new(note: Option<Uuid>, text: String) -> Self {
-        let due = Local::now() + chrono::Duration::hours(DEFAULT_LEAD_HOURS);
+        let due = default_due();
         Self {
             uuid: None,
             text,
@@ -96,6 +99,39 @@ impl ReminderForm {
             reminder.uuid = uuid;
         }
         Some(reminder)
+    }
+}
+
+/// A new reminder's time: `DEFAULT_LEAD_MINUTES` from now, rounded up to the
+/// next `DEFAULT_ROUNDING` minutes so it reads as a round time.
+fn default_due() -> DateTime<Local> {
+    let soon = Local::now() + chrono::Duration::minutes(DEFAULT_LEAD_MINUTES);
+    let over = i64::from(soon.minute()) % DEFAULT_ROUNDING;
+    let rounded = soon + chrono::Duration::minutes((DEFAULT_ROUNDING - over) % DEFAULT_ROUNDING);
+    rounded.with_second(0).unwrap_or(rounded)
+}
+
+/// How far away a time is, in words, for the reminder form: "in 10 minutes",
+/// "in 3 hours", "2 days ago".
+pub(super) fn relative_to_now(due: DateTime<Local>, now: DateTime<Local>) -> String {
+    let ahead = due - now;
+    let past = ahead < chrono::Duration::zero();
+    let ahead = if past { -ahead } else { ahead };
+    let (count, unit) = if ahead < chrono::Duration::hours(1) {
+        (ahead.num_minutes().max(1), "minute")
+    } else if ahead < chrono::Duration::days(1) {
+        (ahead.num_hours(), "hour")
+    } else {
+        (ahead.num_days(), "day")
+    };
+    // A number, not a string: Fluent picks singular or plural from it.
+    match (past, unit) {
+        (false, "minute") => crate::fl!("in-minutes", count = count),
+        (false, "hour") => crate::fl!("in-hours", count = count),
+        (false, _) => crate::fl!("in-days", count = count),
+        (true, "minute") => crate::fl!("ago-minutes", count = count),
+        (true, "hour") => crate::fl!("ago-hours", count = count),
+        (true, _) => crate::fl!("ago-days", count = count),
     }
 }
 
@@ -286,8 +322,13 @@ impl Fleck {
                     .push(widget::text::caption(crate::fl!("reminder-repeat")))
                     .push(repeats),
             );
-        if form.due().is_none() {
-            controls = controls.push(widget::text::body(crate::fl!("reminder-invalid")));
+        // Says how far away the typed time is, so an accepted default can't be
+        // misread as "soon".
+        match form.due() {
+            Some(due) => {
+                controls = controls.push(widget::text::body(relative_to_now(due, Local::now())));
+            }
+            None => controls = controls.push(widget::text::body(crate::fl!("reminder-invalid"))),
         }
 
         let title = if form.uuid.is_some() {
@@ -321,12 +362,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_new_form_is_due_about_an_hour_from_now() {
+    fn a_new_form_is_due_shortly_on_a_round_five_minutes() {
         let form = ReminderForm::new(None, String::new());
         let due = form.due().expect("the default form is valid");
         let ahead = due - Local::now();
-        assert!(ahead > chrono::Duration::minutes(50) && ahead <= chrono::Duration::hours(1));
+
+        assert!(
+            ahead >= chrono::Duration::minutes(9) && ahead <= chrono::Duration::minutes(15),
+            "about ten minutes ahead, not an hour: {ahead}"
+        );
+        assert_eq!(due.minute() % 5, 0, "rounded to a round five minutes");
         assert_eq!(form.uuid, None);
+    }
+
+    #[test]
+    fn how_far_away_a_time_is_reads_plainly() {
+        /// Without Fluent's bidi isolation marks around the number.
+        fn plain(text: &str) -> String {
+            text.replace(['\u{2068}', '\u{2069}'], "")
+        }
+        let now = Local::now();
+        assert_eq!(
+            plain(&relative_to_now(now + chrono::Duration::minutes(10), now)),
+            "in 10 minutes"
+        );
+        assert_eq!(
+            plain(&relative_to_now(now + chrono::Duration::hours(3), now)),
+            "in 3 hours"
+        );
+        assert_eq!(
+            plain(&relative_to_now(now - chrono::Duration::days(2), now)),
+            "2 days ago"
+        );
+        assert_eq!(
+            plain(&relative_to_now(now + chrono::Duration::hours(1), now)),
+            "in 1 hour",
+            "singular reads properly"
+        );
     }
 
     #[test]

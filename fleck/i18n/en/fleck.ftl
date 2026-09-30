@@ -93,3 +93,29 @@ reminder-time = Time
 reminder-repeat = Repeat
 reminder-invalid = Enter a date as 2026-10-01 and a time as 09:30.
 remind-me = Remind me
+
+# How far away a reminder's time is, shown in its form.
+in-minutes = { $count ->
+    [one] in { $count } minute
+   *[other] in { $count } minutes
+}
+in-hours = { $count ->
+    [one] in { $count } hour
+   *[other] in { $count } hours
+}
+in-days = { $count ->
+    [one] in { $count } day
+   *[other] in { $count } days
+}
+ago-minutes = { $count ->
+    [one] { $count } minute ago
+   *[other] { $count } minutes ago
+}
+ago-hours = { $count ->
+    [one] { $count } hour ago
+   *[other] { $count } hours ago
+}
+ago-days = { $count ->
+    [one] { $count } day ago
+   *[other] { $count } days ago
+}

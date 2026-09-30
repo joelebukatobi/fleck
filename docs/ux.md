@@ -137,6 +137,8 @@ Modelled on the Windows Sticky Notes list window.
   (once, every day, weekdays, every week, every month). It may also be about a note.
 - **Remind me** in a note's menu makes a reminder about that note, and opens the form
   with the note already linked.
+- A new reminder starts ten minutes ahead, rounded to the next five minutes, and the
+  form says how far away the time is ("in 10 minutes"), so a default can't be misread.
 - Reminders are listed soonest first, showing when they are due in words ("Today at
   17:00", "Tue at 09:00"), and how often they repeat. One about a note wears that
   note's colour. Clicking one opens it for editing; the trash button deletes it.
