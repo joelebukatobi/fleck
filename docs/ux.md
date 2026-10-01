@@ -137,7 +137,7 @@ Modelled on the Windows Sticky Notes list window.
   and how often it repeats (once, every day, weekdays, every week, every month). It may
   also be about a note.
 - The description is a small multi-line box; the repeat choices sit in two columns.
-- **Events:** ticking *This is an event* adds a **Location**. Untick it and the location
+- **Events:** ticking *Is this an event?* adds a **Location**. Untick it and the location
   goes with it. The location and description show on the card and in the notification.
 - **Remind me** in a note's menu makes a reminder about that note, and opens the form
   with the note already linked.
