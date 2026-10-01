@@ -66,8 +66,8 @@ install:
     install -Dm0644 data/{{appid}}-autostart.desktop {{autostart-dst}}
     install -Dm0644 data/{{appid}}.metainfo.xml {{metainfo-dst}}
     install -Dm0644 data/{{appid}}.service {{dbus-dst}}
-    install -Dm0644 data/icons/iconoir/page-edit.svg {{icon-dst}}
-    install -Dm0644 data/icons/iconoir/page-edit.svg {{applet-icon-dst}}
+    install -Dm0644 data/icons/fleck/io.github.joelebukatobi.Fleck.svg {{icon-dst}}
+    install -Dm0644 data/icons/fleck/io.github.joelebukatobi.Fleck-symbolic.svg {{applet-icon-dst}}
 
 uninstall:
     rm -f {{bin-dst}} {{desktop-dst}} {{applet-desktop-dst}} {{autostart-dst}} \
@@ -79,8 +79,8 @@ install-user: build-release
     install -Dm0644 data/{{appid}}.desktop {{user-share}}/applications/{{appid}}.desktop
     install -Dm0644 data/{{appletid}}.desktop {{user-share}}/applications/{{appletid}}.desktop
     install -Dm0644 data/{{appid}}.metainfo.xml {{user-share}}/metainfo/{{appid}}.metainfo.xml
-    install -Dm0644 data/icons/iconoir/page-edit.svg {{user-share}}/icons/hicolor/scalable/apps/{{appid}}.svg
-    install -Dm0644 data/icons/iconoir/page-edit.svg {{user-share}}/icons/hicolor/scalable/apps/{{appletid}}-symbolic.svg
+    install -Dm0644 data/icons/fleck/io.github.joelebukatobi.Fleck.svg {{user-share}}/icons/hicolor/scalable/apps/{{appid}}.svg
+    install -Dm0644 data/icons/fleck/io.github.joelebukatobi.Fleck-symbolic.svg {{user-share}}/icons/hicolor/scalable/apps/{{appletid}}-symbolic.svg
     install -Dm0644 data/{{appid}}-autostart.desktop {{user-config}}/autostart/{{appid}}-autostart.desktop
     sed "s|^Exec=.*|Exec={{user-bin-dst}}|" data/{{appid}}.service \
         > {{user-share}}/dbus-1/services/{{appid}}.service

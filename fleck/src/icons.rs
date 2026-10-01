@@ -1,4 +1,5 @@
-//! Bundled Iconoir icons (regular set): stroke 2 for the panel icon, stroke 1.5 for the rest. Embedded with
+//! Bundled icons: Fleck's own mark for the panel, Iconoir (regular set, stroke
+//! 1.5) for everything inside the app. Embedded with
 //! `include_bytes!` so nothing is read from disk at runtime; each handle is
 //! marked `.symbolic(true)` so libcosmic tints it to the theme's icon colour -
 //! see `iced/widget/src/svg.rs` (`symbolic` field, used in `draw`) and
@@ -8,7 +9,9 @@ use cosmic::widget;
 const TRASH: &[u8] = include_bytes!("../../data/icons/iconoir/trash.svg");
 const TRASH_FILLED: &[u8] = include_bytes!("../../data/icons/iconoir/trash-filled.svg");
 const SEARCH: &[u8] = include_bytes!("../../data/icons/iconoir/search.svg");
-const PAGE_EDIT: &[u8] = include_bytes!("../../data/icons/iconoir/page-edit.svg");
+/// Fleck's own icon, in its monochrome form: a note with a fleck on it.
+const MARK: &[u8] =
+    include_bytes!("../../data/icons/fleck/io.github.joelebukatobi.Fleck-symbolic.svg");
 const MICROPHONE: &[u8] = include_bytes!("../../data/icons/iconoir/microphone.svg");
 
 /// The delete button on each card.
@@ -31,9 +34,9 @@ pub fn microphone() -> widget::icon::Handle {
     widget::icon::from_svg_bytes(MICROPHONE).symbolic(true)
 }
 
-/// The panel applet icon (`fleck --applet`).
-pub fn page_edit() -> widget::icon::Handle {
-    widget::icon::from_svg_bytes(PAGE_EDIT).symbolic(true)
+/// The panel applet icon (`fleck --applet`): Fleck's own mark.
+pub fn mark() -> widget::icon::Handle {
+    widget::icon::from_svg_bytes(MARK).symbolic(true)
 }
 
 #[cfg(test)]
@@ -51,16 +54,24 @@ mod tests {
     }
 
     #[test]
-    fn panel_icon_uses_stroke_two_the_rest_stroke_one_and_a_half() {
-        assert_eq!(stroke_width(PAGE_EDIT), "2");
+    fn the_iconoir_icons_use_stroke_one_and_a_half() {
         for bytes in [TRASH, TRASH_FILLED, SEARCH, MICROPHONE] {
             assert_eq!(stroke_width(bytes), "1.5");
         }
     }
 
+    /// The panel draws the mark at 16 px and tints it, so it is filled rather
+    /// than stroked, and square.
+    #[test]
+    fn the_mark_is_a_square_filled_icon() {
+        let svg = std::str::from_utf8(MARK).expect("SVGs are UTF-8");
+        assert!(svg.contains(r#"viewBox="0 0 16 16""#), "{svg}");
+        assert!(!svg.contains("stroke-width"), "{svg}");
+    }
+
     #[test]
     fn handles_are_marked_symbolic() {
-        for handle in [trash(), trash_filled(), search(), page_edit(), microphone()] {
+        for handle in [trash(), trash_filled(), search(), mark(), microphone()] {
             assert!(handle.symbolic);
         }
     }

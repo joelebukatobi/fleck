@@ -9,8 +9,8 @@ Sticky notes for the COSMIC desktop, in Rust with libcosmic. Private repo:
   dependencies, so it is unit-testable on its own.
 - `fleck/` — crate `fleck`: the app, the notes list, note windows, and the panel
   applet (`fleck --applet`; one binary does both).
-- `data/` — desktop entries, AppStream metainfo, D-Bus service file, bundled
-  Iconoir icons.
+- `data/` — desktop entries, AppStream metainfo, D-Bus service file, Fleck's own
+  icon, bundled Iconoir icons.
 - `docs/ux.md` — the product's behaviour in plain language. **Update it with every
   behaviour or look change**; it is the source of truth for how Fleck should act.
 - `docs/superpowers/` — planning notes, local only. Never commit (see `.gitignore`).
@@ -38,8 +38,9 @@ Sticky notes for the COSMIC desktop, in Rust with libcosmic. Private repo:
   `Cargo.toml`. Deliberate exceptions are allowed in place, each with a reason.
 - **Text:** every user-visible string goes through `fl!()` into
   `fleck/i18n/en/fleck.ftl`. Message ids are checked at compile time.
-- **Icons:** Iconoir SVGs in `data/icons/iconoir/`, bundled with `include_bytes!` and
-  drawn in the theme's colour. Stroke 2 for the panel icon, 1.5 for the rest.
+- **Icons:** Fleck's own icon in `data/icons/fleck/` (colour for the launcher,
+  symbolic for the panel); Iconoir SVGs at stroke 1.5 in `data/icons/iconoir/` for
+  everything inside the app. All bundled with `include_bytes!` and tinted by the theme.
 - **Spacing:** multiples of 8 unless a platform number forces otherwise (libcosmic's
   header-bar padding is 7, for example).
 - **Colours:** `fleck/src/palette.rs`. A note's colour is used as-is in light and dark

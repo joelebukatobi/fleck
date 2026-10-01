@@ -219,8 +219,11 @@ Modelled on the Windows Sticky Notes list window.
 
 - Fleck uses its own bundled icons from **Iconoir** (MIT), not the system icon theme,
   so they look the same whatever COSMIC's icon theme is set to.
-- **Stroke 2** for `page-edit` (panel icon).
+- **Stroke 2** nowhere: the only stroked icons are Iconoir's, at 1.5.
 - **Stroke 1.5** for `search` and `trash` (delete).
 - Icons follow the theme's text colour, so they work in light and dark mode.
-- Fleck's own app icon, for the panel list and the app library, comes with the design pass.
+- **Fleck's own icon** is drawn, not borrowed: a note with one corner folded and a
+  single cyan fleck on it. The colour version (yellow paper, 128 px) is the app icon
+  in the launcher and the app library; the monochrome 16 px version is the panel
+  applet's icon and is tinted by COSMIC like any symbolic icon.
 

@@ -51,14 +51,14 @@ just model           # the speech model for dictation, about 142 MB
 `just uninstall` removes it again. `just check` runs everything CI runs.
 
 By hand, if you'd rather: copy the program somewhere on your `PATH`, install the two desktop entries (one
-for the app, one for the panel applet) and the panel applet's icon:
+for the app, one for the panel applet) and Fleck's icons:
 
 ```bash
 install -Dm755 target/release/fleck ~/.local/bin/fleck
 install -Dm644 data/io.github.joelebukatobi.Fleck.desktop ~/.local/share/applications/
 install -Dm644 data/io.github.joelebukatobi.FleckApplet.desktop ~/.local/share/applications/
-install -Dm644 data/icons/iconoir/page-edit.svg ~/.local/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.FleckApplet-symbolic.svg
-install -Dm644 data/icons/iconoir/page-edit.svg ~/.local/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.Fleck.svg
+install -Dm644 data/icons/fleck/io.github.joelebukatobi.Fleck-symbolic.svg ~/.local/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.FleckApplet-symbolic.svg
+install -Dm644 data/icons/fleck/io.github.joelebukatobi.Fleck.svg ~/.local/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.Fleck.svg
 install -Dm644 data/io.github.joelebukatobi.Fleck.metainfo.xml ~/.local/share/metainfo/
 sed "s|^Exec=.*|Exec=$HOME/.local/bin/fleck|" data/io.github.joelebukatobi.Fleck.service \
   > ~/.local/share/dbus-1/services/io.github.joelebukatobi.Fleck.service
