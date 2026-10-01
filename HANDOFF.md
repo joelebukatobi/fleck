@@ -9,7 +9,7 @@ left**, and it is deliberately last.
 
 ## State
 
-- Branch `dev`, clean tree, **33 commits ahead of `origin/dev`** (images, reminders,
+- Branch `dev`, clean tree, **35 commits ahead of `origin/dev`** (images, reminders,
   dictation, metadata files). Push when Joel says so.
 - `master` trails `dev` by everything since the icon work.
 - Tests: 129 in `fleck`, 94 in `fleck-core`. Clippy clean at pedantic.
@@ -27,12 +27,17 @@ left**, and it is deliberately last.
   `~/.local/share/fleck/models/`), types the result at the cursor. Needs `libclang-dev`
   and `cmake` to build.
 - AppStream metainfo, D-Bus service file, autostart entry.
+- **`justfile`**: build, check, validate, install/uninstall (system and user), model.
+- **Fleck's own icon** (`data/icons/fleck/`): colour for the launcher, symbolic for
+  the panel, replacing Iconoir's page-edit. Installed into
+  `~/.local/share/icons/hicolor/scalable/apps/` for this user.
 
 ## Next
 
 1. Push the waiting commits to `dev` (ask first).
-2. Packaging: `.deb`, Fleck's own drawn app icon (the page-edit icon stands in),
-   `justfile`, screenshots for the AppStream file, and how Fleck reaches other people.
+2. Packaging: `.deb`, screenshots for the AppStream file, and how Fleck reaches other
+   people (parked deliberately).
+3. Restart the applet (`pkill -f 'fleck --applet'`) to see the new panel icon.
 
 ## Decisions
 
@@ -43,6 +48,8 @@ left**, and it is deliberately last.
 - Dialogs are modal and nothing dims behind them (COSMIC doesn't either).
 - Pick-or-dismiss dialogs close from a corner button; confirmations keep Cancel.
 - Existing notes stay yellow; new notes are Default.
+- The icon is drawn by hand, not from an icon set; the design tool's provenance
+  metadata is stripped (8 KB of an 8.5 KB file).
 
 ## Open, small
 
