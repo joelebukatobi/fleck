@@ -522,6 +522,38 @@ pub(super) fn header_icon_button_class(role: IconHoverRole) -> cosmic::theme::Bu
     }
 }
 
+/// The multi-line description box, drawn like COSMIC's one-line text fields:
+/// a `text_editor` is a different widget from a `text_input` and comes with
+/// its own look, which sat oddly beside the fields above and below it.
+pub(super) fn description_editor_style(
+    theme: &cosmic::Theme,
+    status: cosmic::widget::text_editor::Status,
+) -> cosmic::widget::text_editor::Style {
+    use cosmic::widget::text_input::StyleSheet as _;
+    let class = cosmic::theme::TextInput::Default;
+    let field = match status {
+        cosmic::widget::text_editor::Status::Focused { .. } => theme.focused(&class),
+        cosmic::widget::text_editor::Status::Hovered => theme.hovered(&class),
+        cosmic::widget::text_editor::Status::Disabled => theme.disabled(&class),
+        cosmic::widget::text_editor::Status::Active => theme.active(&class),
+    };
+    cosmic::widget::text_editor::Style {
+        background: field.background,
+        border: Border {
+            radius: field.border_radius,
+            width: field.border_width,
+            color: field.border_color,
+        },
+        placeholder: field.placeholder_color,
+        // The theme leaves the text colour unset to mean "inherit"; the
+        // editor needs a real colour, so fall back to the container's.
+        value: field
+            .text_color
+            .unwrap_or_else(|| Color::from(theme.current_container().on)),
+        selection: theme.cosmic().accent.base.into(),
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // exact pixel values are the point of these tests
 mod tests {

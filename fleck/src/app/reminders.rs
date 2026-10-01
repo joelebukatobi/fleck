@@ -350,6 +350,8 @@ impl Fleck {
                     .push(
                         text_editor::text_editor(description)
                             .height(Length::Fixed(DESCRIPTION_HEIGHT))
+                            .padding(DESCRIPTION_PADDING)
+                            .style(super::style::description_editor_style)
                             .on_action(Message::ReminderFormDescription),
                     ),
             )
@@ -420,8 +422,10 @@ impl Fleck {
 
 const FORM_FIELD_GAP: u16 = 16;
 const FORM_LABEL_GAP: u16 = 4;
-/// The description box's height: a few lines, not a whole page.
+/// The description box's height: a few lines, not a whole page, with the
+/// same inner padding as COSMIC's one-line fields.
 const DESCRIPTION_HEIGHT: f32 = 96.0;
+const DESCRIPTION_PADDING: u16 = 8;
 /// The repeat choices are laid out in this many columns.
 const REPEAT_COLUMNS: usize = 2;
 
