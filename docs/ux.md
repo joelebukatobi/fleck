@@ -146,7 +146,8 @@ Modelled on the Windows Sticky Notes list window.
 - Reminders are listed soonest first, showing when they are due in words ("Today at
   17:00", "Tue at 09:00"), and how often they repeat. One about a note wears that
   note's colour. Clicking one opens it for editing; the trash button deletes it.
-- **When one comes due:** a desktop notification, and the note it is about opens. A
+- **When one comes due:** a desktop notification, an alarm that sounds for about ten
+  seconds, and the note it is about opens. A
   repeating reminder moves to its next occurrence; a one-off is done and goes.
 - A reminder missed while Fleck was closed fires as soon as Fleck starts, and a
   repeating one moves to the next occurrence still ahead rather than firing for every
