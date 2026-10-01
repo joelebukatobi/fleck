@@ -217,7 +217,7 @@ pub enum Message {
     ReminderEditStart(Uuid),
     /// Keystrokes in the reminder form.
     ReminderFormText(String),
-    ReminderFormDescription(String),
+    ReminderFormDescription(text_editor::Action),
     ReminderFormEvent(bool),
     ReminderFormLocation(String),
     ReminderFormDate(String),
@@ -458,6 +458,9 @@ pub struct Fleck {
     background: bool,
     /// The reminder being added or edited, if any.
     reminder_form: Option<ReminderForm>,
+    /// The description box's own state, which `text_editor` keeps rather than
+    /// the form: it is a multi-line editor, not a one-line field.
+    reminder_description: text_editor::Content,
     /// The note window a drag carrying files is currently over.
     drag_over_note: Option<window::Id>,
 }
@@ -1152,6 +1155,7 @@ impl cosmic::Application for Fleck {
             reminders_path,
             list_view: ListView::default(),
             reminder_form: None,
+            reminder_description: text_editor::Content::new(),
             background,
             window_state_dirty: false,
             windows: HashMap::new(),
@@ -1504,6 +1508,7 @@ impl cosmic::Application for Fleck {
             }
             Message::ReminderAddStart => {
                 self.reminder_form = Some(ReminderForm::new(None, String::new()));
+                self.reminder_description = text_editor::Content::new();
                 Task::none()
             }
             Message::ReminderEditStart(uuid) => {
@@ -1513,6 +1518,12 @@ impl cosmic::Application for Fleck {
                     .iter()
                     .find(|reminder| reminder.uuid == uuid)
                     .map(ReminderForm::editing);
+                let description = self
+                    .reminder_form
+                    .as_ref()
+                    .map(|form| form.description.clone())
+                    .unwrap_or_default();
+                self.reminder_description = text_editor::Content::with_text(&description);
                 Task::none()
             }
             Message::ReminderFormText(text) => {
@@ -1521,9 +1532,10 @@ impl cosmic::Application for Fleck {
                 }
                 Task::none()
             }
-            Message::ReminderFormDescription(description) => {
+            Message::ReminderFormDescription(action) => {
+                self.reminder_description.perform(action);
                 if let Some(form) = &mut self.reminder_form {
-                    form.description = description;
+                    form.description = self.reminder_description.text();
                 }
                 Task::none()
             }
@@ -1583,6 +1595,7 @@ impl cosmic::Application for Fleck {
                 // The form is a dialog on the list window, so bring that up.
                 self.list_view = ListView::Reminders;
                 self.reminder_form = Some(ReminderForm::new(Some(uuid), String::new()));
+                self.reminder_description = text_editor::Content::new();
                 self.show_list()
             }
             Message::NotePasteImage(id) => Task::perform(
@@ -1823,7 +1836,7 @@ impl cosmic::Application for Fleck {
     /// thanks just dismisses the dialog.
     fn dialog(&self) -> Option<Element<'_, Message>> {
         if let Some(form) = &self.reminder_form {
-            return Some(self.view_reminder_form(form));
+            return Some(self.view_reminder_form(form, &self.reminder_description));
         }
         if self.restore_dialog_active() {
             let count = self.restore_candidates.len();
@@ -1902,6 +1915,7 @@ mod tests {
                 .join(format!("fleck-test-reminders-{}.toml", Uuid::new_v4())),
             list_view: ListView::default(),
             reminder_form: None,
+            reminder_description: text_editor::Content::new(),
             background: false,
             window_state_dirty: false,
             windows: HashMap::new(),

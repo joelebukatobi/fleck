@@ -6,6 +6,7 @@ use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveTime, Timelike};
 use cosmic::iced::{Alignment, Length};
 use cosmic::prelude::*;
 use cosmic::widget;
+use cosmic::widget::text_editor;
 use fleck_core::{display_name, local_at, Reminder, Repeat};
 use uuid::Uuid;
 
@@ -306,7 +307,11 @@ impl Fleck {
     }
 
     /// The add-or-edit reminder dialog, over the list window.
-    pub(super) fn view_reminder_form(&self, form: &ReminderForm) -> Element<'_, Message> {
+    pub(super) fn view_reminder_form<'a>(
+        &'a self,
+        form: &'a ReminderForm,
+        description: &'a text_editor::Content,
+    ) -> Element<'a, Message> {
         let field = |label: String, value: &str, on_input: fn(String) -> Message| {
             widget::Column::with_capacity(2)
                 .spacing(FORM_LABEL_GAP)
@@ -314,14 +319,21 @@ impl Fleck {
                 .push(widget::text_input("", value.to_string()).on_input(on_input))
         };
 
-        let mut repeats = widget::Column::with_capacity(Repeat::ALL.len()).spacing(FORM_LABEL_GAP);
-        for repeat in Repeat::ALL {
-            repeats = repeats.push(widget::radio(
-                widget::text::body(repeat_label(repeat)),
-                repeat,
-                Some(form.repeat),
-                Message::ReminderFormRepeat,
-            ));
+        // Two columns: five repeats in one column made the dialog tall and
+        // left half of it empty.
+        let per_column = Repeat::ALL.len().div_ceil(REPEAT_COLUMNS);
+        let mut repeats = widget::Row::with_capacity(REPEAT_COLUMNS).spacing(FORM_FIELD_GAP);
+        for column in Repeat::ALL.chunks(per_column) {
+            let mut choices = widget::Column::with_capacity(per_column).spacing(FORM_LABEL_GAP);
+            for &repeat in column {
+                choices = choices.push(widget::radio(
+                    widget::text::body(repeat_label(repeat)),
+                    repeat,
+                    Some(form.repeat),
+                    Message::ReminderFormRepeat,
+                ));
+            }
+            repeats = repeats.push(choices.width(Length::Fill));
         }
 
         let mut controls = widget::Column::with_capacity(7)
@@ -331,11 +343,16 @@ impl Fleck {
                 &form.text,
                 Message::ReminderFormText,
             ))
-            .push(field(
-                crate::fl!("reminder-description"),
-                &form.description,
-                Message::ReminderFormDescription,
-            ))
+            .push(
+                widget::Column::with_capacity(2)
+                    .spacing(FORM_LABEL_GAP)
+                    .push(widget::text::caption(crate::fl!("reminder-description")))
+                    .push(
+                        text_editor::text_editor(description)
+                            .height(Length::Fixed(DESCRIPTION_HEIGHT))
+                            .on_action(Message::ReminderFormDescription),
+                    ),
+            )
             .push(
                 widget::Row::with_capacity(2)
                     .spacing(FORM_FIELD_GAP)
@@ -403,6 +420,10 @@ impl Fleck {
 
 const FORM_FIELD_GAP: u16 = 16;
 const FORM_LABEL_GAP: u16 = 4;
+/// The description box's height: a few lines, not a whole page.
+const DESCRIPTION_HEIGHT: f32 = 96.0;
+/// The repeat choices are laid out in this many columns.
+const REPEAT_COLUMNS: usize = 2;
 
 #[cfg(test)]
 mod tests {
