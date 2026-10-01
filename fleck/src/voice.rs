@@ -116,8 +116,9 @@ fn read_samples(audio: &Path) -> Result<Vec<f32>, String> {
     let mut reader = hound::WavReader::open(audio)
         .map_err(|error| format!("couldn't read the recording: {error}"))?;
     let spec = reader.spec();
-    let samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
-    let samples = samples.map_err(|error| format!("couldn't read the recording: {error}"))?;
+    // Whatever can be read, rather than nothing on the first error: a
+    // recording whose header understates its length still transcribes.
+    let samples: Vec<i16> = reader.samples::<i16>().map_while(Result::ok).collect();
     let mut samples: Vec<f32> = samples
         .into_iter()
         .map(|sample| f32::from(sample) / f32::from(i16::MAX))
