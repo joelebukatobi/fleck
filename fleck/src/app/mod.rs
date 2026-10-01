@@ -37,15 +37,11 @@ pub const FLECK_ICON: &str = "io.github.joelebukatobi.Fleck";
 /// How often Fleck looks for reminders that have come due.
 const REMINDER_TICK: Duration = Duration::from_secs(30);
 
-/// How often the microphone button pulses while recording.
-const VOICE_PULSE: Duration = Duration::from_millis(500);
-
 /// What a note's microphone button is doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DictationState {
     Idle,
-    /// Recording; the flag flips twice a second to pulse the button.
-    Recording(bool),
+    Recording,
     Transcribing,
 }
 
@@ -256,8 +252,6 @@ pub enum Message {
     VoiceToggle(window::Id),
     /// What the dictation came out as, or why it didn't.
     VoiceTranscribed(window::Id, Result<String, String>),
-    /// Drives the microphone button's pulse while recording.
-    VoicePulse,
     /// Ctrl+V in a note: look for an image on the clipboard first.
     NotePasteImage(window::Id),
     /// What the clipboard held: an image (encoded PNG), or nothing usable, in
@@ -486,8 +480,6 @@ pub struct Fleck {
     recording: Option<(window::Id, crate::voice::Recording)>,
     /// The note window whose dictation is being transcribed.
     transcribing: Option<window::Id>,
-    /// Flips twice a second while recording, so the button pulses.
-    voice_pulse: bool,
     /// The reminder being added or edited, if any.
     reminder_form: Option<ReminderForm>,
     /// The description box's own state, which `text_editor` keeps rather than
@@ -987,7 +979,7 @@ impl Fleck {
             .as_ref()
             .is_some_and(|(window, _)| *window == id)
         {
-            DictationState::Recording(self.voice_pulse)
+            DictationState::Recording
         } else if self.transcribing == Some(id) {
             DictationState::Transcribing
         } else {
@@ -1242,7 +1234,6 @@ impl cosmic::Application for Fleck {
             data_dir,
             recording: None,
             transcribing: None,
-            voice_pulse: false,
             window_state_dirty: false,
             windows: HashMap::new(),
             list_window,
@@ -1309,9 +1300,6 @@ impl cosmic::Application for Fleck {
             dbus_subscription(&self.dbus_rx),
             cosmic::iced::time::every(REMINDER_TICK).map(|_| Message::ReminderTick),
         ];
-        if self.recording.is_some() {
-            subscriptions.push(cosmic::iced::time::every(VOICE_PULSE).map(|_| Message::VoicePulse));
-        }
         if !self.dirty.is_empty() || self.window_state_dirty {
             subscriptions.push(
                 cosmic::iced::time::every(Duration::from_millis(500))
@@ -1681,10 +1669,6 @@ impl cosmic::Application for Fleck {
             }
             Message::ReminderTick => self.fire_due_reminders(),
             Message::VoiceToggle(id) => self.toggle_dictation(id),
-            Message::VoicePulse => {
-                self.voice_pulse = !self.voice_pulse;
-                Task::none()
-            }
             Message::VoiceTranscribed(id, text) => {
                 self.transcribing = None;
                 match text {
@@ -2028,7 +2012,6 @@ mod tests {
             data_dir: std::env::temp_dir().join("fleck-test-data"),
             recording: None,
             transcribing: None,
-            voice_pulse: false,
             window_state_dirty: false,
             windows: HashMap::new(),
             list_window: None,

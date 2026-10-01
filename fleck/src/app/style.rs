@@ -554,8 +554,9 @@ pub(super) fn description_editor_style(
     }
 }
 
-/// The dictation button: a round accent button that fades in and out while
-/// recording, and sits quietly in COSMIC's grey when idle.
+/// The dictation button: a round button that sits quietly over the paper when
+/// idle - translucent, but visible enough to find - and turns a steady accent
+/// colour while it is recording.
 pub(super) fn microphone_button_class(state: super::DictationState) -> cosmic::theme::Button {
     let style = move |theme: &cosmic::Theme, pressed: bool| {
         let cosmic = theme.cosmic();
@@ -563,21 +564,25 @@ pub(super) fn microphone_button_class(state: super::DictationState) -> cosmic::t
         let (background, icon) = match state {
             super::DictationState::Idle => (
                 Color {
-                    a: if pressed { 0.25 } else { 0.15 },
+                    a: if pressed {
+                        MICROPHONE_IDLE_PRESSED
+                    } else {
+                        MICROPHONE_IDLE_FADE
+                    },
                     ..Color::from(cosmic.background(theme.transparent).component.base)
                 },
                 muted_color(theme),
             ),
-            super::DictationState::Recording(bright) => (
+            // Steady, not blinking: a flashing button is harder to read than
+            // one that has simply changed colour.
+            super::DictationState::Recording => (accent, Color::from(cosmic.accent.on)),
+            super::DictationState::Transcribing => (
                 Color {
-                    a: if bright { 1.0 } else { MICROPHONE_PULSE_FADE },
+                    a: MICROPHONE_WORKING_FADE,
                     ..accent
                 },
                 Color::from(cosmic.accent.on),
             ),
-            super::DictationState::Transcribing => {
-                (Color { a: 0.5, ..accent }, Color::from(cosmic.accent.on))
-            }
         };
         cosmic::widget::button::Style {
             background: Some(background.into()),
@@ -594,8 +599,12 @@ pub(super) fn microphone_button_class(state: super::DictationState) -> cosmic::t
     }
 }
 
-/// How far the recording button fades on the quiet half of its pulse.
-const MICROPHONE_PULSE_FADE: f32 = 0.45;
+/// How solid the button's circle is at rest, and while held: enough to find
+/// against the note's paper without competing with the text.
+const MICROPHONE_IDLE_FADE: f32 = 0.35;
+const MICROPHONE_IDLE_PRESSED: f32 = 0.5;
+/// How far the accent fades while Fleck works out what was said.
+const MICROPHONE_WORKING_FADE: f32 = 0.5;
 /// Enough to round a 16 px icon with 12 px padding into a circle.
 const MICROPHONE_RADIUS: f32 = 20.0;
 

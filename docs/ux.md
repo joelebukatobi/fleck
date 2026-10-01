@@ -133,8 +133,9 @@ Modelled on the Windows Sticky Notes list window.
 
 - A round **microphone** button floats over the bottom-right of every note, 16 px in
   from both edges.
-- Click it to start recording; it pulses in the accent colour while it listens. Click
-  again to stop, and it shows a spinner while the speech is turned into text.
+- At rest it is a faint circle over the paper. Click it to start recording and it
+  turns a steady accent colour; click again to stop, and it fades while the speech is
+  turned into text.
 - The text lands at the cursor, as if typed, so undo covers it like any other edit.
 - Everything happens on this machine: the recording goes to a temporary file, Whisper
   reads it, and the file is deleted. Nothing is sent anywhere.
