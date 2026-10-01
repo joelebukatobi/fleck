@@ -37,6 +37,9 @@ pub const FLECK_ICON: &str = "io.github.joelebukatobi.Fleck";
 /// How often Fleck looks for reminders that have come due.
 const REMINDER_TICK: Duration = Duration::from_secs(30);
 
+/// How often the live preview of a dictation is refreshed.
+const VOICE_PREVIEW_EVERY: Duration = Duration::from_secs(3);
+
 /// What a note's microphone button is doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DictationState {
@@ -252,6 +255,10 @@ pub enum Message {
     VoiceToggle(window::Id),
     /// What the dictation came out as, or why it didn't.
     VoiceTranscribed(window::Id, Result<String, String>),
+    /// Time to refresh the live preview of what is being said.
+    VoicePreviewTick,
+    /// The latest preview of the dictation in progress.
+    VoicePreview(window::Id, String),
     /// Ctrl+V in a note: look for an image on the clipboard first.
     NotePasteImage(window::Id),
     /// What the clipboard held: an image (encoded PNG), or nothing usable, in
@@ -480,6 +487,11 @@ pub struct Fleck {
     recording: Option<(window::Id, crate::voice::Recording)>,
     /// The note window whose dictation is being transcribed.
     transcribing: Option<window::Id>,
+    /// The last few seconds of the dictation in progress, in words.
+    voice_preview: String,
+    /// Whether a preview is already being worked out, so the ticks don't pile
+    /// up on a machine that can't keep pace.
+    previewing: bool,
     /// The reminder being added or edited, if any.
     reminder_form: Option<ReminderForm>,
     /// The description box's own state, which `text_editor` keeps rather than
@@ -943,6 +955,7 @@ impl Fleck {
     /// drops the first recording rather than putting it in the wrong note.
     fn toggle_dictation(&mut self, id: window::Id) -> Task<Message> {
         if let Some((recording_in, recording)) = self.recording.take() {
+            self.voice_preview.clear();
             let audio = recording.stop();
             if recording_in != id {
                 let _ = std::fs::remove_file(&audio);
@@ -969,6 +982,49 @@ impl Fleck {
             Err(error) => tracing::error!(%error, "couldn't start recording"),
         }
         Task::none()
+    }
+
+    /// Transcribes the last stretch of the recording in progress, for the
+    /// preview strip. The recorder writes as it goes, so the file can be read
+    /// while it is still being written.
+    fn preview_dictation(&mut self) -> Task<Message> {
+        let Some((id, recording)) = self.recording.as_ref() else {
+            return Task::none();
+        };
+        if self.previewing {
+            // The last pass hasn't finished; skip this tick rather than queue.
+            return Task::none();
+        }
+        self.previewing = true;
+        let (id, audio) = (*id, recording.path.clone());
+        let model = crate::voice::model_path(&self.data_dir);
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    crate::voice::transcribe_tail(&audio, &model, crate::voice::PREVIEW_WINDOW)
+                })
+                .await
+                .unwrap_or_else(|error| Err(format!("the preview stopped: {error}")))
+            },
+            move |text| {
+                cosmic::Action::App(Message::VoicePreview(
+                    id,
+                    text.unwrap_or_else(|error| {
+                        tracing::debug!(%error, "no preview this time");
+                        String::new()
+                    }),
+                ))
+            },
+        )
+    }
+
+    /// The live preview of what is being dictated into note window `id`.
+    pub(super) fn dictation_preview(&self, id: window::Id) -> Option<&str> {
+        let recording_here = self
+            .recording
+            .as_ref()
+            .is_some_and(|(window, _)| *window == id);
+        (recording_here && !self.voice_preview.trim().is_empty()).then(|| self.voice_preview.trim())
     }
 
     /// Whether note window `id` is recording, transcribing, or neither - what
@@ -1234,6 +1290,8 @@ impl cosmic::Application for Fleck {
             data_dir,
             recording: None,
             transcribing: None,
+            voice_preview: String::new(),
+            previewing: false,
             window_state_dirty: false,
             windows: HashMap::new(),
             list_window,
@@ -1300,6 +1358,11 @@ impl cosmic::Application for Fleck {
             dbus_subscription(&self.dbus_rx),
             cosmic::iced::time::every(REMINDER_TICK).map(|_| Message::ReminderTick),
         ];
+        if self.recording.is_some() {
+            subscriptions.push(
+                cosmic::iced::time::every(VOICE_PREVIEW_EVERY).map(|_| Message::VoicePreviewTick),
+            );
+        }
         if !self.dirty.is_empty() || self.window_state_dirty {
             subscriptions.push(
                 cosmic::iced::time::every(Duration::from_millis(500))
@@ -1669,6 +1732,18 @@ impl cosmic::Application for Fleck {
             }
             Message::ReminderTick => self.fire_due_reminders(),
             Message::VoiceToggle(id) => self.toggle_dictation(id),
+            Message::VoicePreviewTick => self.preview_dictation(),
+            Message::VoicePreview(id, text) => {
+                self.previewing = false;
+                if self
+                    .recording
+                    .as_ref()
+                    .is_some_and(|(window, _)| *window == id)
+                {
+                    self.voice_preview = text;
+                }
+                Task::none()
+            }
             Message::VoiceTranscribed(id, text) => {
                 self.transcribing = None;
                 match text {
@@ -2012,6 +2087,8 @@ mod tests {
             data_dir: std::env::temp_dir().join("fleck-test-data"),
             recording: None,
             transcribing: None,
+            voice_preview: String::new(),
+            previewing: false,
             window_state_dirty: false,
             windows: HashMap::new(),
             list_window: None,

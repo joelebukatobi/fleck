@@ -69,6 +69,10 @@ const IMAGE_DIALOG_MAX_HEIGHT: f32 = 320.0;
 const MICROPHONE_ICON: u16 = 16;
 const MICROPHONE_PADDING: u16 = 12;
 const MICROPHONE_MARGIN: u16 = 16;
+/// The live preview above the microphone while dictating.
+const PREVIEW_PADDING: u16 = 8;
+const PREVIEW_GAP: u16 = 8;
+const PREVIEW_MAX_WIDTH: f32 = 320.0;
 /// The close button in a dialog's top-right corner.
 const DIALOG_CLOSE_ICON: u16 = 16;
 const DIALOG_CLOSE_INSET: u16 = 8;
@@ -209,6 +213,12 @@ impl Fleck {
 
         let thumbnails = self.note_thumbnails(id);
         let microphone = self.note_microphone(id);
+        let preview = self.dictation_preview(id).map(|text| {
+            widget::container(widget::text::body(text.to_string()))
+                .class(cosmic::theme::Container::Dialog(false))
+                .padding(PREVIEW_PADDING)
+                .max_width(PREVIEW_MAX_WIDTH)
+        });
 
         // The paper starts where the title bar ends, like any other app's
         // content; the title bar keeps the theme's colours.
@@ -220,12 +230,18 @@ impl Fleck {
                     .push_maybe(thumbnails),
             )
             .push(
-                widget::container(microphone)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .align_x(cosmic::iced::alignment::Horizontal::Right)
-                    .align_y(cosmic::iced::alignment::Vertical::Bottom)
-                    .padding(MICROPHONE_MARGIN),
+                widget::container(
+                    widget::Column::with_capacity(2)
+                        .spacing(PREVIEW_GAP)
+                        .align_x(cosmic::iced::Alignment::End)
+                        .push_maybe(preview)
+                        .push(microphone),
+                )
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(cosmic::iced::alignment::Horizontal::Right)
+                .align_y(cosmic::iced::alignment::Vertical::Bottom)
+                .padding(MICROPHONE_MARGIN),
             );
         let body = widget::container(body)
             .class(cosmic::theme::Container::custom(note_paper_style(colour)))

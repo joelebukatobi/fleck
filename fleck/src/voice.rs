@@ -69,10 +69,45 @@ pub fn model_path(data_dir: &Path) -> PathBuf {
     data_dir.join("models").join(MODEL_FILE)
 }
 
+/// How much of a still-running recording the live preview looks at. The whole
+/// recording would cost more with every pass; the tail keeps it flat, and the
+/// preview only has to show what was just said.
+pub const PREVIEW_WINDOW: std::time::Duration = std::time::Duration::from_secs(15);
+/// What Whisper expects, as a number, for turning samples into seconds.
+const SAMPLE_RATE_HZ: usize = 16_000;
+
+/// The model, loaded once and kept: it is about 140 MB, and the live preview
+/// would otherwise reload it every few seconds.
+static MODEL: std::sync::OnceLock<WhisperContext> = std::sync::OnceLock::new();
+
+/// Turns a recording into text. Blocking and slow - seconds for a long note -
+/// so callers run it off the UI thread. `tail` transcribes only the last
+/// stretch of the recording, for the live preview.
+pub fn transcribe_tail(
+    audio: &Path,
+    model: &Path,
+    tail: std::time::Duration,
+) -> Result<String, String> {
+    let mut samples = read_samples(audio)?;
+    let window = tail.as_secs() as usize * SAMPLE_RATE_HZ;
+    if samples.len() > window {
+        samples.drain(..samples.len() - window);
+    }
+    transcribe_samples(&samples, model)
+}
+
 /// Turns a recording into text. Blocking and slow - seconds for a long note -
 /// so callers run it off the UI thread.
 pub fn transcribe(audio: &Path, model: &Path) -> Result<String, String> {
     let samples = read_samples(audio)?;
+    if samples.is_empty() {
+        return Ok(String::new());
+    }
+    transcribe_samples(&samples, model)
+}
+
+/// The shared tail of both: Whisper over samples that are already in hand.
+fn transcribe_samples(samples: &[f32], model: &Path) -> Result<String, String> {
     if samples.is_empty() {
         return Ok(String::new());
     }
@@ -83,11 +118,18 @@ pub fn transcribe(audio: &Path, model: &Path) -> Result<String, String> {
         ));
     }
 
-    let context = WhisperContext::new_with_params(
-        model.to_string_lossy().as_ref(),
-        WhisperContextParameters::default(),
-    )
-    .map_err(|error| format!("couldn't load the speech model: {error}"))?;
+    let context = if let Some(context) = MODEL.get() {
+        context
+    } else {
+        let loaded = WhisperContext::new_with_params(
+            model.to_string_lossy().as_ref(),
+            WhisperContextParameters::default(),
+        )
+        .map_err(|error| format!("couldn't load the speech model: {error}"))?;
+        // Another thread may have won the race; either context will do.
+        let _ = MODEL.set(loaded);
+        MODEL.get().expect("the model was just set")
+    };
     let mut state = context
         .create_state()
         .map_err(|error| format!("couldn't start transcribing: {error}"))?;
@@ -99,7 +141,7 @@ pub fn transcribe(audio: &Path, model: &Path) -> Result<String, String> {
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
     state
-        .full(params, &samples)
+        .full(params, samples)
         .map_err(|error| format!("transcribing failed: {error}"))?;
 
     let mut text = String::new();
