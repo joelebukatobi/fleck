@@ -37,6 +37,18 @@ pub const FLECK_ICON: &str = "io.github.joelebukatobi.Fleck";
 /// How often Fleck looks for reminders that have come due.
 const REMINDER_TICK: Duration = Duration::from_secs(30);
 
+/// How often the microphone button pulses while recording.
+const VOICE_PULSE: Duration = Duration::from_millis(500);
+
+/// What a note's microphone button is doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DictationState {
+    Idle,
+    /// Recording; the flag flips twice a second to pulse the button.
+    Recording(bool),
+    Transcribing,
+}
+
 /// The size of the list header's + icon.
 const HEADER_ICON: u16 = 16;
 
@@ -72,6 +84,8 @@ pub struct Flags {
     pub reminders_path: PathBuf,
     /// `--background`: run with no windows, waiting to fire reminders.
     pub background: bool,
+    /// `$XDG_DATA_HOME/fleck`: where the speech model is kept.
+    pub data_dir: PathBuf,
     pub dbus_connection: zbus::Connection,
     pub dbus_rx: mpsc::Receiver<dbus::Request>,
 }
@@ -237,6 +251,13 @@ pub enum Message {
     Done,
     /// "Remind me" in a note's menu: a reminder about that note.
     NoteRemindStart(window::Id),
+    /// The microphone button in a note: start recording, or stop and
+    /// transcribe what was said.
+    VoiceToggle(window::Id),
+    /// What the dictation came out as, or why it didn't.
+    VoiceTranscribed(window::Id, Result<String, String>),
+    /// Drives the microphone button's pulse while recording.
+    VoicePulse,
     /// Ctrl+V in a note: look for an image on the clipboard first.
     NotePasteImage(window::Id),
     /// What the clipboard held: an image (encoded PNG), or nothing usable, in
@@ -458,6 +479,15 @@ pub struct Fleck {
     /// Started with `--background`: no windows, just waiting for reminders.
     /// Closing the last window doesn't quit in that mode.
     background: bool,
+    /// Where the speech model lives.
+    data_dir: PathBuf,
+    /// The note window being dictated into, and the recorder writing its
+    /// audio. One recording at a time.
+    recording: Option<(window::Id, crate::voice::Recording)>,
+    /// The note window whose dictation is being transcribed.
+    transcribing: Option<window::Id>,
+    /// Flips twice a second while recording, so the button pulses.
+    voice_pulse: bool,
     /// The reminder being added or edited, if any.
     reminder_form: Option<ReminderForm>,
     /// The description box's own state, which `text_editor` keeps rather than
@@ -916,6 +946,55 @@ impl Fleck {
         self.dirty.insert(uuid, Instant::now());
     }
 
+    /// Starts dictating into note window `id`, or stops and transcribes what
+    /// was recorded. One recording at a time: pressing another note's button
+    /// drops the first recording rather than putting it in the wrong note.
+    fn toggle_dictation(&mut self, id: window::Id) -> Task<Message> {
+        if let Some((recording_in, recording)) = self.recording.take() {
+            let audio = recording.stop();
+            if recording_in != id {
+                let _ = std::fs::remove_file(&audio);
+                return self.toggle_dictation(id);
+            }
+            self.transcribing = Some(id);
+            let model = crate::voice::model_path(&self.data_dir);
+            return Task::perform(
+                async move {
+                    // Transcribing is slow and blocking: off the UI thread.
+                    tokio::task::spawn_blocking(move || {
+                        let text = crate::voice::transcribe(&audio, &model);
+                        let _ = std::fs::remove_file(&audio);
+                        text
+                    })
+                    .await
+                    .unwrap_or_else(|error| Err(format!("transcribing stopped: {error}")))
+                },
+                move |text| cosmic::Action::App(Message::VoiceTranscribed(id, text)),
+            );
+        }
+        match crate::voice::Recording::start() {
+            Ok(recording) => self.recording = Some((id, recording)),
+            Err(error) => tracing::error!(%error, "couldn't start recording"),
+        }
+        Task::none()
+    }
+
+    /// Whether note window `id` is recording, transcribing, or neither - what
+    /// its microphone button draws.
+    pub(super) fn dictation_state(&self, id: window::Id) -> DictationState {
+        if self
+            .recording
+            .as_ref()
+            .is_some_and(|(window, _)| *window == id)
+        {
+            DictationState::Recording(self.voice_pulse)
+        } else if self.transcribing == Some(id) {
+            DictationState::Transcribing
+        } else {
+            DictationState::Idle
+        }
+    }
+
     /// Fires every reminder that has come due: a notification, and the note it
     /// is about opens. Repeats move to their next occurrence; one-offs are
     /// done and go.
@@ -1110,6 +1189,7 @@ impl cosmic::Application for Fleck {
             state_path,
             reminders_path,
             background,
+            data_dir,
             dbus_connection,
             dbus_rx,
         } = flags;
@@ -1159,6 +1239,10 @@ impl cosmic::Application for Fleck {
             reminder_form: None,
             reminder_description: text_editor::Content::new(),
             background,
+            data_dir,
+            recording: None,
+            transcribing: None,
+            voice_pulse: false,
             window_state_dirty: false,
             windows: HashMap::new(),
             list_window,
@@ -1225,6 +1309,9 @@ impl cosmic::Application for Fleck {
             dbus_subscription(&self.dbus_rx),
             cosmic::iced::time::every(REMINDER_TICK).map(|_| Message::ReminderTick),
         ];
+        if self.recording.is_some() {
+            subscriptions.push(cosmic::iced::time::every(VOICE_PULSE).map(|_| Message::VoicePulse));
+        }
         if !self.dirty.is_empty() || self.window_state_dirty {
             subscriptions.push(
                 cosmic::iced::time::every(Duration::from_millis(500))
@@ -1593,6 +1680,20 @@ impl cosmic::Application for Fleck {
                 Task::none()
             }
             Message::ReminderTick => self.fire_due_reminders(),
+            Message::VoiceToggle(id) => self.toggle_dictation(id),
+            Message::VoicePulse => {
+                self.voice_pulse = !self.voice_pulse;
+                Task::none()
+            }
+            Message::VoiceTranscribed(id, text) => {
+                self.transcribing = None;
+                match text {
+                    Ok(text) if text.is_empty() => tracing::info!("nothing was said"),
+                    Ok(text) => self.insert_at_cursor(id, &format!("{text} ")),
+                    Err(error) => tracing::error!(%error, "dictation failed"),
+                }
+                Task::none()
+            }
             Message::Done => Task::none(),
             Message::NoteRemindStart(id) => {
                 self.note_menu = None;
@@ -1924,6 +2025,10 @@ mod tests {
             reminder_form: None,
             reminder_description: text_editor::Content::new(),
             background: false,
+            data_dir: std::env::temp_dir().join("fleck-test-data"),
+            recording: None,
+            transcribing: None,
+            voice_pulse: false,
             window_state_dirty: false,
             windows: HashMap::new(),
             list_window: None,

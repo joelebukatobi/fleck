@@ -554,6 +554,51 @@ pub(super) fn description_editor_style(
     }
 }
 
+/// The dictation button: a round accent button that fades in and out while
+/// recording, and sits quietly in COSMIC's grey when idle.
+pub(super) fn microphone_button_class(state: super::DictationState) -> cosmic::theme::Button {
+    let style = move |theme: &cosmic::Theme, pressed: bool| {
+        let cosmic = theme.cosmic();
+        let accent: Color = cosmic.accent.base.into();
+        let (background, icon) = match state {
+            super::DictationState::Idle => (
+                Color {
+                    a: if pressed { 0.25 } else { 0.15 },
+                    ..Color::from(cosmic.background(theme.transparent).component.base)
+                },
+                muted_color(theme),
+            ),
+            super::DictationState::Recording(bright) => (
+                Color {
+                    a: if bright { 1.0 } else { MICROPHONE_PULSE_FADE },
+                    ..accent
+                },
+                Color::from(cosmic.accent.on),
+            ),
+            super::DictationState::Transcribing => {
+                (Color { a: 0.5, ..accent }, Color::from(cosmic.accent.on))
+            }
+        };
+        cosmic::widget::button::Style {
+            background: Some(background.into()),
+            icon_color: Some(icon),
+            border_radius: MICROPHONE_RADIUS.into(),
+            ..cosmic::widget::button::Style::new()
+        }
+    };
+    cosmic::theme::Button::Custom {
+        active: Box::new(move |_, theme| style(theme, false)),
+        disabled: Box::new(move |theme| style(theme, false)),
+        hovered: Box::new(move |_, theme| style(theme, false)),
+        pressed: Box::new(move |_, theme| style(theme, true)),
+    }
+}
+
+/// How far the recording button fades on the quiet half of its pulse.
+const MICROPHONE_PULSE_FADE: f32 = 0.45;
+/// Enough to round a 16 px icon with 12 px padding into a circle.
+const MICROPHONE_RADIUS: f32 = 20.0;
+
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // exact pixel values are the point of these tests
 mod tests {

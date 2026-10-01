@@ -27,6 +27,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 arboard = { version = "3.6.1", default-features = false, features = ["image-data", "wayland-data-control"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+whisper-rs = { version = "0.16.0", default-features = false }
+hound = "3.5.1"
 
 [lints]
 workspace = true

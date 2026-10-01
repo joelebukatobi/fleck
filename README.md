@@ -67,6 +67,21 @@ centres read to list Fleck.
 To add the panel icon, open COSMIC Settings, go to Desktop, then Panel, then
 Configure panel applets, and add **Fleck**.
 
+## Dictation
+
+The microphone button in a note turns speech into text with
+[Whisper](https://github.com/ggerganov/whisper.cpp), on this machine. Fleck needs the
+speech model, about 142 MB, once:
+
+```bash
+mkdir -p ~/.local/share/fleck/models
+curl -L https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin \
+  -o ~/.local/share/fleck/models/ggml-base.bin
+```
+
+Recording uses `pw-record` or `parecord`, which come with PipeWire and PulseAudio.
+Building Fleck with dictation needs `libclang-dev` and `cmake` for whisper.cpp.
+
 ## Command line
 
 The app and the panel applet are the same program:

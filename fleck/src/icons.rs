@@ -9,6 +9,7 @@ const TRASH: &[u8] = include_bytes!("../../data/icons/iconoir/trash.svg");
 const TRASH_FILLED: &[u8] = include_bytes!("../../data/icons/iconoir/trash-filled.svg");
 const SEARCH: &[u8] = include_bytes!("../../data/icons/iconoir/search.svg");
 const PAGE_EDIT: &[u8] = include_bytes!("../../data/icons/iconoir/page-edit.svg");
+const MICROPHONE: &[u8] = include_bytes!("../../data/icons/iconoir/microphone.svg");
 
 /// The delete button on each card.
 pub fn trash() -> widget::icon::Handle {
@@ -23,6 +24,11 @@ pub fn trash_filled() -> widget::icon::Handle {
 /// The search bar's leading icon.
 pub fn search() -> widget::icon::Handle {
     widget::icon::from_svg_bytes(SEARCH).symbolic(true)
+}
+
+/// The dictation button in the corner of a note.
+pub fn microphone() -> widget::icon::Handle {
+    widget::icon::from_svg_bytes(MICROPHONE).symbolic(true)
 }
 
 /// The panel applet icon (`fleck --applet`).
@@ -47,14 +53,14 @@ mod tests {
     #[test]
     fn panel_icon_uses_stroke_two_the_rest_stroke_one_and_a_half() {
         assert_eq!(stroke_width(PAGE_EDIT), "2");
-        for bytes in [TRASH, TRASH_FILLED, SEARCH] {
+        for bytes in [TRASH, TRASH_FILLED, SEARCH, MICROPHONE] {
             assert_eq!(stroke_width(bytes), "1.5");
         }
     }
 
     #[test]
     fn handles_are_marked_symbolic() {
-        for handle in [trash(), trash_filled(), search(), page_edit()] {
+        for handle in [trash(), trash_filled(), search(), page_edit(), microphone()] {
             assert!(handle.symbolic);
         }
     }

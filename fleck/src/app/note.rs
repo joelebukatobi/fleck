@@ -15,7 +15,7 @@ use super::style::{
     swatch_style, text_button_class, IconHoverRole,
 };
 use super::theme::AppTheme;
-use super::{images, Fleck, Message, NoteDialog, DEFAULT_WINDOW_SIZE};
+use super::{images, DictationState, Fleck, Message, NoteDialog, DEFAULT_WINDOW_SIZE};
 use crate::palette::Colour;
 use crate::ruled::RuledLines;
 use crate::undo::EditKind;
@@ -64,6 +64,11 @@ const THUMBNAIL_GAP: u16 = 8;
 const THUMBNAIL_PADDING: u16 = 4;
 /// The tallest a picture is drawn in the image dialog.
 const IMAGE_DIALOG_MAX_HEIGHT: f32 = 320.0;
+/// The dictation button: its icon, the padding that makes it round, and how
+/// far it floats from the note's bottom-right corner.
+const MICROPHONE_ICON: u16 = 16;
+const MICROPHONE_PADDING: u16 = 12;
+const MICROPHONE_MARGIN: u16 = 16;
 /// The close button in a dialog's top-right corner.
 const DIALOG_CLOSE_ICON: u16 = 16;
 const DIALOG_CLOSE_INSET: u16 = 8;
@@ -203,18 +208,30 @@ impl Fleck {
         let header = self.note_header(id);
 
         let thumbnails = self.note_thumbnails(id);
+        let microphone = self.note_microphone(id);
 
         // The paper starts where the title bar ends, like any other app's
         // content; the title bar keeps the theme's colours.
-        let body = widget::container(
-            widget::Column::with_capacity(2)
-                .push(body)
-                .push_maybe(thumbnails),
-        )
-        .class(cosmic::theme::Container::custom(note_paper_style(colour)))
-        .padding([NOTE_PADDING_Y, NOTE_PADDING_X])
-        .width(Length::Fill)
-        .height(Length::Fill);
+        // The microphone floats over the paper's bottom-right corner.
+        let body = Stack::new()
+            .push(
+                widget::Column::with_capacity(2)
+                    .push(body)
+                    .push_maybe(thumbnails),
+            )
+            .push(
+                widget::container(microphone)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(cosmic::iced::alignment::Horizontal::Right)
+                    .align_y(cosmic::iced::alignment::Vertical::Bottom)
+                    .padding(MICROPHONE_MARGIN),
+            );
+        let body = widget::container(body)
+            .class(cosmic::theme::Container::custom(note_paper_style(colour)))
+            .padding([NOTE_PADDING_Y, NOTE_PADDING_X])
+            .width(Length::Fill)
+            .height(Length::Fill);
         // Clicking in the note closes its menu. Presses on the open menu never
         // reach here: the menu is an overlay and takes them first.
         let body = widget::mouse_area(body).on_press(Message::NoteMenuClose(id));
@@ -424,6 +441,25 @@ impl Fleck {
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
+    }
+
+    /// The dictation button in the note's bottom-right corner: a microphone
+    /// that pulses while recording, and a spinner while Fleck works out what
+    /// was said.
+    fn note_microphone(&self, id: window::Id) -> Element<'_, Message> {
+        let state = self.dictation_state(id);
+        let icon = match state {
+            DictationState::Transcribing => widget::icon::from_name("content-loading-symbolic")
+                .size(MICROPHONE_ICON)
+                .handle(),
+            _ => crate::icons::microphone(),
+        };
+        widget::button::icon(icon)
+            .icon_size(MICROPHONE_ICON)
+            .padding(MICROPHONE_PADDING)
+            .on_press(Message::VoiceToggle(id))
+            .class(super::style::microphone_button_class(state))
+            .into()
     }
 
     /// The row of thumbnails under a note's text, one per image it links to,

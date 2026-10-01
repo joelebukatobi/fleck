@@ -7,6 +7,7 @@ mod notify;
 mod palette;
 mod ruled;
 mod undo;
+mod voice;
 
 use std::time::Duration;
 
@@ -450,6 +451,7 @@ fn main() -> cosmic::iced::Result {
             state_path,
             reminders_path: reminders_path(),
             background,
+            data_dir: xdg_data_home().join("fleck"),
             dbus_connection: connection,
             dbus_rx,
         },
