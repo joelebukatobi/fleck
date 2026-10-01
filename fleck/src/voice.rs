@@ -112,26 +112,75 @@ pub fn transcribe(audio: &Path, model: &Path) -> Result<String, String> {
 }
 
 /// The recording as the mono 32-bit samples Whisper wants.
+///
+/// Reads the file rather than trusting its header: a recorder that is stopped
+/// mid-flight can leave the length field at zero while the audio itself is all
+/// there, and a reader that believes the header hands back silence.
 fn read_samples(audio: &Path) -> Result<Vec<f32>, String> {
-    let mut reader = hound::WavReader::open(audio)
-        .map_err(|error| format!("couldn't read the recording: {error}"))?;
-    let spec = reader.spec();
-    // Whatever can be read, rather than nothing on the first error: a
-    // recording whose header understates its length still transcribes.
-    let samples: Vec<i16> = reader.samples::<i16>().map_while(Result::ok).collect();
-    let mut samples: Vec<f32> = samples
-        .into_iter()
-        .map(|sample| f32::from(sample) / f32::from(i16::MAX))
+    let bytes =
+        std::fs::read(audio).map_err(|error| format!("couldn't read the recording: {error}"))?;
+    let (channels, pcm) = wav_pcm(&bytes)?;
+    let samples: Vec<f32> = pcm
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|sample| f32::from(i16::from_le_bytes(*sample)) / f32::from(i16::MAX))
         .collect();
-    // Whisper takes one channel; anything else is averaged down.
-    if spec.channels > 1 {
-        let channels = usize::from(spec.channels);
-        samples = samples
-            .chunks(channels)
-            .map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
-            .collect();
+    tracing::debug!(
+        file = %audio.display(),
+        bytes = bytes.len(),
+        channels,
+        samples = samples.len(),
+        "read a recording"
+    );
+    if channels <= 1 {
+        return Ok(samples);
     }
-    Ok(samples)
+    // Whisper takes one channel; anything else is averaged down.
+    let channels = usize::from(channels);
+    Ok(samples
+        .chunks(channels)
+        .map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
+        .collect())
+}
+
+/// The channel count and the raw sample bytes of a 16-bit PCM WAV file. A
+/// `data` chunk whose length is zero or overlong (an interrupted recording)
+/// falls back to the rest of the file.
+fn wav_pcm(bytes: &[u8]) -> Result<(u16, &[u8]), String> {
+    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return Err("that recording isn't a WAV file".to_string());
+    }
+    let mut channels = 1;
+    let mut offset = 12;
+    while offset + 8 <= bytes.len() {
+        let id = &bytes[offset..offset + 4];
+        let size = u32::from_le_bytes([
+            bytes[offset + 4],
+            bytes[offset + 5],
+            bytes[offset + 6],
+            bytes[offset + 7],
+        ]) as usize;
+        let body = offset + 8;
+        match id {
+            b"fmt " if body + 4 <= bytes.len() => {
+                channels = u16::from_le_bytes([bytes[body + 2], bytes[body + 3]]).max(1);
+            }
+            b"data" => {
+                let available = bytes.len() - body;
+                let length = if size == 0 || size > available {
+                    available
+                } else {
+                    size
+                };
+                return Ok((channels, &bytes[body..body + length]));
+            }
+            _ => {}
+        }
+        // Chunks are padded to an even length.
+        offset = body + size + usize::from(!size.is_multiple_of(2));
+    }
+    Err("that recording holds no audio".to_string())
 }
 
 #[cfg(test)]
@@ -157,6 +206,33 @@ mod tests {
             transcribe(&path, Path::new("/nonexistent/model.bin")),
             Ok(String::new())
         );
+    }
+
+    #[test]
+    fn a_recording_whose_header_says_it_is_empty_is_still_read() {
+        // What an interrupted recorder leaves behind: a zero length, with the
+        // audio after it.
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&0u32.to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav.extend_from_slice(&1u16.to_le_bytes()); // one channel
+        wav.extend_from_slice(&16_000u32.to_le_bytes());
+        wav.extend_from_slice(&32_000u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&0u32.to_le_bytes());
+        for sample in [100i16, -100, 300] {
+            wav.extend_from_slice(&sample.to_le_bytes());
+        }
+
+        let (channels, pcm) = wav_pcm(&wav).expect("a readable recording");
+
+        assert_eq!(channels, 1);
+        assert_eq!(pcm.len(), 6, "all three samples, despite the header");
     }
 
     #[test]
