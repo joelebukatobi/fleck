@@ -17,13 +17,13 @@ Sticky notes for the COSMIC desktop, in Rust with libcosmic. Private repo:
 
 ## Working rules
 
-1. **Every commit must pass** these three, in this order, before `git commit`:
+1. **Every commit must pass** these, in this order, before `git commit`:
    ```bash
    cargo fmt --all
-   cargo clippy --workspace --all-targets -- -D warnings
-   cargo test --workspace
+   just check    # clippy -D warnings, the tests, and metadata validation
    ```
-   CI runs the same, plus desktop-entry and AppStream validation.
+   CI runs the same. `just` recipes also cover building, installing and
+   fetching the speech model; see the `justfile`.
 2. **No AI attribution** in commits or PRs: no `Co-Authored-By`, no "Generated with"
    line. Commits are authored by Joel Onwuanaku <joelebuka@gmail.com>.
 3. **Release builds for anything you look at**: debug libcosmic is very slow.

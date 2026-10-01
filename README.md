@@ -40,7 +40,17 @@ development: debug builds of libcosmic are very slow.
 
 ## Installing
 
-Copy the program somewhere on your `PATH`, install the two desktop entries (one
+With [just](https://github.com/casey/just):
+
+```bash
+just install-user    # this user only: no root needed
+just model           # the speech model for dictation, about 142 MB
+```
+
+`just install` installs for everyone (needs root), and `just uninstall-user` or
+`just uninstall` removes it again. `just check` runs everything CI runs.
+
+By hand, if you'd rather: copy the program somewhere on your `PATH`, install the two desktop entries (one
 for the app, one for the panel applet) and the panel applet's icon:
 
 ```bash
