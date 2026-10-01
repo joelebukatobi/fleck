@@ -37,7 +37,9 @@ left**, and it is deliberately last.
 1. Push the waiting commits to `dev` (ask first).
 2. Packaging: `.deb`, screenshots for the AppStream file, and how Fleck reaches other
    people (parked deliberately).
-3. Restart the applet (`pkill -f 'fleck --applet'`) to see the new panel icon.
+3. The panel icon only changes after `cargo build --release` **and** a
+   `systemctl --user restart cosmic-panel`; the panel does not respawn an applet
+   it has killed.
 
 ## Decisions
 
@@ -66,5 +68,6 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 cargo build --release
 fleck --quit; ~/Projects/sticky-notes/target/release/fleck      # look at it
 fleck --quit; RUST_LOG=fleck=debug ~/Projects/sticky-notes/target/release/fleck
-pkill -f 'fleck --applet'                                       # panel restarts it
+systemctl --user restart cosmic-panel    # after a rebuild: the panel does not
+                                         # respawn a killed applet by itself
 ```
