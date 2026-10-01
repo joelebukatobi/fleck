@@ -217,6 +217,9 @@ pub enum Message {
     ReminderEditStart(Uuid),
     /// Keystrokes in the reminder form.
     ReminderFormText(String),
+    ReminderFormDescription(String),
+    ReminderFormEvent(bool),
+    ReminderFormLocation(String),
     ReminderFormDate(String),
     ReminderFormTime(String),
     ReminderFormRepeat(fleck_core::Repeat),
@@ -920,11 +923,17 @@ impl Fleck {
         let mut tasks = Vec::with_capacity(due.len() * 2);
         for reminder in due {
             let summary = self.reminder_title(&reminder);
-            let body = reminder
-                .note
-                .and_then(|uuid| self.notes.get(&uuid))
-                .map(|note| fleck_core::title(note).to_string())
-                .unwrap_or_default();
+            let mut lines = Vec::with_capacity(3);
+            if reminder.event && !reminder.location.trim().is_empty() {
+                lines.push(reminder.location.clone());
+            }
+            if !reminder.description.trim().is_empty() {
+                lines.push(reminder.description.clone());
+            }
+            if let Some(note) = reminder.note.and_then(|uuid| self.notes.get(&uuid)) {
+                lines.push(fleck_core::title(note).to_string());
+            }
+            let body = lines.join("\n");
             crate::notify::play_alarm();
             tasks.push(Task::perform(crate::notify::send(summary, body), |()| {
                 cosmic::Action::App(Message::Done)
@@ -1509,6 +1518,24 @@ impl cosmic::Application for Fleck {
             Message::ReminderFormText(text) => {
                 if let Some(form) = &mut self.reminder_form {
                     form.text = text;
+                }
+                Task::none()
+            }
+            Message::ReminderFormDescription(description) => {
+                if let Some(form) = &mut self.reminder_form {
+                    form.description = description;
+                }
+                Task::none()
+            }
+            Message::ReminderFormEvent(event) => {
+                if let Some(form) = &mut self.reminder_form {
+                    form.event = event;
+                }
+                Task::none()
+            }
+            Message::ReminderFormLocation(location) => {
+                if let Some(form) = &mut self.reminder_form {
+                    form.location = location;
                 }
                 Task::none()
             }

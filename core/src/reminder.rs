@@ -66,6 +66,16 @@ pub struct Reminder {
     pub text: String,
     /// When it is next due, as an RFC 3339 timestamp.
     pub due: String,
+    /// More detail, shown on the card and in the notification. Optional.
+    #[serde(default)]
+    pub description: String,
+    /// Whether this is an event rather than a plain reminder, which is what
+    /// gives it a location.
+    #[serde(default)]
+    pub event: bool,
+    /// Where the event is. Only meaningful when `event` is set.
+    #[serde(default)]
+    pub location: String,
     #[serde(default)]
     pub repeat: Repeat,
     /// The note this reminder is about, if any.
@@ -80,6 +90,9 @@ impl Reminder {
         Self {
             uuid: Uuid::new_v4(),
             text,
+            description: String::new(),
+            event: false,
+            location: String::new(),
             due: format_due(due),
             repeat,
             note,
@@ -354,6 +367,51 @@ mod tests {
     }
 
     #[test]
+    fn an_events_description_and_location_survive_a_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("reminders.toml");
+        let mut reminders = Reminders::default();
+        let mut event = Reminder::new(
+            "Team sync".into(),
+            at(2026, 10, 1, 9, 30),
+            Repeat::Weekly,
+            None,
+        );
+        event.description = "Bring the roadmap".into();
+        event.event = true;
+        event.location = "Meeting room 2".into();
+        reminders.insert(event);
+
+        reminders.save(&path).unwrap();
+
+        assert_eq!(Reminders::load(&path), reminders);
+    }
+
+    #[test]
+    fn reminders_saved_before_events_existed_still_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.toml");
+        std::fs::write(
+            &path,
+            "[[reminders]]\n\
+             uuid = \"4dfd4d9c-3f5a-435e-ba7b-2ba769507f53\"\n\
+             text = \"Test\"\n\
+             due = \"2026-09-30T15:55:00+00:00\"\n\
+             repeat = \"once\"\n",
+        )
+        .unwrap();
+
+        let loaded = Reminders::load(&path);
+
+        assert_eq!(loaded.reminders.len(), 1);
+        let reminder = &loaded.reminders[0];
+        assert_eq!(reminder.text, "Test");
+        assert!(!reminder.event, "an old reminder is not an event");
+        assert!(reminder.description.is_empty());
+        assert!(reminder.location.is_empty());
+    }
+
+    #[test]
     fn reminders_round_trip_through_their_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("reminders.toml");
@@ -388,8 +446,7 @@ mod tests {
             uuid: Uuid::from_u128(1),
             text: "hand-edited".into(),
             due: "not a timestamp".into(),
-            repeat: Repeat::Once,
-            note: None,
+            ..Reminder::new(String::new(), Local::now(), Repeat::Once, None)
         };
         assert!(!reminder.is_due(Local::now()));
         assert_eq!(reminder.due_at(), None);

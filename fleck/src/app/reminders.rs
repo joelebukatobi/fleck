@@ -44,6 +44,9 @@ pub(super) struct ReminderForm {
     /// The reminder being edited, or `None` when adding a new one.
     pub(super) uuid: Option<Uuid>,
     pub(super) text: String,
+    pub(super) description: String,
+    pub(super) event: bool,
+    pub(super) location: String,
     pub(super) date: String,
     pub(super) time: String,
     pub(super) repeat: Repeat,
@@ -57,6 +60,9 @@ impl ReminderForm {
         Self {
             uuid: None,
             text,
+            description: String::new(),
+            event: false,
+            location: String::new(),
             date: due.format(DATE_FORMAT).to_string(),
             time: due.format(TIME_FORMAT).to_string(),
             repeat: Repeat::Once,
@@ -70,6 +76,9 @@ impl ReminderForm {
         Self {
             uuid: Some(reminder.uuid),
             text: reminder.text.clone(),
+            description: reminder.description.clone(),
+            event: reminder.event,
+            location: reminder.location.clone(),
             date: due.format(DATE_FORMAT).to_string(),
             time: due.format(TIME_FORMAT).to_string(),
             repeat: reminder.repeat,
@@ -95,6 +104,15 @@ impl ReminderForm {
     pub(super) fn build(&self) -> Option<Reminder> {
         let due = self.due()?;
         let mut reminder = Reminder::new(self.text.trim().to_string(), due, self.repeat, self.note);
+        reminder.description = self.description.trim().to_string();
+        reminder.event = self.event;
+        // A location belongs to an event; unticking the box lets it go rather
+        // than keeping a hidden value that reappears later.
+        reminder.location = if self.event {
+            self.location.trim().to_string()
+        } else {
+            String::new()
+        };
         if let Some(uuid) = self.uuid {
             reminder.uuid = uuid;
         }
@@ -253,8 +271,19 @@ impl Fleck {
             || crate::fl!("reminder-unreadable"),
             |due| format_due(due, now),
         );
-        let mut details = widget::Column::with_capacity(2).spacing(CARD_CONTENT_SPACING);
+        let mut details = widget::Column::with_capacity(4).spacing(CARD_CONTENT_SPACING);
         details = details.push(widget::text::body(due).class(text_class(colour.text())));
+        if reminder.event && !reminder.location.trim().is_empty() {
+            details = details.push(
+                widget::text::body(reminder.location.clone()).class(text_class(colour.text())),
+            );
+        }
+        if !reminder.description.trim().is_empty() {
+            details = details.push(
+                widget::text::caption(reminder.description.clone())
+                    .class(text_class(colour.text())),
+            );
+        }
         if reminder.repeat != Repeat::Once {
             details = details.push(
                 widget::text::caption(repeat_label(reminder.repeat))
@@ -295,12 +324,17 @@ impl Fleck {
             ));
         }
 
-        let mut controls = widget::Column::with_capacity(5)
+        let mut controls = widget::Column::with_capacity(7)
             .spacing(FORM_FIELD_GAP)
             .push(field(
                 crate::fl!("reminder-text"),
                 &form.text,
                 Message::ReminderFormText,
+            ))
+            .push(field(
+                crate::fl!("reminder-description"),
+                &form.description,
+                Message::ReminderFormDescription,
             ))
             .push(
                 widget::Row::with_capacity(2)
@@ -321,7 +355,20 @@ impl Fleck {
                     .spacing(FORM_LABEL_GAP)
                     .push(widget::text::caption(crate::fl!("reminder-repeat")))
                     .push(repeats),
+            )
+            .push(
+                widget::checkbox(form.event)
+                    .label(crate::fl!("reminder-is-event"))
+                    .on_toggle(Message::ReminderFormEvent),
             );
+        // The location only matters for an event, so it only appears for one.
+        if form.event {
+            controls = controls.push(field(
+                crate::fl!("reminder-location"),
+                &form.location,
+                Message::ReminderFormLocation,
+            ));
+        }
         // Says how far away the typed time is, so an accepted default can't be
         // misread as "soon".
         match form.due() {
@@ -407,6 +454,23 @@ mod tests {
         form.date = "2026-1".to_string();
         assert_eq!(form.due(), None, "Save stays out of reach until it reads");
         assert_eq!(form.build(), None);
+    }
+
+    #[test]
+    fn unticking_event_lets_its_location_go() {
+        let mut form = ReminderForm::new(None, "Team sync".into());
+        form.event = true;
+        form.location = "Meeting room 2".into();
+        assert_eq!(form.build().unwrap().location, "Meeting room 2");
+
+        form.event = false;
+
+        let plain = form.build().expect("a valid form");
+        assert!(!plain.event);
+        assert!(
+            plain.location.is_empty(),
+            "a reminder that is no longer an event keeps no location"
+        );
     }
 
     #[test]

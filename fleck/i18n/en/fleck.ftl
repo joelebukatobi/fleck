@@ -119,3 +119,6 @@ ago-days = { $count ->
     [one] { $count } day ago
    *[other] { $count } days ago
 }
+reminder-description = Description
+reminder-is-event = This is an event
+reminder-location = Location
