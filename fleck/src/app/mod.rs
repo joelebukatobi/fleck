@@ -229,6 +229,8 @@ pub enum Message {
     ReminderCancel,
     /// A reminder's trash button.
     ReminderDelete(Uuid),
+    /// "Clear finished" under the reminders list.
+    ReminderClearDone,
     /// Time to look for reminders that have come due.
     ReminderTick,
     /// Nothing to do: a background task finished.
@@ -1580,6 +1582,11 @@ impl cosmic::Application for Fleck {
                 self.reminder_form = None;
                 Task::none()
             }
+            Message::ReminderClearDone => {
+                self.reminders.clear_done();
+                self.save_reminders();
+                Task::none()
+            }
             Message::ReminderDelete(uuid) => {
                 self.reminders.remove(uuid);
                 self.save_reminders();
@@ -2779,12 +2786,30 @@ mod tests {
         let _ = app.update(Message::ReminderTick);
 
         assert!(app.is_visible(uuid), "the note it points at opens");
-        assert_eq!(app.reminders.reminders.len(), 1, "the one-off is finished");
-        let moved = &app.reminders.reminders[0];
-        assert_eq!(moved.uuid, daily.uuid);
+        assert_eq!(app.reminders.reminders.len(), 2, "both are kept");
+        let moved = app
+            .reminders
+            .reminders
+            .iter()
+            .find(|reminder| reminder.uuid == daily.uuid)
+            .expect("the daily one is still there");
         assert!(
             moved.due_at().unwrap() > chrono::Local::now(),
             "the daily one is set for its next occurrence"
+        );
+        assert!(
+            app.reminders
+                .reminders
+                .iter()
+                .any(fleck_core::Reminder::is_done),
+            "the one-off is kept, marked done"
+        );
+
+        let _ = app.update(Message::ReminderClearDone);
+        assert_eq!(
+            app.reminders.reminders.len(),
+            1,
+            "clearing finished leaves the repeat"
         );
 
         std::fs::remove_file(&app.reminders_path).ok();

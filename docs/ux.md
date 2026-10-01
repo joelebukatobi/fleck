@@ -147,7 +147,9 @@ Modelled on the Windows Sticky Notes list window.
   17:00", "Tue at 09:00"), and how often they repeat. One about a note wears that
   note's colour. Clicking one opens it for editing; the trash button deletes it.
 - **When one comes due:** a desktop notification, an alarm that sounds for about ten
-  seconds, and the note it is about opens. A
+  seconds, and the note it is about opens.
+- A fired one-off stays in the list, marked **Done** with when it fired, below the
+  ones still to come and in the theme's own colours. **Clear finished** forgets them. A
   repeating reminder moves to its next occurrence; a one-off is done and goes.
 - A reminder missed while Fleck was closed fires as soon as Fleck starts, and a
   repeating one moves to the next occurrence still ahead rather than firing for every

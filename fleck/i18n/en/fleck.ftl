@@ -122,3 +122,5 @@ ago-days = { $count ->
 reminder-description = Description
 reminder-is-event = Is this an event?
 reminder-location = Location
+reminder-done = Done { $when }
+reminders-clear-done = Clear finished

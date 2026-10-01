@@ -81,6 +81,10 @@ pub struct Reminder {
     /// The note this reminder is about, if any.
     #[serde(default)]
     pub note: Option<Uuid>,
+    /// When it fired, for a one-off that is finished. `None` while it is
+    /// still to come, or for a repeat, which is never finished.
+    #[serde(default)]
+    pub completed: Option<String>,
 }
 
 impl Reminder {
@@ -96,6 +100,7 @@ impl Reminder {
             due: format_due(due),
             repeat,
             note,
+            completed: None,
         }
     }
 
@@ -106,10 +111,22 @@ impl Reminder {
         parse_due(&self.due)
     }
 
-    /// Whether this reminder should fire at `now`.
+    /// Whether this reminder should fire at `now`. A finished one never does.
     #[must_use]
     pub fn is_due(&self, now: DateTime<Local>) -> bool {
-        self.due_at().is_some_and(|due| due <= now)
+        !self.is_done() && self.due_at().is_some_and(|due| due <= now)
+    }
+
+    /// Whether this reminder has fired and is finished.
+    #[must_use]
+    pub fn is_done(&self) -> bool {
+        self.completed.is_some()
+    }
+
+    /// When it fired, in local time.
+    #[must_use]
+    pub fn completed_at(&self) -> Option<DateTime<Local>> {
+        self.completed.as_deref().and_then(parse_due)
     }
 
     /// The same reminder moved to its next occurrence, or `None` when it was a
@@ -193,18 +210,27 @@ impl Reminders {
         due
     }
 
-    /// Replaces a fired reminder with its next occurrence, or drops it when it
-    /// was a one-off.
+    /// Moves a fired reminder on: a repeat to its next occurrence, a one-off
+    /// to done, which keeps it in the list rather than losing it.
     pub fn reschedule(&mut self, uuid: Uuid) {
         let Some(index) = self.reminders.iter().position(|r| r.uuid == uuid) else {
             return;
         };
         match self.reminders[index].after_firing() {
             Some(next) => self.reminders[index] = next,
-            None => {
-                self.reminders.remove(index);
-            }
+            None => self.reminders[index].completed = Some(format_due(Local::now())),
         }
+    }
+
+    /// Forgets every finished reminder.
+    pub fn clear_done(&mut self) {
+        self.reminders.retain(|reminder| !reminder.is_done());
+    }
+
+    /// Whether any reminder is finished, so the list can offer to clear them.
+    #[must_use]
+    pub fn any_done(&self) -> bool {
+        self.reminders.iter().any(Reminder::is_done)
     }
 
     /// Adds a reminder, or replaces one with the same id.
@@ -219,11 +245,22 @@ impl Reminders {
         self.reminders.retain(|r| r.uuid != uuid);
     }
 
-    /// Reminders in the order they should be listed: soonest first.
+    /// Reminders in the order they should be listed: those still to come
+    /// first, soonest first, then the finished ones, most recent first.
     #[must_use]
     pub fn sorted(&self) -> Vec<&Reminder> {
         let mut all: Vec<&Reminder> = self.reminders.iter().collect();
-        all.sort_by_key(|r| r.due.clone());
+        all.sort_by(|a, b| {
+            // Still to come first (soonest first), then the finished ones
+            // (most recently finished first).
+            a.is_done().cmp(&b.is_done()).then_with(|| {
+                if a.is_done() {
+                    b.completed.cmp(&a.completed)
+                } else {
+                    a.due.cmp(&b.due)
+                }
+            })
+        });
         all
     }
 }
@@ -339,6 +376,63 @@ mod tests {
     }
 
     #[test]
+    fn a_fired_one_off_is_kept_as_done() {
+        let now = Local::now();
+        let mut reminders = Reminders::default();
+        let once = Reminder::new(
+            "post the letter".into(),
+            now - chrono::Duration::minutes(5),
+            Repeat::Once,
+            None,
+        );
+        reminders.insert(once.clone());
+
+        reminders.reschedule(once.uuid);
+
+        let kept = &reminders.reminders[0];
+        assert!(kept.is_done(), "a fired one-off is kept, marked done");
+        assert!(kept.completed_at().is_some(), "with the time it fired");
+        assert!(!kept.is_due(Local::now()), "and never fires again");
+        assert!(reminders.due(Local::now()).is_empty());
+
+        reminders.clear_done();
+        assert!(reminders.reminders.is_empty(), "clearing forgets it");
+    }
+
+    #[test]
+    fn done_reminders_sort_after_the_ones_still_to_come() {
+        let now = Local::now();
+        let mut reminders = Reminders::default();
+        let soon = Reminder::new(
+            "soon".into(),
+            now + chrono::Duration::hours(1),
+            Repeat::Once,
+            None,
+        );
+        let later = Reminder::new(
+            "later".into(),
+            now + chrono::Duration::days(1),
+            Repeat::Once,
+            None,
+        );
+        let mut done = Reminder::new(
+            "done".into(),
+            now - chrono::Duration::hours(2),
+            Repeat::Once,
+            None,
+        );
+        done.completed = Some(now.to_rfc3339());
+        reminders.insert(later.clone());
+        reminders.insert(done.clone());
+        reminders.insert(soon.clone());
+
+        let order: Vec<Uuid> = reminders.sorted().iter().map(|r| r.uuid).collect();
+
+        assert_eq!(order, vec![soon.uuid, later.uuid, done.uuid]);
+        assert!(reminders.any_done());
+    }
+
+    #[test]
     fn rescheduling_repeats_and_drops_one_offs() {
         let now = Local::now();
         let mut reminders = Reminders::default();
@@ -360,9 +454,18 @@ mod tests {
         reminders.reschedule(daily.uuid);
         reminders.reschedule(once.uuid);
 
-        assert_eq!(reminders.reminders.len(), 1, "the one-off is gone");
-        let moved = &reminders.reminders[0];
-        assert_eq!(moved.uuid, daily.uuid);
+        assert_eq!(reminders.reminders.len(), 2, "both are kept");
+        let moved = reminders
+            .reminders
+            .iter()
+            .find(|r| r.uuid == daily.uuid)
+            .expect("the daily one is still there");
+        let finished = reminders
+            .reminders
+            .iter()
+            .find(|r| r.uuid == once.uuid)
+            .expect("the one-off is kept as done");
+        assert!(finished.is_done());
         assert!(moved.due_at().unwrap() > now, "the daily one moved ahead");
     }
 

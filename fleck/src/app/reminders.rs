@@ -211,9 +211,23 @@ impl Fleck {
         for reminder in reminders {
             cards = cards.push(self.view_reminder_card(reminder, now));
         }
-        widget::scrollable(cards)
+        let list = widget::scrollable(cards)
             .width(Length::Fill)
-            .height(Length::Fill)
+            .height(Length::Fill);
+        if !self.reminders.any_done() {
+            return list.into();
+        }
+        widget::Column::with_capacity(2)
+            .spacing(CARD_SPACING)
+            .push(list)
+            .push(
+                widget::container(
+                    widget::button::text(crate::fl!("reminders-clear-done"))
+                        .on_press(Message::ReminderClearDone)
+                        .class(super::style::text_button_class()),
+                )
+                .align_right(Length::Fill),
+            )
             .into()
     }
 
@@ -226,12 +240,18 @@ impl Fleck {
     ) -> Element<'_, Message> {
         // A reminder about a note wears that note's colour, so the two read as
         // the same thing; a standalone one uses the theme's.
-        let colour = reminder
-            .note
-            .and_then(|uuid| self.notes.get(&uuid))
-            .map_or(Colour::Default, |note| {
-                Colour::from_name(&note.frontmatter.color)
-            });
+        // A finished reminder keeps the theme's colours rather than its note's,
+        // so what is still to come stands out.
+        let colour = if reminder.is_done() {
+            Colour::Default
+        } else {
+            reminder
+                .note
+                .and_then(|uuid| self.notes.get(&uuid))
+                .map_or(Colour::Default, |note| {
+                    Colour::from_name(&note.frontmatter.color)
+                })
+        };
         let heading_text = colour.heading_text();
         let text_class = |text: Option<(u8, u8, u8)>| {
             text.map_or(cosmic::theme::Text::Default, |text| {
@@ -268,10 +288,14 @@ impl Fleck {
         ])
         .width(Length::Fill);
 
-        let due = reminder.due_at().map_or_else(
-            || crate::fl!("reminder-unreadable"),
-            |due| format_due(due, now),
-        );
+        let due = if let Some(completed) = reminder.completed_at() {
+            crate::fl!("reminder-done", when = format_due(completed, now))
+        } else {
+            reminder.due_at().map_or_else(
+                || crate::fl!("reminder-unreadable"),
+                |due| format_due(due, now),
+            )
+        };
         let mut details = widget::Column::with_capacity(4).spacing(CARD_CONTENT_SPACING);
         details = details.push(widget::text::body(due).class(text_class(colour.text())));
         if reminder.event && !reminder.location.trim().is_empty() {
@@ -285,7 +309,7 @@ impl Fleck {
                     .class(text_class(colour.text())),
             );
         }
-        if reminder.repeat != Repeat::Once {
+        if reminder.repeat != Repeat::Once && !reminder.is_done() {
             details = details.push(
                 widget::text::caption(repeat_label(reminder.repeat))
                     .class(text_class(colour.text())),
