@@ -9,7 +9,7 @@ left**, and it is deliberately last.
 
 ## State
 
-- Branch `dev`, clean tree, **35 commits ahead of `origin/dev`** (images, reminders,
+- Branch `dev`, clean tree, **37 commits ahead of `origin/dev`** (images, reminders,
   dictation, metadata files). Push when Joel says so.
 - `master` trails `dev` by everything since the icon work.
 - Tests: 129 in `fleck`, 94 in `fleck-core`. Clippy clean at pedantic.
@@ -28,17 +28,34 @@ left**, and it is deliberately last.
   and `cmake` to build.
 - AppStream metainfo, D-Bus service file, autostart entry.
 - **`justfile`**: build, check, validate, install/uninstall (system and user), model.
+- **Packaging:** `just deb` builds a stripped 8 MB package with dpkg-deb (no
+  packaging toolchain needed); `just apt-repo` builds the signed apt repository
+  locally; `.github/workflows/release.yml` does both on a `v*` tag and pushes to
+  `joelebukatobi/fleck-apt` (public, created, seeded with its README and page).
+  Verified: real `apt update` + `apt-cache policy` against the generated repo.
 - **Fleck's own icon** (`data/icons/fleck/`): colour for the launcher, symbolic for
   the panel, replacing Iconoir's page-edit. Installed into
   `~/.local/share/icons/hicolor/scalable/apps/` for this user.
 
 ## Next
 
-1. Push the waiting commits to `dev` (ask first).
-2. Packaging: `.deb`, screenshots for the AppStream file, and how Fleck reaches other
-   people (parked deliberately).
+1. **Joel's four manual steps before the first release can go out** (nothing else
+   blocks it):
+   1. Generate the signing key:
+      `gpg --quick-generate-key "Fleck Packages <joelebuka@gmail.com>" rsa4096 sign never`
+   2. Export the public half to `packaging/apt/fleck.gpg`
+      (`gpg --export "Fleck Packages" > packaging/apt/fleck.gpg`) and commit it.
+   3. Add the private half as the `APT_SIGNING_KEY` secret on `fleck`, and a token
+      with `contents:write` on `fleck-apt` as `APT_REPO_TOKEN`.
+   4. Turn on Pages for `fleck-apt`: Settings, Pages, Source, branch `main`, root.
+2. Push the waiting commits to `dev` (ask first).
+3. Then `git tag -a v0.1.0 -m 'Fleck 0.1.0' && git push origin v0.1.0` releases it.
+4. Still open: screenshots for the AppStream listing, and the COSMIC Store
+   submission.
 3. The panel icon only changes after `cargo build --release` **and** a
-   `systemctl --user restart cosmic-panel`; the panel does not respawn an applet
+   `just deb                                 # the package, target/deb/
+just apt-repo                            # the signed apt repository, target/apt/
+systemctl --user restart cosmic-panel`; the panel does not respawn an applet
    it has killed.
 
 ## Decisions
@@ -50,6 +67,11 @@ left**, and it is deliberately last.
 - Dialogs are modal and nothing dims behind them (COSMIC doesn't either).
 - Pick-or-dismiss dialogs close from a corner button; confirmations keep Cancel.
 - Existing notes stay yellow; new notes are Default.
+- **Distribution:** `.deb` plus an apt repository on `fleck-apt`'s Pages, so updates
+  arrive with `apt upgrade`. No Flathub (a sandboxed app can't be a COSMIC applet),
+  no PPA (Launchpad's builders have no network, so every crate would need vendoring),
+  no `curl | sh`. The source history stays private; `fleck-apt` holds only packages,
+  the index, the key and the changelog.
 - The icon is drawn by hand, not from an icon set; the design tool's provenance
   metadata is stripped (8 KB of an 8.5 KB file).
 
@@ -68,6 +90,8 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 cargo build --release
 fleck --quit; ~/Projects/sticky-notes/target/release/fleck      # look at it
 fleck --quit; RUST_LOG=fleck=debug ~/Projects/sticky-notes/target/release/fleck
+just deb                                 # the package, target/deb/
+just apt-repo                            # the signed apt repository, target/apt/
 systemctl --user restart cosmic-panel    # after a rebuild: the panel does not
                                          # respawn a killed applet by itself
 ```

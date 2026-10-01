@@ -33,3 +33,4 @@ One line per decision or commit worth remembering. Newest last.
   the cursor. A killed recorder leaves a WAV claiming zero samples, so Fleck interrupts
   it and parses the file itself rather than trusting the header.
 - Fleck's own icon replaces the page-edit stand-in: colour for the launcher, symbolic for the panel.
+- Distribution decided: .deb on GitHub Releases plus a signed apt repository on the public fleck-apt's Pages; no Flathub (applets can't be sandboxed), no PPA (Launchpad builders are offline).
