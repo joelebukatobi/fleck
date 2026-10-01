@@ -8,7 +8,40 @@ list up from anywhere. Fleck is written in Rust with
 [libcosmic](https://github.com/pop-os/libcosmic), so it follows your COSMIC
 theme, accent colour and light or dark mode.
 
-Fleck is early software. There are no packages yet; build it from source.
+Fleck is early software. Install it from Fleck's apt repository (below), or
+build it from source.
+
+## Installing on Pop!_OS, Ubuntu or Debian
+
+Add Fleck's apt repository once, and new versions arrive with the rest of your
+system updates:
+
+```bash
+curl -fsSL https://joelebukatobi.github.io/fleck-apt/fleck.gpg | sudo tee /usr/share/keyrings/fleck.gpg > /dev/null
+echo 'deb [signed-by=/usr/share/keyrings/fleck.gpg] https://joelebukatobi.github.io/fleck-apt stable main' | sudo tee /etc/apt/sources.list.d/fleck.list
+sudo apt update && sudo apt install fleck
+```
+
+Or install a single `.deb` from the [releases
+page](https://github.com/joelebukatobi/fleck/releases) without adding the
+repository, if you'd rather update by hand:
+
+```bash
+sudo apt install ./fleck_0.1.0_amd64.deb
+```
+
+Either way, that puts Fleck in the app library, adds the panel applet (COSMIC Settings,
+Desktop, Panel, Configure panel applets) and starts the reminder watcher with
+your session. `sudo apt remove fleck` takes it all away again.
+
+Dictation needs the speech model, about 142 MB, downloaded once:
+
+```bash
+just model    # or: curl -fL -o ~/.local/share/fleck/models/ggml-base.bin \
+              #   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+```
+
+On other distributions, build from source.
 
 ## Features
 
@@ -48,7 +81,8 @@ just model           # the speech model for dictation, about 142 MB
 ```
 
 `just install` installs for everyone (needs root), and `just uninstall-user` or
-`just uninstall` removes it again. `just check` runs everything CI runs.
+`just uninstall` removes it again. `just check` runs everything CI runs, and
+`just deb` builds the package described above.
 
 By hand, if you'd rather: copy the program somewhere on your `PATH`, install the two desktop entries (one
 for the app, one for the panel applet) and Fleck's icons:

@@ -96,6 +96,19 @@ uninstall-user:
         {{user-share}}/dbus-1/services/{{appid}}.service \
         {{user-config}}/autostart/{{appid}}-autostart.desktop
 
+# Build the apt repository locally, the way the release workflow builds the one
+# fleck-apt serves, and let apt read it back. Signs with whatever key gpg picks
+# by default, so it needs a signing key in your keyring.
+apt-repo: deb
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo="{{cargo-target-dir}}/apt"
+    mkdir -p "${repo}"
+    packaging/apt/changelog.sh > "{{cargo-target-dir}}/notes.md"
+    packaging/apt/publish.sh "${repo}" {{cargo-target-dir}}/deb/*.deb "{{cargo-target-dir}}/notes.md"
+    cp packaging/apt/index.html "${repo}/index.html"
+    echo "apt repository at ${repo}"
+
 # The speech model dictation needs, about 142 MB, downloaded once.
 model:
     #!/usr/bin/env bash
@@ -104,3 +117,45 @@ model:
     mkdir -p "{{model-dir}}"
     curl -fL --progress-bar "{{model-url}}" -o "{{model}}"
     echo "speech model installed"
+
+# A .deb for Pop!_OS, Ubuntu and Debian, built from the same files `install`
+# uses. dpkg-deb comes with the system, so there is no packaging toolchain to
+# install; CI attaches the result to the release.
+deb: build-release
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="$(cargo metadata --no-deps --format-version 1 \
+        | grep -o '"name":"fleck","version":"[^"]*"' | head -1 | cut -d'"' -f8)"
+    arch="$(dpkg --print-architecture)"
+    stage="{{cargo-target-dir}}/deb/{{name}}_${version}_${arch}"
+    rm -rf "${stage}"
+    just rootdir="${stage}" prefix=/usr install
+    # Debian expects stripped binaries; the debug symbols are most of the size.
+    strip --strip-unneeded "${stage}/usr/bin/{{name}}"
+    # A system install puts the autostart entry where nothing reads it; in a
+    # package it belongs in xdg's own directory, so reminders fire after login
+    # without anyone having to copy a file.
+    rm -f "${stage}/usr/share/applications/{{appid}}-autostart.desktop"
+    install -Dm0644 data/{{appid}}-autostart.desktop \
+        "${stage}/etc/xdg/autostart/{{appid}}-autostart.desktop"
+    mkdir -p "${stage}/DEBIAN"
+    # Depends covers what `ldd` finds; Wayland, Vulkan and the fonts are opened
+    # at runtime by libcosmic and come with every COSMIC desktop. The recorders
+    # are only needed for dictation, and the speech model is a separate download.
+    cat > "${stage}/DEBIAN/control" <<CONTROL
+    Package: {{name}}
+    Version: ${version}
+    Architecture: ${arch}
+    Maintainer: Joel Onwuanaku <joelebuka@gmail.com>
+    Section: x11
+    Priority: optional
+    Depends: libc6, libgcc-s1, libstdc++6, libxkbcommon0
+    Recommends: pipewire-bin | pulseaudio-utils
+    Homepage: https://github.com/joelebukatobi/fleck
+    Description: Sticky notes for the COSMIC desktop
+     Notes that stay where you put them, with reminders, images and
+     dictation. Comes with a panel applet for opening them.
+    CONTROL
+    sed -i 's/^    //' "${stage}/DEBIAN/control"
+    dpkg-deb --root-owner-group --build "${stage}" > /dev/null
+    echo "{{cargo-target-dir}}/deb/{{name}}_${version}_${arch}.deb"

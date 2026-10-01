@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleck packages</title>
+<style>
+  :root { color-scheme: light dark; --ink: #202020; --paper: #fbfbfb; --accent: #48b9c7; }
+  @media (prefers-color-scheme: dark) { :root { --ink: #e8e8e8; --paper: #1b1b1b; } }
+  body { max-width: 42rem; margin: 0 auto; padding: 3rem 1rem; background: var(--paper);
+         color: var(--ink); font: 16px/1.6 system-ui, sans-serif; }
+  h1 { font-size: 1.6rem; }
+  code, pre { font-family: ui-monospace, monospace; font-size: 0.9rem; }
+  pre { padding: 0.9rem 1rem; border-radius: 8px; overflow-x: auto;
+        background: color-mix(in srgb, var(--ink) 8%, transparent); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<h1>Fleck packages</h1>
+<p>Sticky notes for the COSMIC desktop. This is the apt repository; the app itself
+lives at <a href="https://github.com/joelebukatobi/fleck">github.com/joelebukatobi/fleck</a>.</p>
+
+<h2>Installing</h2>
+<p>Add the repository once, and Fleck updates with the rest of your system:</p>
+<pre><code>curl -fsSL https://joelebukatobi.github.io/fleck-apt/fleck.gpg \
+  | sudo tee /usr/share/keyrings/fleck.gpg > /dev/null
+echo 'deb [signed-by=/usr/share/keyrings/fleck.gpg] https://joelebukatobi.github.io/fleck-apt stable main' \
+  | sudo tee /etc/apt/sources.list.d/fleck.list
+sudo apt update &amp;&amp; sudo apt install fleck</code></pre>
+
+<p>Then add the panel applet in COSMIC Settings: Desktop, Panel, Configure panel
+applets. Dictation needs a speech model, about 142&nbsp;MB, downloaded once:</p>
+<pre><code>mkdir -p ~/.local/share/fleck/models
+curl -fL -o ~/.local/share/fleck/models/ggml-base.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin</code></pre>
+
+<h2>Removing it</h2>
+<pre><code>sudo apt remove fleck
+sudo rm /etc/apt/sources.list.d/fleck.list /usr/share/keyrings/fleck.gpg</code></pre>
+
+<p><a href="CHANGELOG.md">What changed in each release</a>.</p>
+</body>
+</html>

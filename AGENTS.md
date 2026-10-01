@@ -11,6 +11,8 @@ Sticky notes for the COSMIC desktop, in Rust with libcosmic. Private repo:
   applet (`fleck --applet`; one binary does both).
 - `data/` — desktop entries, AppStream metainfo, D-Bus service file, Fleck's own
   icon, bundled Iconoir icons.
+- `packaging/apt/` — `publish.sh` (builds and signs the apt index), `changelog.sh`,
+  and the landing page `fleck-apt` serves.
 - `docs/ux.md` — the product's behaviour in plain language. **Update it with every
   behaviour or look change**; it is the source of truth for how Fleck should act.
 - `docs/superpowers/` — planning notes, local only. Never commit (see `.gitignore`).
@@ -31,6 +33,13 @@ Sticky notes for the COSMIC desktop, in Rust with libcosmic. Private repo:
 4. **Don't launch the GUI on the user's desktop** unasked, and don't touch their real
    notes (`~/.local/share/fleck`) or panel configuration without asking.
 5. **Push only when asked.**
+6. **Releases:** tagging `v*` runs `.github/workflows/release.yml`: it builds the
+   `.deb`, attaches it to the GitHub release, and publishes it to the apt repository
+   that the public `joelebukatobi/fleck-apt` serves through Pages, so users get it
+   with `apt upgrade`. The source history stays in this private repo; `fleck-apt`
+   holds only packages, the index, the key and the changelog. Flatpak can't host a
+   COSMIC applet, so there is no Flathub build, and a PPA would mean vendoring every
+   crate for Launchpad's offline builders.
 
 ## Conventions
 
