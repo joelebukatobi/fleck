@@ -25,3 +25,10 @@ One line per decision or commit worth remembering. Newest last.
   plain Markdown links, with a thumbnail row and an image dialog.
 - 2026-09-30 — AppStream metainfo and D-Bus service files added; CI validates the
   metainfo. Distribution (how Fleck reaches other people) parked until last.
+- 2026-09-30 — Handoff files added (AGENTS, CLAUDE, HANDOFF, COMMITS).
+- 2026-10-01 — Reminders built: own items with repeats, events and locations, notified
+  with Fleck's own ten-second alarm, firing in the background through an autostart
+  entry; fired one-offs are kept as Done.
+- 2026-10-01 — Dictation built: pw-record plus Whisper through whisper-rs, typed in at
+  the cursor. A killed recorder leaves a WAV claiming zero samples, so Fleck interrupts
+  it and parses the file itself rather than trusting the header.

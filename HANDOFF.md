@@ -1,60 +1,63 @@
 # Handoff
 
-_Last updated: 2026-09-30_
+_Last updated: 2026-10-01_
 
 ## Task
 
-Fleck is feature-complete for notes, colours and images. Next up, in this order:
-**reminders (Phase 2)**, then **voice input (Phase 3)**, then **packaging last**.
+Notes, images, reminders and dictation are all built. **Packaging is the only phase
+left**, and it is deliberately last.
 
 ## State
 
-- Branch `dev`, clean tree, **10 commits ahead of `origin/dev`** (images, dialog
-  fixes, AppStream and D-Bus files). Push when Joel says so.
-- `master` trails `dev` by the whole images round; no merge since the icon work.
-- Tests: 118 in `fleck`, 80 in `fleck-core`. Clippy clean at pedantic.
+- Branch `dev`, clean tree, **33 commits ahead of `origin/dev`** (images, reminders,
+  dictation, metadata files). Push when Joel says so.
+- `master` trails `dev` by everything since the icon work.
+- Tests: 129 in `fleck`, 94 in `fleck-core`. Clippy clean at pedantic.
 
 ## Done recently
 
-- Images in notes: paste (Ctrl+V), drag-and-drop, thumbnail row, click a thumbnail to
-  put the cursor on its line and open the picture, Copy and Delete, files under
-  `notes/<uuid>/` with plain Markdown links in the body.
-- Image dialog: no title (the file name is a uuid), picture scaled to fit 320 px, close
-  button in the top-right corner. The colour dialog closes the same way.
-- Escape closes a note's dialog or its Settings menu.
-- `data/io.github.joelebukatobi.Fleck.metainfo.xml` (AppStream) and
-  `data/io.github.joelebukatobi.Fleck.service` (D-Bus activation), both installed by
-  the README steps, metainfo validated in CI.
+- **Reminders:** their own items (text, description, event + location, date, time,
+  repeat), optionally about a note; `reminders.toml`. Notes/Reminders dropdown and a
+  **+** in the list header. Firing gives a notification, plays Fleck's own sound for
+  ten seconds, and opens the linked note. One-offs are kept as **Done**; **Clear
+  finished** forgets them. `fleck --background` + autostart entry fire reminders while
+  Fleck is closed.
+- **Dictation:** a round microphone button floats over each note's bottom-right corner.
+  Records with `pw-record`, transcribes with Whisper (whisper-rs, `base` model in
+  `~/.local/share/fleck/models/`), types the result at the cursor. Needs `libclang-dev`
+  and `cmake` to build.
+- AppStream metainfo, D-Bus service file, autostart entry.
 
 ## Next
 
 1. Push the waiting commits to `dev` (ask first).
-2. Reminders: decide one-per-note vs several, repeats, what firing does (COSMIC
-   notification, opening the note, or both), and whether they fire with Fleck closed —
-   that last one is what the new D-Bus service file makes possible.
-3. Voice input (Whisper, model as a dependency).
-4. Packaging: `.deb`, Fleck's own app icon, `justfile`. How Fleck reaches other people
-   is deliberately parked until then.
+2. Packaging: `.deb`, Fleck's own drawn app icon (the page-edit icon stands in),
+   `justfile`, screenshots for the AppStream file, and how Fleck reaches other people.
 
 ## Decisions
 
-- Existing notes stay yellow; new notes are Default (the theme's own look).
-- Distribution question (Flatpak vs `.deb` vs other) is deliberately last.
-- Dialogs are modal: clicking outside does not dismiss them; Escape or a button does.
-- Rename and Delete keep Cancel buttons; pick-or-dismiss dialogs use the corner close.
+- Reminders live beside notes, not inside them; one file for all of them.
+- Firing: notification **and** the note opens; alarm repeats for ten seconds.
+- New reminders default to ten minutes ahead, rounded to five; the form says how far
+  away the time is.
+- Dialogs are modal and nothing dims behind them (COSMIC doesn't either).
+- Pick-or-dismiss dialogs close from a corner button; confirmations keep Cancel.
+- Existing notes stay yellow; new notes are Default.
 
 ## Open, small
 
-- `New note` (the label for an empty note) lives in `fleck-core` and can't be
-  translated yet.
-- Image lines read `![](<uuid>.png)`; shorter names were offered and not decided.
-- Only English exists, though everything is routed through Fluent.
+- The speech model is downloaded by hand (README); Fleck could fetch it on first use.
+- Image lines read `![](<uuid>.png)`; shorter names were offered, never decided.
+- `New note` (the empty-note label) lives in `fleck-core` and isn't translatable.
+- Notification banners never pop on this desktop, for Fleck or anything else; only the
+  tray shows them.
 
 ## Commands
 
 ```bash
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 cargo build --release
-fleck --quit; ~/Projects/sticky-notes/target/release/fleck   # look at it
-pkill -f 'fleck --applet'                                    # panel restarts it
+fleck --quit; ~/Projects/sticky-notes/target/release/fleck      # look at it
+fleck --quit; RUST_LOG=fleck=debug ~/Projects/sticky-notes/target/release/fleck
+pkill -f 'fleck --applet'                                       # panel restarts it
 ```
