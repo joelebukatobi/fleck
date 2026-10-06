@@ -124,3 +124,4 @@ reminder-is-event = Is this an event?
 reminder-location = Location
 reminder-done = Done { $when }
 reminders-clear-done = Clear finished
+getting-speech-model = Getting the speech model, about 142 MB

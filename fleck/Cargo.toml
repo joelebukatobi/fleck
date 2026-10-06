@@ -34,6 +34,7 @@ whisper-rs = { version = "0.16.0", default-features = false }
 # sandbox, where the recorder and player binaries do not exist.
 libpulse-binding = { version = "2", default-features = false }
 libpulse-simple-binding = { version = "2", default-features = false }
+ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 
 [lints]
 workspace = true

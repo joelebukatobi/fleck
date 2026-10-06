@@ -34,12 +34,8 @@ Either way, that puts Fleck in the app library, adds the panel applet (COSMIC Se
 Desktop, Panel, Configure panel applets) and starts the reminder watcher with
 your session. `sudo apt remove fleck` takes it all away again.
 
-Dictation needs the speech model, about 142 MB, downloaded once:
-
-```bash
-just model    # or: curl -fL -o ~/.local/share/fleck/models/ggml-base.bin \
-              #   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
-```
+Dictation needs a speech model, about 142 MB. The first press of a note's
+microphone fetches it; `just model` gets it ahead of time instead.
 
 On other distributions, build from source.
 

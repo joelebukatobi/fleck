@@ -140,8 +140,12 @@ Modelled on the Windows Sticky Notes list window.
   refreshed every few seconds and covering the last fifteen seconds. It is a preview
   only; nothing is written to the note until you stop.
 - The text lands at the cursor, as if typed, so undo covers it like any other edit.
-- Everything happens on this machine: the recording goes to a temporary file, Whisper
-  reads it, and the file is deleted. Nothing is sent anywhere.
+- Everything happens on this machine: the recording is held in memory, Whisper reads
+  it there, and nothing is written out or sent anywhere.
+- The first press on a fresh install has a speech model to fetch, about 142 MB. The
+  button spins and the panel says **Getting the speech model**; when it arrives the
+  recording starts by itself, so one press is still all it takes. The download is the
+  only time Fleck uses the network.
 - Starting a dictation in another note stops the first, and that recording is dropped
   rather than landing in the wrong note.
 

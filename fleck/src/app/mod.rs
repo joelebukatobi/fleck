@@ -259,6 +259,8 @@ pub enum Message {
     VoicePreviewTick,
     /// The latest preview of the dictation in progress.
     VoicePreview(window::Id, String),
+    /// The speech model download finished, so dictation can start.
+    VoiceModelReady(window::Id, Result<(), String>),
     /// Ctrl+V in a note: look for an image on the clipboard first.
     NotePasteImage(window::Id),
     /// What the clipboard held: an image (encoded PNG), or nothing usable, in
@@ -487,6 +489,9 @@ pub struct Fleck {
     recording: Option<(window::Id, crate::voice::Recording)>,
     /// The note window whose dictation is being transcribed.
     transcribing: Option<window::Id>,
+    /// The note window waiting on the speech model to arrive. Dictation needs a
+    /// 142 MB model, and the first press of a microphone fetches it.
+    fetching_model: Option<window::Id>,
     /// The last few seconds of the dictation in progress, in words.
     voice_preview: String,
     /// Whether a preview is already being worked out, so the ticks don't pile
@@ -972,11 +977,34 @@ impl Fleck {
                 move |text| cosmic::Action::App(Message::VoiceTranscribed(id, text)),
             );
         }
+        let model = crate::voice::model_path(&self.data_dir);
+        if !model.is_file() {
+            return self.fetch_model(id, model);
+        }
         match crate::voice::Recording::start() {
             Ok(recording) => self.recording = Some((id, recording)),
             Err(error) => tracing::error!(%error, "couldn't start recording"),
         }
         Task::none()
+    }
+
+    /// Fetches the speech model, then starts dictating. The first press of a
+    /// microphone on a fresh install lands here: the button spins and says what
+    /// it is waiting for, rather than failing at a missing file.
+    fn fetch_model(&mut self, id: window::Id, model: std::path::PathBuf) -> Task<Message> {
+        if self.fetching_model.is_some() {
+            return Task::none();
+        }
+        self.fetching_model = Some(id);
+        self.voice_preview = crate::fl!("getting-speech-model");
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || crate::voice::download_model(&model))
+                    .await
+                    .unwrap_or_else(|error| Err(format!("the download stopped: {error}")))
+            },
+            move |done| cosmic::Action::App(Message::VoiceModelReady(id, done)),
+        )
     }
 
     /// Transcribes the last stretch of the recording in progress, for the
@@ -1013,11 +1041,12 @@ impl Fleck {
 
     /// The live preview of what is being dictated into note window `id`.
     pub(super) fn dictation_preview(&self, id: window::Id) -> Option<&str> {
-        let recording_here = self
+        let busy_here = self
             .recording
             .as_ref()
-            .is_some_and(|(window, _)| *window == id);
-        (recording_here && !self.voice_preview.trim().is_empty()).then(|| self.voice_preview.trim())
+            .is_some_and(|(window, _)| *window == id)
+            || self.fetching_model == Some(id);
+        (busy_here && !self.voice_preview.trim().is_empty()).then(|| self.voice_preview.trim())
     }
 
     /// Whether note window `id` is recording, transcribing, or neither - what
@@ -1029,7 +1058,7 @@ impl Fleck {
             .is_some_and(|(window, _)| *window == id)
         {
             DictationState::Recording
-        } else if self.transcribing == Some(id) {
+        } else if self.transcribing == Some(id) || self.fetching_model == Some(id) {
             DictationState::Transcribing
         } else {
             DictationState::Idle
@@ -1283,6 +1312,7 @@ impl cosmic::Application for Fleck {
             data_dir,
             recording: None,
             transcribing: None,
+            fetching_model: None,
             voice_preview: String::new(),
             previewing: false,
             window_state_dirty: false,
@@ -1737,6 +1767,18 @@ impl cosmic::Application for Fleck {
                 }
                 Task::none()
             }
+            Message::VoiceModelReady(id, done) => {
+                self.fetching_model = None;
+                self.voice_preview.clear();
+                match done {
+                    // The press that asked for the model starts the recording.
+                    Ok(()) => self.toggle_dictation(id),
+                    Err(error) => {
+                        tracing::error!(%error, "couldn't get the speech model");
+                        Task::none()
+                    }
+                }
+            }
             Message::VoiceTranscribed(id, text) => {
                 self.transcribing = None;
                 match text {
@@ -2080,6 +2122,7 @@ mod tests {
             data_dir: std::env::temp_dir().join("fleck-test-data"),
             recording: None,
             transcribing: None,
+            fetching_model: None,
             voice_preview: String::new(),
             previewing: false,
             window_state_dirty: false,

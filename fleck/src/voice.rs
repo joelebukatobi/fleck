@@ -93,6 +93,39 @@ impl Recording {
     }
 }
 
+/// Downloads the speech model, about 142 MB, to where `model_path` says it
+/// goes. Blocking, and minutes on a slow line, so callers run it off the UI
+/// thread.
+///
+/// Written beside its destination and renamed when it is whole, so an
+/// interrupted download never leaves a half model that Whisper would choke on.
+pub fn download_model(model: &Path) -> Result<(), String> {
+    download(MODEL_URL, model)
+}
+
+/// Fetches `url` into `to`, through a partial file so an interrupted download
+/// leaves nothing behind that looks finished.
+fn download(url: &str, to: &Path) -> Result<(), String> {
+    let model = to;
+    if let Some(dir) = model.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|error| format!("couldn't make room for the speech model: {error}"))?;
+    }
+    let partial = model.with_extension("part");
+    let mut response = ureq::get(url)
+        .call()
+        .map_err(|error| format!("couldn't reach the speech model: {error}"))?;
+    let mut file = std::fs::File::create(&partial)
+        .map_err(|error| format!("couldn't write the speech model: {error}"))?;
+    let written = std::io::copy(&mut response.body_mut().as_reader(), &mut file)
+        .map_err(|error| format!("the speech model download stopped: {error}"))?;
+    drop(file);
+    std::fs::rename(&partial, model)
+        .map_err(|error| format!("couldn't put the speech model in place: {error}"))?;
+    tracing::info!(bytes = written, model = %model.display(), "downloaded the speech model");
+    Ok(())
+}
+
 /// Where the speech model lives.
 #[must_use]
 pub fn model_path(data_dir: &Path) -> PathBuf {
@@ -176,6 +209,23 @@ mod tests {
             .expect_err("no model, no transcription");
 
         assert!(error.contains(MODEL_URL), "{error}");
+    }
+
+    /// Needs the network, so it is not part of `just check`:
+    /// `cargo test -- --ignored download`.
+    #[test]
+    #[ignore = "needs the network"]
+    fn a_download_lands_whole_or_not_at_all() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("models").join("downloaded");
+
+        download("https://example.com", &file).expect("a small download");
+
+        assert!(std::fs::metadata(&file).unwrap().len() > 0);
+        assert!(
+            !file.with_extension("part").exists(),
+            "the partial file is renamed, not left behind"
+        );
     }
 
     #[test]
