@@ -958,7 +958,6 @@ impl Fleck {
             self.voice_preview.clear();
             let audio = recording.stop();
             if recording_in != id {
-                let _ = std::fs::remove_file(&audio);
                 return self.toggle_dictation(id);
             }
             self.transcribing = Some(id);
@@ -966,13 +965,9 @@ impl Fleck {
             return Task::perform(
                 async move {
                     // Transcribing is slow and blocking: off the UI thread.
-                    tokio::task::spawn_blocking(move || {
-                        let text = crate::voice::transcribe(&audio, &model);
-                        let _ = std::fs::remove_file(&audio);
-                        text
-                    })
-                    .await
-                    .unwrap_or_else(|error| Err(format!("transcribing stopped: {error}")))
+                    tokio::task::spawn_blocking(move || crate::voice::transcribe(&audio, &model))
+                        .await
+                        .unwrap_or_else(|error| Err(format!("transcribing stopped: {error}")))
                 },
                 move |text| cosmic::Action::App(Message::VoiceTranscribed(id, text)),
             );
@@ -985,8 +980,8 @@ impl Fleck {
     }
 
     /// Transcribes the last stretch of the recording in progress, for the
-    /// preview strip. The recorder writes as it goes, so the file can be read
-    /// while it is still being written.
+    /// preview strip. The recording grows as it is read, so the tail can be
+    /// taken while the microphone is still open.
     fn preview_dictation(&mut self) -> Task<Message> {
         let Some((id, recording)) = self.recording.as_ref() else {
             return Task::none();
@@ -996,15 +991,13 @@ impl Fleck {
             return Task::none();
         }
         self.previewing = true;
-        let (id, audio) = (*id, recording.path.clone());
+        let (id, audio) = (*id, recording.tail(crate::voice::PREVIEW_WINDOW));
         let model = crate::voice::model_path(&self.data_dir);
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || {
-                    crate::voice::transcribe_tail(&audio, &model, crate::voice::PREVIEW_WINDOW)
-                })
-                .await
-                .unwrap_or_else(|error| Err(format!("the preview stopped: {error}")))
+                tokio::task::spawn_blocking(move || crate::voice::transcribe(&audio, &model))
+                    .await
+                    .unwrap_or_else(|error| Err(format!("the preview stopped: {error}")))
             },
             move |text| {
                 cosmic::Action::App(Message::VoicePreview(

@@ -28,7 +28,12 @@ arboard = { version = "3.6.1", default-features = false, features = ["image-data
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 whisper-rs = { version = "0.16.0", default-features = false }
-hound = "3.5.1"
+# Recording and playback go through PulseAudio's simple API, which PipeWire
+# serves on every COSMIC desktop. Asking the server for 16 kHz mono is what the
+# pw-record command line used to do for us, and it works inside a Flatpak
+# sandbox, where the recorder and player binaries do not exist.
+libpulse-binding = { version = "2", default-features = false }
+libpulse-simple-binding = { version = "2", default-features = false }
 
 [lints]
 workspace = true

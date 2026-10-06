@@ -20,18 +20,10 @@ const ALARM_SOUND: &str = "alarm-clock-elapsed";
 /// hears is a reminder missed.
 ///
 /// Fleck's own sound, built into the binary so it is there however Fleck was
-/// installed. It is written to the cache folder the first time it is needed,
-/// because players take a path, not bytes.
-const REMINDER_SOUND: &[u8] = include_bytes!("../../data/sounds/reminder.mp3");
-/// The freedesktop sound theme, in case the sound can't be written out.
-const FALLBACK_SOUND_FILES: [&str; 2] = [
-    "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga",
-    "/usr/share/sounds/freedesktop/stereo/complete.oga",
-];
-/// Players to try, in order. Both come with PipeWire and PulseAudio, so one of
-/// them is present on a COSMIC desktop; if neither is, the reminder is still
-/// shown, just silently.
-const PLAYERS: [&str; 2] = ["pw-play", "paplay"];
+/// installed - including inside a Flatpak sandbox, which has no sound theme and
+/// no player to shell out to. Kept as a WAV rather than the mp3 it was
+/// delivered as, so playing it needs no decoder.
+const REMINDER_SOUND: &[u8] = include_bytes!("../../data/sounds/reminder.wav");
 /// How long the alarm keeps sounding, repeating the clip.
 const ALARM_LENGTH: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -86,61 +78,43 @@ pub async fn send(summary: String, body: String) {
     }
 }
 
-/// Plays the alarm for `ALARM_SECONDS`, repeating the sound - one short
-/// chime is easy to miss across a room. Runs on its own thread, so neither the
-/// repeats nor a stuck player hold up the UI.
+/// Plays the alarm for `ALARM_LENGTH`, repeating the sound - one short chime is
+/// easy to miss across a room. Runs on its own thread, so neither the repeats
+/// nor a sound server that never answers hold up the UI.
 pub fn play_alarm() {
-    let Some(sound) = sound_file() else {
-        tracing::debug!("no alarm sound file found");
-        return;
-    };
-    let Some(player) = PLAYERS.into_iter().find(|player| which(player)) else {
-        tracing::debug!("no audio player found; the reminder is silent");
-        return;
+    let (channels, rate, pcm) = match crate::audio::wav_pcm(REMINDER_SOUND) {
+        Ok(sound) => sound,
+        Err(error) => {
+            tracing::debug!(%error, "the built-in alarm sound is unreadable");
+            return;
+        }
     };
     std::thread::spawn(move || {
         let until = std::time::Instant::now() + ALARM_LENGTH;
         while std::time::Instant::now() < until {
-            match std::process::Command::new(player).arg(&sound).status() {
-                Ok(_) => {}
-                Err(error) => {
-                    tracing::debug!(?error, player, "the player stopped");
-                    break;
-                }
+            if let Err(error) = crate::audio::play(pcm, rate, channels) {
+                tracing::debug!(%error, "the reminder is silent");
+                break;
             }
         }
     });
 }
 
-/// Whether `player` is on the PATH.
-fn which(player: &str) -> bool {
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(player).is_file()))
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Fleck's sound on disk, written to the cache folder if it isn't there yet.
-/// Falls back to the freedesktop sound theme if it can't be written.
-fn sound_file() -> Option<std::path::PathBuf> {
-    let cache = std::env::var_os("XDG_CACHE_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".cache"))
-        })?
-        .join("fleck");
-    let path = cache.join("reminder.mp3");
-    // Rewritten when it is missing or a different size, so an updated sound in
-    // a new version of Fleck replaces the cached copy.
-    let written = std::fs::metadata(&path).map_or(0, |file| file.len());
-    if written != REMINDER_SOUND.len() as u64 {
-        if let Err(error) =
-            std::fs::create_dir_all(&cache).and_then(|()| std::fs::write(&path, REMINDER_SOUND))
-        {
-            tracing::debug!(?error, "falling back to the system sound");
-            return FALLBACK_SOUND_FILES
-                .iter()
-                .map(std::path::PathBuf::from)
-                .find(|path| path.is_file());
-        }
+    #[test]
+    fn the_built_in_alarm_sound_is_playable() {
+        let (channels, rate, pcm) =
+            crate::audio::wav_pcm(REMINDER_SOUND).expect("the bundled sound is a WAV file");
+
+        assert_eq!(channels, 1, "mono, so it plays on any output");
+        assert_eq!(rate, 22_050);
+        assert!(!pcm.is_empty());
+        // Two bytes a sample: the clip should be about a second long, which is
+        // what makes repeating it for ten seconds sound like an alarm.
+        let seconds = pcm.len() as f32 / 2.0 / rate as f32;
+        assert!((0.5..3.0).contains(&seconds), "{seconds} seconds");
     }
-    Some(path)
 }

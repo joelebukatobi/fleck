@@ -1,65 +1,95 @@
 //! Dictation: record from the microphone, then turn the recording into text
 //! with Whisper, entirely on this machine - nothing is sent anywhere.
 //!
-//! Recording shells out to PipeWire's or PulseAudio's own recorder rather than
-//! opening the audio device itself: both ship with every COSMIC desktop, and
-//! it keeps Fleck out of the business of audio devices entirely.
+//! The recording is held in memory as the samples Whisper wants, so there is
+//! no temporary file, no recorder process to stop, and no WAV header to
+//! distrust - see `audio` for how it reaches the sound server.
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-/// Recorders to try, in order.
-const RECORDERS: [&str; 2] = ["pw-record", "parecord"];
-/// What Whisper expects: 16 kHz, one channel, 16-bit samples.
-const SAMPLE_RATE: &str = "16000";
-const CHANNELS: &str = "1";
-const FORMAT: &str = "s16";
 /// The model Fleck dictates with, and where it comes from. `base` is the
 /// middle of Whisper's range: good enough for dictating notes, and quick.
 pub const MODEL_FILE: &str = "ggml-base.bin";
 pub const MODEL_URL: &str =
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
 
-/// A recording in progress: the recorder, and the file it is writing.
+/// A recording in progress: the samples so far, and the flag that stops the
+/// thread filling them.
 pub struct Recording {
-    recorder: Child,
-    pub path: PathBuf,
+    samples: Arc<Mutex<Vec<f32>>>,
+    stop: Arc<AtomicBool>,
+    worker: std::thread::JoinHandle<()>,
 }
 
 impl Recording {
-    /// Starts recording to a new file in the cache folder.
+    /// Starts recording. Fails here, before anything is drawn as recording, if
+    /// the microphone cannot be opened at all.
     pub fn start() -> Result<Self, String> {
-        let path =
-            std::env::temp_dir().join(format!("fleck-dictation-{}.wav", uuid::Uuid::new_v4()));
-        for recorder in RECORDERS {
-            let started = Command::new(recorder)
-                .args([
-                    "--rate",
-                    SAMPLE_RATE,
-                    "--channels",
-                    CHANNELS,
-                    "--format",
-                    FORMAT,
-                ])
-                .arg(&path)
-                .spawn();
-            match started {
-                Ok(recorder) => return Ok(Self { recorder, path }),
-                Err(error) => tracing::debug!(?error, recorder, "recorder not available"),
+        let samples = Arc::new(Mutex::new(Vec::new()));
+        let stop = Arc::new(AtomicBool::new(false));
+        // The thread reports whether the microphone opened, so a missing or
+        // busy device is an error from `start` rather than a silent recording.
+        let (opened, open_result) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn({
+            let (samples, stop) = (Arc::clone(&samples), Arc::clone(&stop));
+            move || {
+                let mut announced = Some(opened);
+                let recorded = crate::audio::record(&stop, |chunk| {
+                    if let Some(opened) = announced.take() {
+                        let _ = opened.send(Ok(()));
+                    }
+                    if let Ok(mut samples) = samples.lock() {
+                        samples.extend_from_slice(chunk);
+                    }
+                });
+                if let (Some(opened), Err(error)) = (announced, &recorded) {
+                    let _ = opened.send(Err(error.clone()));
+                }
+                if let Err(error) = recorded {
+                    tracing::error!(%error, "recording stopped early");
+                }
             }
+        });
+        // The first chunk is a quarter of a second away; a device that is going
+        // to refuse does it sooner than that.
+        match open_result.recv_timeout(std::time::Duration::from_secs(2)) {
+            Ok(Err(error)) => {
+                stop.store(true, Ordering::Relaxed);
+                let _ = worker.join();
+                Err(error)
+            }
+            // Timed out: the microphone is open but quiet, which is fine.
+            Ok(Ok(())) | Err(_) => Ok(Self {
+                samples,
+                stop,
+                worker,
+            }),
         }
-        Err("no recorder found: install pipewire-bin or pulseaudio-utils".to_string())
     }
 
-    /// Stops the recorder and hands back the file it wrote.
-    pub fn stop(mut self) -> PathBuf {
-        // The recorders write their header as they go and finish cleanly on a
-        // kill, which is how they are meant to be stopped.
-        let _ = self.recorder.kill();
-        let _ = self.recorder.wait();
-        self.path
+    /// Everything said so far, for the live preview. Cheap enough to call every
+    /// few seconds: it copies the tail, not the whole recording.
+    pub fn tail(&self, window: std::time::Duration) -> Vec<f32> {
+        let Ok(samples) = self.samples.lock() else {
+            return Vec::new();
+        };
+        let window = window.as_secs() as usize * crate::audio::SAMPLE_RATE as usize;
+        let from = samples.len().saturating_sub(window);
+        samples[from..].to_vec()
+    }
+
+    /// Stops recording and hands back everything that was said.
+    pub fn stop(self) -> Vec<f32> {
+        self.stop.store(true, Ordering::Relaxed);
+        let _ = self.worker.join();
+        match self.samples.lock() {
+            Ok(mut samples) => std::mem::take(&mut samples),
+            Err(_) => Vec::new(),
+        }
     }
 }
 
@@ -73,41 +103,14 @@ pub fn model_path(data_dir: &Path) -> PathBuf {
 /// recording would cost more with every pass; the tail keeps it flat, and the
 /// preview only has to show what was just said.
 pub const PREVIEW_WINDOW: std::time::Duration = std::time::Duration::from_secs(15);
-/// What Whisper expects, as a number, for turning samples into seconds.
-const SAMPLE_RATE_HZ: usize = 16_000;
 
 /// The model, loaded once and kept: it is about 140 MB, and the live preview
 /// would otherwise reload it every few seconds.
 static MODEL: std::sync::OnceLock<WhisperContext> = std::sync::OnceLock::new();
 
 /// Turns a recording into text. Blocking and slow - seconds for a long note -
-/// so callers run it off the UI thread. `tail` transcribes only the last
-/// stretch of the recording, for the live preview.
-pub fn transcribe_tail(
-    audio: &Path,
-    model: &Path,
-    tail: std::time::Duration,
-) -> Result<String, String> {
-    let mut samples = read_samples(audio)?;
-    let window = tail.as_secs() as usize * SAMPLE_RATE_HZ;
-    if samples.len() > window {
-        samples.drain(..samples.len() - window);
-    }
-    transcribe_samples(&samples, model)
-}
-
-/// Turns a recording into text. Blocking and slow - seconds for a long note -
 /// so callers run it off the UI thread.
-pub fn transcribe(audio: &Path, model: &Path) -> Result<String, String> {
-    let samples = read_samples(audio)?;
-    if samples.is_empty() {
-        return Ok(String::new());
-    }
-    transcribe_samples(&samples, model)
-}
-
-/// The shared tail of both: Whisper over samples that are already in hand.
-fn transcribe_samples(samples: &[f32], model: &Path) -> Result<String, String> {
+pub fn transcribe(samples: &[f32], model: &Path) -> Result<String, String> {
     if samples.is_empty() {
         return Ok(String::new());
     }
@@ -153,152 +156,26 @@ fn transcribe_samples(samples: &[f32], model: &Path) -> Result<String, String> {
     Ok(text.trim().to_string())
 }
 
-/// The recording as the mono 32-bit samples Whisper wants.
-///
-/// Reads the file rather than trusting its header: a recorder that is stopped
-/// mid-flight can leave the length field at zero while the audio itself is all
-/// there, and a reader that believes the header hands back silence.
-fn read_samples(audio: &Path) -> Result<Vec<f32>, String> {
-    let bytes =
-        std::fs::read(audio).map_err(|error| format!("couldn't read the recording: {error}"))?;
-    let (channels, pcm) = wav_pcm(&bytes)?;
-    let samples: Vec<f32> = pcm
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|sample| f32::from(i16::from_le_bytes(*sample)) / f32::from(i16::MAX))
-        .collect();
-    tracing::debug!(
-        file = %audio.display(),
-        bytes = bytes.len(),
-        channels,
-        samples = samples.len(),
-        "read a recording"
-    );
-    if channels <= 1 {
-        return Ok(samples);
-    }
-    // Whisper takes one channel; anything else is averaged down.
-    let channels = usize::from(channels);
-    Ok(samples
-        .chunks(channels)
-        .map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
-        .collect())
-}
-
-/// The channel count and the raw sample bytes of a 16-bit PCM WAV file. A
-/// `data` chunk whose length is zero or overlong (an interrupted recording)
-/// falls back to the rest of the file.
-fn wav_pcm(bytes: &[u8]) -> Result<(u16, &[u8]), String> {
-    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
-        return Err("that recording isn't a WAV file".to_string());
-    }
-    let mut channels = 1;
-    let mut offset = 12;
-    while offset + 8 <= bytes.len() {
-        let id = &bytes[offset..offset + 4];
-        let size = u32::from_le_bytes([
-            bytes[offset + 4],
-            bytes[offset + 5],
-            bytes[offset + 6],
-            bytes[offset + 7],
-        ]) as usize;
-        let body = offset + 8;
-        match id {
-            b"fmt " if body + 4 <= bytes.len() => {
-                channels = u16::from_le_bytes([bytes[body + 2], bytes[body + 3]]).max(1);
-            }
-            b"data" => {
-                let available = bytes.len() - body;
-                let length = if size == 0 || size > available {
-                    available
-                } else {
-                    size
-                };
-                return Ok((channels, &bytes[body..body + length]));
-            }
-            _ => {}
-        }
-        // Chunks are padded to an even length.
-        offset = body + size + usize::from(!size.is_multiple_of(2));
-    }
-    Err("that recording holds no audio".to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn a_silent_recording_transcribes_to_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("silence.wav");
-        let spec = hound::WavSpec {
-            channels: 1,
-            sample_rate: 16_000,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        };
-        let writer = hound::WavWriter::create(&path, spec).unwrap();
-        writer.finalize().unwrap();
-
         // No samples: no model is loaded, so this says nothing about Whisper,
         // only that an empty recording is handled before any of that.
         assert_eq!(
-            transcribe(&path, Path::new("/nonexistent/model.bin")),
+            transcribe(&[], Path::new("/nonexistent/model.bin")),
             Ok(String::new())
         );
     }
 
     #[test]
-    fn a_recording_whose_header_says_it_is_empty_is_still_read() {
-        // What an interrupted recorder leaves behind: a zero length, with the
-        // audio after it.
-        let mut wav = Vec::new();
-        wav.extend_from_slice(b"RIFF");
-        wav.extend_from_slice(&0u32.to_le_bytes());
-        wav.extend_from_slice(b"WAVEfmt ");
-        wav.extend_from_slice(&16u32.to_le_bytes());
-        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
-        wav.extend_from_slice(&1u16.to_le_bytes()); // one channel
-        wav.extend_from_slice(&16_000u32.to_le_bytes());
-        wav.extend_from_slice(&32_000u32.to_le_bytes());
-        wav.extend_from_slice(&2u16.to_le_bytes());
-        wav.extend_from_slice(&16u16.to_le_bytes());
-        wav.extend_from_slice(b"data");
-        wav.extend_from_slice(&0u32.to_le_bytes());
-        for sample in [100i16, -100, 300] {
-            wav.extend_from_slice(&sample.to_le_bytes());
-        }
+    fn transcribing_without_the_model_says_where_to_get_it() {
+        let error = transcribe(&[0.1, 0.2], Path::new("/nonexistent/model.bin"))
+            .expect_err("no model, no transcription");
 
-        let (channels, pcm) = wav_pcm(&wav).expect("a readable recording");
-
-        assert_eq!(channels, 1);
-        assert_eq!(pcm.len(), 6, "all three samples, despite the header");
-    }
-
-    #[test]
-    fn samples_are_mixed_down_to_one_channel() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("stereo.wav");
-        let spec = hound::WavSpec {
-            channels: 2,
-            sample_rate: 16_000,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        };
-        let mut writer = hound::WavWriter::create(&path, spec).unwrap();
-        // Two frames, each with the channels at opposite ends.
-        for _ in 0..2 {
-            writer.write_sample(i16::MAX).unwrap();
-            writer.write_sample(-i16::MAX).unwrap();
-        }
-        writer.finalize().unwrap();
-
-        let samples = read_samples(&path).unwrap();
-
-        assert_eq!(samples.len(), 2, "one sample per frame");
-        assert!(samples.iter().all(|sample| sample.abs() < f32::EPSILON));
+        assert!(error.contains(MODEL_URL), "{error}");
     }
 
     #[test]

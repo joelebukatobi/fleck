@@ -1,5 +1,6 @@
 mod app;
 mod applet;
+mod audio;
 mod dbus;
 mod i18n;
 mod icons;
