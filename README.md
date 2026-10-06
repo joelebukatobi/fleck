@@ -43,29 +43,28 @@ On other distributions, build from source.
 
 - A note per window, on lined paper, saved as you type.
 - A notes list with search, most recently edited first.
-- Rename and delete from the list, with a confirmation before deleting.
+- Rename, recolour and delete a note from its own menu or its card.
+- Nine note colours: the classic yellow, one that follows your theme, and one
+  for each of eight Linux distributions.
+- Paste or drop images into a note; thumbnails sit under the text.
+- Reminders, optionally about a note, with repeats, a notification and an alarm.
+- Dictation: speak into a note and Whisper types it, entirely on this machine.
 - Offers to reopen the notes you had open when you last quit.
 - A COSMIC panel applet that opens the list, starting Fleck if it isn't running.
 - Undo and redo in notes (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y).
 - Notes are plain Markdown files on disk.
+- Speaks eight languages.
 
 ## Building
 
-You need a Rust toolchain ([rustup](https://rustup.rs)) and these development
-packages (Pop!_OS and Ubuntu names):
+[BUILD.md](BUILD.md) has the dependencies, the build, the test commands and how
+the packages are made. The short version, with a Rust toolchain and
+[just](https://github.com/casey/just) installed:
 
 ```bash
-sudo apt install pkg-config libxkbcommon-dev libwayland-dev libfontconfig-dev libexpat1-dev libfreetype6-dev
+sudo apt install pkg-config libxkbcommon-dev libwayland-dev libfontconfig-dev libexpat1-dev libfreetype6-dev libpulse-dev cmake libclang-dev
+just build-release
 ```
-
-Then:
-
-```bash
-cargo build --release
-```
-
-The program is `target/release/fleck`. Use release builds for anything but
-development: debug builds of libcosmic are very slow.
 
 ## Installing
 
@@ -147,7 +146,14 @@ Only one Fleck runs at a time. The commands above talk to it over D-Bus as
 - Notes: `~/.local/share/fleck/notes/`, one Markdown file per note.
 - Window sizes and the notes open at last quit: `~/.local/state/fleck/windows.toml`.
 
+- Reminders: `~/.local/share/fleck/reminders.toml`.
+
 Both follow `XDG_DATA_HOME` and `XDG_STATE_HOME` if you set them.
+
+Installed as a Flatpak, Fleck is sandboxed and keeps its own copy under
+`~/.var/app/io.github.joelebukatobi.Fleck/`. The first time it runs it copies in
+the notes of a system install, if there is one, and leaves that install's own
+notes alone.
 
 ## Logs
 
@@ -159,23 +165,21 @@ RUST_LOG=fleck=debug fleck
 
 ## Translating
 
-All text shown in Fleck lives in `fleck/i18n/en/fleck.ftl`, in
-[Fluent](https://projectfluent.org) format. To add a language, copy that file
-to `fleck/i18n/<language code>/fleck.ftl` and translate the values.
+Fleck speaks English, German, Spanish, French, Italian, Dutch, Brazilian
+Portuguese and Simplified Chinese. All but English are unreviewed by native
+speakers, so corrections are welcome; [CONTRIBUTING.md](CONTRIBUTING.md) says
+how to send one or add a language.
 
 ## Contributing
 
-Before sending a change, make sure these pass. CI runs the same checks:
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-```
+[CONTRIBUTING.md](CONTRIBUTING.md) has the house rules, [BUILD.md](BUILD.md) the
+build, and [docs/ux.md](docs/ux.md) describes how Fleck is meant to behave -
+it is the source of truth for the product. [CHANGELOG.md](CHANGELOG.md) says
+what changed in each release.
 
 The code is a Cargo workspace:
 
-- `core/`: notes, storage and window state, with no GUI dependencies.
+- `core/`: notes, storage, reminders and window state, with no GUI dependencies.
 - `fleck/`: the app, the notes list, note windows and the panel applet.
 
 ## License
