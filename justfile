@@ -31,8 +31,8 @@ default: build-release
 # Everything CI runs. Run this before committing.
 check:
     cargo fmt --all -- --check
-    cargo clippy --workspace --all-targets -- -D warnings
-    cargo test --workspace
+    cargo clippy --release --workspace --all-targets -- -D warnings
+    cargo test --release --workspace
     just validate
 
 build-debug *args:

@@ -37,10 +37,17 @@ panel keeps running the old binary until `systemctl --user restart cosmic-panel`
 just check
 ```
 
-That is what CI runs: `cargo fmt --all --check`, `cargo clippy --workspace
---all-targets -D warnings` (pedantic, with opt-outs listed in the root
-`Cargo.toml`), `cargo test --workspace`, and validation of the desktop entries
-and the AppStream metainfo.
+That is what CI runs, literally: `cargo fmt --all --check`, `cargo clippy
+--release --workspace --all-targets -D warnings` (pedantic, with opt-outs listed
+in the root `Cargo.toml`), `cargo test --release --workspace`, and validation of
+the desktop entries and the AppStream metainfo.
+
+The checks run in release so that one compiled copy of the dependency tree
+serves both them and the app you run - a debug copy of libcosmic, iced and
+whisper is tens of gigabytes on its own. The release profile keeps
+`overflow-checks` on so the tests do not quietly lose their arithmetic
+guarantees. If a build ever gets away from you, `cargo clean` costs only the
+time to compile again.
 
 Two tests need hardware or the network and stay out of `just check`:
 

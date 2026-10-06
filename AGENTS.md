@@ -25,7 +25,9 @@ Sticky notes for the COSMIC desktop, in Rust with libcosmic. Public repo:
    cargo fmt --all
    just check    # clippy -D warnings, the tests, and metadata validation
    ```
-   CI runs the same. `just` recipes also cover building, installing and
+   CI runs `just check` itself, so the two cannot drift. It builds in release:
+   one copy of the dependency tree instead of two, with `overflow-checks` kept on
+   so the tests keep their arithmetic guarantees. `just` recipes also cover building, installing and
    fetching the speech model; see the `justfile`.
 2. **No AI attribution** in commits or PRs: no `Co-Authored-By`, no "Generated with"
    line. Commits are authored by Joel Onwuanaku <joelebuka@gmail.com>.

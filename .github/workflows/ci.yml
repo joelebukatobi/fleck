@@ -9,45 +9,28 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Format, lint, test
+  check:
+    name: Format, lint, test, metadata
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      # The build needs these; libpulse for sound, cmake and libclang for the
+      # bindgen whisper-rs runs. desktop-file-utils and appstream are for
+      # `just validate`.
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev \
-            libfontconfig-dev libexpat1-dev libfreetype6-dev
+            libfontconfig-dev libexpat1-dev libfreetype6-dev libpulse-dev \
+            cmake libclang-dev desktop-file-utils appstream
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+      - uses: extractions/setup-just@v2
 
-      - name: cargo fmt
-        run: cargo fmt --all -- --check
-
-      - name: cargo clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: cargo test
-        run: cargo test --workspace
-
-  metadata:
-    name: Validate desktop entries and AppStream
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y desktop-file-utils appstream
-      # COSMIC panel applets use the unregistered "COSMIC" category, so those
-      # two messages are expected; anything else fails the job.
-      - run: |
-          output="$(desktop-file-validate data/*.desktop || true)"
-          output="$(printf '%s\n' "$output" | grep -v 'unregistered value "COSMIC"' \
-            | grep -v 'does not contain a registered main category' | grep -v '^$' || true)"
-          if [ -n "$output" ]; then printf '%s\n' "$output"; exit 1; fi
-      - name: Validate AppStream metainfo
-        run: appstreamcli validate --no-net data/io.github.joelebukatobi.Fleck.metainfo.xml
+      # Exactly what a contributor runs before committing.
+      - run: just check

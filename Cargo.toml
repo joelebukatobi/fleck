@@ -20,6 +20,13 @@ cast_precision_loss = "allow"
 cast_possible_truncation = "allow"
 cast_sign_loss = "allow"
 
+# `just check` runs the tests in release, so one compiled copy of the
+# dependency tree serves both checking and running Fleck rather than two. That
+# would otherwise drop the arithmetic checks the tests rely on, so they stay on;
+# for an app that spends its time waiting for a keystroke, the cost is nothing.
+[profile.release]
+overflow-checks = true
+
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
