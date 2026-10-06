@@ -15,6 +15,10 @@ doc_markdown = "allow"
 must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
+# `assert!(x.is_empty())` says what a test means; the suggested `assert_eq!`
+# against an empty collection needs a turbofished type to compile and reads
+# worse for it.
+assert_is_empty = "allow"
 # Pixel and colour maths: window sizes and channels are small, bounded values.
 cast_precision_loss = "allow"
 cast_possible_truncation = "allow"
