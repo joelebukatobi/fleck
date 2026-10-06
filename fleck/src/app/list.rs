@@ -341,29 +341,31 @@ impl Fleck {
         }
 
         // Slim until hovered, then wider, like other COSMIC apps: the
-        // reserved rail lane (`scrollbar_width`) never changes, so the
-        // cards never shift - only the scroller's own thickness
-        // (`scroller_width`) does, between `SCROLLBAR_SCROLLER_WIDTH_REST`
-        // and `SCROLLBAR_SCROLLER_WIDTH_HOVER`, tracked via
-        // `Message::ListScrollHover` since neither is reachable through
-        // libcosmic's `Scrollable` style catalog alone (its `Style` only
-        // ever carries colour/border, never a size - see
-        // `card_button_class`'s sibling investigation in `docs`/the phase
-        // report). `spacing(SCROLLBAR_GAP)` embeds the scrollbar - the
-        // cards only lose that width when a scrollbar is actually shown
-        // (`Scrollable::layout`), so a short list still runs full width.
+        // reserved rail lane (the scrollbar's own `width`) never changes, so
+        // the cards never shift - only the scroller's thickness does, between
+        // `SCROLLBAR_SCROLLER_WIDTH_REST` and `SCROLLBAR_SCROLLER_WIDTH_HOVER`,
+        // tracked via `Message::ListScrollHover` since neither is reachable
+        // through libcosmic's `Scrollable` style catalog alone (its `Style`
+        // only ever carries colour/border, never a size). `spacing` embeds the
+        // scrollbar - the cards only lose that width when a scrollbar is
+        // actually shown (`Scrollable::layout`), so a short list still runs
+        // full width.
         let scroller_width = if self.list_scroll_hovered {
             SCROLLBAR_SCROLLER_WIDTH_HOVER
         } else {
             SCROLLBAR_SCROLLER_WIDTH_REST
         };
+        let scrollbar = cosmic::iced::widget::scrollable::Scrollbar::new()
+            .width(SCROLLBAR_WIDTH)
+            .scroller_width(scroller_width)
+            .spacing(SCROLLBAR_GAP)
+            .padding(SCROLLBAR_PADDING);
         let list_scrollable = widget::scrollable(cards)
+            .direction(cosmic::iced::widget::scrollable::Direction::Vertical(
+                scrollbar,
+            ))
             .width(Length::Fill)
             .height(Length::Fill)
-            .spacing(SCROLLBAR_GAP)
-            .scrollbar_width(SCROLLBAR_WIDTH)
-            .scroller_width(scroller_width)
-            .scrollbar_padding(SCROLLBAR_PADDING)
             // `Minimal` leaves the track transparent, so only the thumb shows;
             // `Permanent` (the default) paints the track at its full 8 px.
             .class(cosmic::style::iced::Scrollable::Minimal);

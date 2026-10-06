@@ -179,7 +179,8 @@ flatpak:
     mkdir -p "${build}"
     manifest="${build}/{{flatpak-id}}.json"
     # The released manifest builds from a tag; this one builds what is here.
-    python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); m["modules"][-1]["sources"][0]={"type":"dir","path":sys.argv[3]}; json.dump(m,open(sys.argv[2],"w"),indent=2)' \
+    # `skip` matters: a dir source copies everything, and target/ is tens of GB.
+    python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); m["modules"][-1]["sources"][0]={"type":"dir","path":sys.argv[3],"skip":["target",".flatpak-builder",".git",".venv"]}; json.dump(m,open(sys.argv[2],"w"),indent=2)' \
         "{{flatpak-manifest}}" "${manifest}" "${PWD}"
     cp flatpak/cargo-sources.json "${build}/cargo-sources.json"
     flatpak-builder --force-clean --user --install "${build}/state" "${manifest}"

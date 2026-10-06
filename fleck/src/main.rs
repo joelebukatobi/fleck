@@ -303,6 +303,29 @@ fn migrate_from_tack() {
     );
 }
 
+/// In a sandbox, the first run imports the notes of the install it replaces.
+///
+/// A packaged Fleck gets its own store under `~/.var/app`, so a user who
+/// installs it after using a system build would find an empty list. `HOME`
+/// stays the real home inside the sandbox and only `XDG_DATA_HOME` is
+/// redirected, so the install's own store is right there to copy from - with
+/// the `xdg-data/fleck` permission the manifest asks for. Nothing is moved:
+/// the system install keeps its notes and goes on working.
+fn import_from_host() {
+    if !std::path::Path::new("/.flatpak-info").exists() {
+        return;
+    }
+    let Some(home) = std::env::var_os("HOME") else {
+        return;
+    };
+    let host = std::path::PathBuf::from(home).join(".local/share/fleck");
+    let sandboxed = xdg_data_home().join("fleck");
+    if host == sandboxed {
+        return;
+    }
+    fleck_core::import_dir(&host, &sandboxed);
+}
+
 fn notes_dir() -> std::path::PathBuf {
     xdg_data_home().join("fleck/notes")
 }
@@ -352,6 +375,9 @@ fn main() -> cosmic::iced::Result {
     // so a pre-rename (Fleck) install's notes and window state are in place
     // by the time they're loaded.
     migrate_from_tack();
+    // ...and before that store is read, in case this is a sandboxed Fleck's
+    // first run and the notes are still in a system install's directory.
+    import_from_host();
 
     let store = Store::new(notes_dir());
 

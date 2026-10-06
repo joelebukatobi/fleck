@@ -129,6 +129,16 @@ Modelled on the Windows Sticky Notes list window.
   so images cannot sit truly between two lines — the line plus its thumbnail is how
   their place is shown.
 
+## Where notes live
+
+- Notes, images and reminders live in `~/.local/share/fleck`, and a note is a plain
+  Markdown file you can read without Fleck.
+- A **packaged Fleck** (the Flatpak in the COSMIC Store) is sandboxed and keeps its
+  own copy under `~/.var/app/io.github.joelebukatobi.Fleck/`. The first time it runs
+  it **copies in** the notes of a system install, if there is one, so the list is not
+  empty on a fresh install. Nothing is moved or deleted: the install it copied from
+  keeps its notes and goes on working, and the two drift apart from then on.
+
 ## Dictation
 
 - A round **microphone** button floats over the bottom-right of every note, 16 px in

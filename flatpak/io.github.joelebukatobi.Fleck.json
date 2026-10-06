@@ -19,6 +19,7 @@
     "--socket=pulseaudio",
     "--share=network",
     "--filesystem=xdg-config/cosmic:rw",
+    "--filesystem=~/.local/share/fleck:ro",
     "--filesystem=home:ro"
   ],
   "build-options": {
@@ -38,11 +39,13 @@
         "cargo --offline build --release --verbose",
         "install -Dm0755 target/release/fleck /app/bin/fleck",
         "install -Dm0644 data/io.github.joelebukatobi.Fleck.desktop /app/share/applications/io.github.joelebukatobi.Fleck.desktop",
-        "install -Dm0644 data/io.github.joelebukatobi.FleckApplet.desktop /app/share/applications/io.github.joelebukatobi.FleckApplet.desktop",
+        "install -Dm0644 data/io.github.joelebukatobi.FleckApplet.desktop /app/share/applications/io.github.joelebukatobi.Fleck.Applet.desktop",
+        "sed -i 's/^Icon=.*/Icon=io.github.joelebukatobi.Fleck.Applet-symbolic/' /app/share/applications/io.github.joelebukatobi.Fleck.Applet.desktop",
         "install -Dm0644 data/io.github.joelebukatobi.Fleck.metainfo.xml /app/share/metainfo/io.github.joelebukatobi.Fleck.metainfo.xml",
         "install -Dm0644 data/io.github.joelebukatobi.Fleck.service /app/share/dbus-1/services/io.github.joelebukatobi.Fleck.service",
+        "sed -i 's|^Exec=.*|Exec=/app/bin/fleck|' /app/share/dbus-1/services/io.github.joelebukatobi.Fleck.service",
         "install -Dm0644 data/icons/fleck/io.github.joelebukatobi.Fleck.svg /app/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.Fleck.svg",
-        "install -Dm0644 data/icons/fleck/io.github.joelebukatobi.Fleck-symbolic.svg /app/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.FleckApplet-symbolic.svg"
+        "install -Dm0644 data/icons/fleck/io.github.joelebukatobi.Fleck-symbolic.svg /app/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.Fleck.Applet-symbolic.svg"
       ],
       "sources": [
         {

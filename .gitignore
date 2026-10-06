@@ -4,3 +4,6 @@ spike/
 .serena/
 .code-review-graph/
 docs/superpowers/
+
+# flatpak-builder keeps its caches and a vendored copy of the crates here.
+.flatpak-builder/
