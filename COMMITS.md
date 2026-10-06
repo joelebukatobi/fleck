@@ -34,4 +34,8 @@ One line per decision or commit worth remembering. Newest last.
   it and parses the file itself rather than trusting the header.
 - Fleck's own icon replaces the page-edit stand-in: colour for the launcher, symbolic for the panel.
 - Distribution decided: .deb on GitHub Releases plus a signed apt repository on the public fleck-apt's Pages; no Flathub (applets can't be sandboxed), no PPA (Launchpad builders are offline).
+- Correction, 2026-10-05: "applets can't be sandboxed" was wrong. Status Hub and Clipboard Manager are both sandboxed COSMIC applets on System76's Flatpak remote, using com.system76.Cosmic.BaseApp, and that remote is what the COSMIC Store serves. Flatpak is now the default way Fleck ships; the .deb and apt repository stay as the alternative.
+- Audio moved in-process (libpulse-simple) and the speech model download moved in-process (ureq), because a sandbox has neither pw-record nor curl.
+- libcosmic unpinned: a pinned rev puts two commits of the same repository in the lock, which Cargo cannot vendor, so the Flatpak build cannot resolve it. Cost one Scrollable API port.
+- Seven translations added (de, es, fr, it, nl, pt-BR, zh-CN), unreviewed by native speakers, with tests for id parity and for each catalogue loading.
 - fleck made public and fleck-apt dropped: the apt repository is served from fleck's own gh-pages branch instead of a second repo.

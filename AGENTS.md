@@ -38,9 +38,16 @@ Sticky notes for the COSMIC desktop, in Rust with libcosmic. Public repo:
    `.deb`, attaches it to the GitHub release, and publishes it to the signed apt
    repository on this repo's `gh-pages` branch, served at
    `joelebukatobi.github.io/fleck`, so users get it with `apt upgrade`. That branch
-   holds nothing but the packages, the index, the key and the changelog. Flatpak
-   can't host a COSMIC applet, so there is no Flathub build, and a PPA would mean
-   vendoring every crate for Launchpad's offline builders.
+   holds nothing but the packages, the index, the key and the changelog.
+7. **Flatpak is the way COSMIC apps reach people**, through `pop-os/cosmic-flatpak`
+   or Flathub, which is what the COSMIC Store serves; the `.deb` is the alternative,
+   not the plan. `flatpak/io.github.joelebukatobi.Fleck.json` builds and installs
+   (`just flatpak`) but is not submitted yet. Two consequences for the code: no
+   shelling out to binaries that only exist outside a sandbox - audio goes through
+   `audio.rs`, downloads through `ureq` - and **libcosmic must stay unpinned**, since
+   a pinned rev puts two commits of the same repository in the lock and Cargo cannot
+   vendor that. A PPA was ruled out: Launchpad's builders have no network, so every
+   crate would need vendoring for the same result.
 
 ## Conventions
 
