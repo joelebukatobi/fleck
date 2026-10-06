@@ -1,7 +1,8 @@
 # Fleck — project instructions
 
-Sticky notes for the COSMIC desktop, in Rust with libcosmic. Private repo:
-`github.com/joelebukatobi/fleck`. Branches: work on `dev`; `master` trails it.
+Sticky notes for the COSMIC desktop, in Rust with libcosmic. Public repo:
+`github.com/joelebukatobi/fleck`. Branches: work on `dev`; `master` trails it;
+`gh-pages` is the apt repository and is written only by the release workflow.
 
 ## Layout
 
@@ -12,7 +13,7 @@ Sticky notes for the COSMIC desktop, in Rust with libcosmic. Private repo:
 - `data/` — desktop entries, AppStream metainfo, D-Bus service file, Fleck's own
   icon, bundled Iconoir icons.
 - `packaging/apt/` — `publish.sh` (builds and signs the apt index), `changelog.sh`,
-  and the landing page `fleck-apt` serves.
+  and the landing page the apt repository serves.
 - `docs/ux.md` — the product's behaviour in plain language. **Update it with every
   behaviour or look change**; it is the source of truth for how Fleck should act.
 - `docs/superpowers/` — planning notes, local only. Never commit (see `.gitignore`).
@@ -34,12 +35,12 @@ Sticky notes for the COSMIC desktop, in Rust with libcosmic. Private repo:
    notes (`~/.local/share/fleck`) or panel configuration without asking.
 5. **Push only when asked.**
 6. **Releases:** tagging `v*` runs `.github/workflows/release.yml`: it builds the
-   `.deb`, attaches it to the GitHub release, and publishes it to the apt repository
-   that the public `joelebukatobi/fleck-apt` serves through Pages, so users get it
-   with `apt upgrade`. The source history stays in this private repo; `fleck-apt`
-   holds only packages, the index, the key and the changelog. Flatpak can't host a
-   COSMIC applet, so there is no Flathub build, and a PPA would mean vendoring every
-   crate for Launchpad's offline builders.
+   `.deb`, attaches it to the GitHub release, and publishes it to the signed apt
+   repository on this repo's `gh-pages` branch, served at
+   `joelebukatobi.github.io/fleck`, so users get it with `apt upgrade`. That branch
+   holds nothing but the packages, the index, the key and the changelog. Flatpak
+   can't host a COSMIC applet, so there is no Flathub build, and a PPA would mean
+   vendoring every crate for Launchpad's offline builders.
 
 ## Conventions
 

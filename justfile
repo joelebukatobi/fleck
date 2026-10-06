@@ -97,7 +97,7 @@ uninstall-user:
         {{user-config}}/autostart/{{appid}}-autostart.desktop
 
 # Build the apt repository locally, the way the release workflow builds the one
-# fleck-apt serves, and let apt read it back. Signs with whatever key gpg picks
+# `gh-pages` serves, and let apt read it back. Signs with whatever key gpg picks
 # by default, so it needs a signing key in your keyring.
 apt-repo: deb
     #!/usr/bin/env bash

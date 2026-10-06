@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the apt repository that fleck-apt serves: puts a .deb in the pool,
+# Builds the apt repository Pages serves: puts a .deb in the pool,
 # regenerates the indexes, and signs them. Old versions stay where they are, so
 # `apt install fleck=0.1.0` keeps working after a bad release.
 #

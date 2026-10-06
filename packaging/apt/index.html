@@ -18,14 +18,15 @@
 </head>
 <body>
 <h1>Fleck packages</h1>
-<p>Sticky notes for the COSMIC desktop. This is the apt repository; the app itself
-lives at <a href="https://github.com/joelebukatobi/fleck">github.com/joelebukatobi/fleck</a>.</p>
+<p>Sticky notes for the COSMIC desktop. This is the apt repository; the source and
+the releases are at
+<a href="https://github.com/joelebukatobi/fleck">github.com/joelebukatobi/fleck</a>.</p>
 
 <h2>Installing</h2>
 <p>Add the repository once, and Fleck updates with the rest of your system:</p>
-<pre><code>curl -fsSL https://joelebukatobi.github.io/fleck-apt/fleck.gpg \
+<pre><code>curl -fsSL https://joelebukatobi.github.io/fleck/fleck.gpg \
   | sudo tee /usr/share/keyrings/fleck.gpg > /dev/null
-echo 'deb [signed-by=/usr/share/keyrings/fleck.gpg] https://joelebukatobi.github.io/fleck-apt stable main' \
+echo 'deb [signed-by=/usr/share/keyrings/fleck.gpg] https://joelebukatobi.github.io/fleck stable main' \
   | sudo tee /etc/apt/sources.list.d/fleck.list
 sudo apt update &amp;&amp; sudo apt install fleck</code></pre>
 

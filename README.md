@@ -17,8 +17,8 @@ Add Fleck's apt repository once, and new versions arrive with the rest of your
 system updates:
 
 ```bash
-curl -fsSL https://joelebukatobi.github.io/fleck-apt/fleck.gpg | sudo tee /usr/share/keyrings/fleck.gpg > /dev/null
-echo 'deb [signed-by=/usr/share/keyrings/fleck.gpg] https://joelebukatobi.github.io/fleck-apt stable main' | sudo tee /etc/apt/sources.list.d/fleck.list
+curl -fsSL https://joelebukatobi.github.io/fleck/fleck.gpg | sudo tee /usr/share/keyrings/fleck.gpg > /dev/null
+echo 'deb [signed-by=/usr/share/keyrings/fleck.gpg] https://joelebukatobi.github.io/fleck stable main' | sudo tee /etc/apt/sources.list.d/fleck.list
 sudo apt update && sudo apt install fleck
 ```
 

@@ -3,18 +3,14 @@ name: Release
 # Tag a version and everything else happens here:
 #   git tag -a v0.1.0 -m 'Fleck 0.1.0' && git push origin v0.1.0
 #
-# The .deb lands on the GitHub release, and on the apt repository that
-# joelebukatobi/fleck-apt serves through Pages, so existing users get it with
-# their next `apt upgrade`. Needs two secrets:
-#   APT_SIGNING_KEY   the armoured private key the repository is signed with
-#   APT_REPO_TOKEN    a token with contents:write on joelebukatobi/fleck-apt
+# The .deb lands on the GitHub release, and on the apt repository this repo
+# serves from its `gh-pages` branch, so existing users get it with their next
+# `apt upgrade`. Needs one secret, APT_SIGNING_KEY: the armoured private key
+# the repository indexes are signed with.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-
-env:
-  APT_REPO: joelebukatobi/fleck-apt
 
 jobs:
   release:
@@ -40,11 +36,10 @@ jobs:
       - uses: extractions/setup-just@v2
 
       - name: Build the .deb
-        run: echo "deb=$(just deb | tail -1)" >> "$GITHUB_OUTPUT"
         id: build
+        run: echo "deb=$(just deb | tail -1)" >> "$GITHUB_OUTPUT"
 
       - name: Write the release notes
-        id: notes
         run: packaging/apt/changelog.sh > notes.md
 
       - name: Attach it to the release
@@ -54,23 +49,25 @@ jobs:
           files: ${{ steps.build.outputs.deb }}
           body_path: notes.md
 
+      # The branch holds only the apt repository, so it starts without a
+      # history the first time and keeps one after that.
       - name: Check out the apt repository
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.APT_REPO }}
-          token: ${{ secrets.APT_REPO_TOKEN }}
-          path: apt-repo
+        run: |
+          git worktree add --no-checkout apt-repo
+          cd apt-repo
+          git checkout gh-pages || git checkout --orphan gh-pages
 
       - name: Import the signing key
-        run: |
-          echo "${{ secrets.APT_SIGNING_KEY }}" | gpg --batch --import
-          gpg --list-secret-keys
+        run: echo "${{ secrets.APT_SIGNING_KEY }}" | gpg --batch --import
 
       - name: Publish to the apt repository
         run: |
           packaging/apt/publish.sh apt-repo "${{ steps.build.outputs.deb }}" notes.md
           cp packaging/apt/index.html apt-repo/index.html
           cp packaging/apt/fleck.gpg apt-repo/fleck.gpg
+          # Pages would otherwise run the files through Jekyll, which drops
+          # anything beginning with an underscore and rewrites nothing usefully.
+          touch apt-repo/.nojekyll
 
       - name: Push it
         working-directory: apt-repo
@@ -79,4 +76,4 @@ jobs:
           git config user.email "joelebuka@gmail.com"
           git add -A
           git commit -m "Fleck ${GITHUB_REF_NAME#v}"
-          git push
+          git push origin gh-pages
