@@ -1,0 +1,57 @@
+{
+  "id": "io.github.joelebukatobi.Fleck",
+  "runtime": "org.freedesktop.Platform",
+  "runtime-version": "25.08",
+  "base": "com.system76.Cosmic.BaseApp",
+  "base-version": "stable",
+  "sdk": "org.freedesktop.Sdk",
+  "sdk-extensions": [
+    "org.freedesktop.Sdk.Extension.rust-stable",
+    "org.freedesktop.Sdk.Extension.llvm21"
+  ],
+  "command": "fleck",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=wayland",
+    "--device=dri",
+    "--socket=session-bus",
+    "--own-name=io.github.joelebukatobi.Fleck",
+    "--socket=pulseaudio",
+    "--share=network",
+    "--filesystem=xdg-config/cosmic:rw",
+    "--filesystem=home:ro"
+  ],
+  "build-options": {
+    "append-path": "/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm21/bin",
+    "prepend-ld-library-path": "/usr/lib/sdk/llvm21/lib",
+    "env": {
+      "CARGO_HOME": "/run/build/fleck/cargo",
+      "LIBCLANG_PATH": "/usr/lib/sdk/llvm21/lib"
+    }
+  },
+  "modules": [
+    {
+      "name": "fleck",
+      "buildsystem": "simple",
+      "build-commands": [
+        "cargo --offline fetch --manifest-path Cargo.toml --verbose",
+        "cargo --offline build --release --verbose",
+        "install -Dm0755 target/release/fleck /app/bin/fleck",
+        "install -Dm0644 data/io.github.joelebukatobi.Fleck.desktop /app/share/applications/io.github.joelebukatobi.Fleck.desktop",
+        "install -Dm0644 data/io.github.joelebukatobi.FleckApplet.desktop /app/share/applications/io.github.joelebukatobi.FleckApplet.desktop",
+        "install -Dm0644 data/io.github.joelebukatobi.Fleck.metainfo.xml /app/share/metainfo/io.github.joelebukatobi.Fleck.metainfo.xml",
+        "install -Dm0644 data/io.github.joelebukatobi.Fleck.service /app/share/dbus-1/services/io.github.joelebukatobi.Fleck.service",
+        "install -Dm0644 data/icons/fleck/io.github.joelebukatobi.Fleck.svg /app/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.Fleck.svg",
+        "install -Dm0644 data/icons/fleck/io.github.joelebukatobi.Fleck-symbolic.svg /app/share/icons/hicolor/scalable/apps/io.github.joelebukatobi.FleckApplet-symbolic.svg"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/joelebukatobi/fleck.git",
+          "tag": "v0.1.0"
+        },
+        "cargo-sources.json"
+      ]
+    }
+  ]
+}

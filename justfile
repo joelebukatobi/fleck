@@ -159,3 +159,35 @@ deb: build-release
     sed -i 's/^    //' "${stage}/DEBIAN/control"
     dpkg-deb --root-owner-group --build "${stage}" > /dev/null
     echo "{{cargo-target-dir}}/deb/{{name}}_${version}_${arch}.deb"
+
+# The Flatpak build, for the COSMIC Store. Needs flatpak-builder and, the first
+# time, a few GB of runtimes:
+#   sudo apt install flatpak-builder
+#   flatpak install --user flathub org.freedesktop.Platform//25.08 \
+#       org.freedesktop.Sdk//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08 \
+#       org.freedesktop.Sdk.Extension.llvm21//25.08
+#   flatpak install --user cosmic com.system76.Cosmic.BaseApp
+flatpak-id := 'io.github.joelebukatobi.Fleck'
+flatpak-manifest := 'flatpak' / flatpak-id + '.json'
+
+# Build and install the Flatpak from the working tree, rather than from a tag,
+# so a change can be tried before it is released.
+flatpak:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build="{{cargo-target-dir}}/flatpak"
+    mkdir -p "${build}"
+    manifest="${build}/{{flatpak-id}}.json"
+    # The released manifest builds from a tag; this one builds what is here.
+    python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); m["modules"][-1]["sources"][0]={"type":"dir","path":sys.argv[3]}; json.dump(m,open(sys.argv[2],"w"),indent=2)' \
+        "{{flatpak-manifest}}" "${manifest}" "${PWD}"
+    cp flatpak/cargo-sources.json "${build}/cargo-sources.json"
+    flatpak-builder --force-clean --user --install "${build}/state" "${manifest}"
+    echo "Installed. Run it with: flatpak run {{flatpak-id}}"
+
+# Regenerate the crate list the Flatpak build fetches offline. Run it whenever
+# Cargo.lock changes. Needs aiohttp, toml and tomlkit:
+#   python3 -m venv .venv && .venv/bin/pip install aiohttp toml tomlkit
+#   curl -fsSLO https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
+flatpak-sources generator='flatpak-cargo-generator.py' python='.venv/bin/python':
+    {{python}} {{generator}} Cargo.lock -o flatpak/cargo-sources.json
