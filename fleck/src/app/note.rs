@@ -1,5 +1,6 @@
 //! A note window: the body editor over its ruled-paper canvas.
 
+use cosmic::iced::advanced::text::{Ellipsize, EllipsizeHeightLimit};
 use cosmic::iced::core::text::LineHeight;
 use cosmic::iced::widget::Stack;
 use cosmic::iced::{window, Border, Color, Length, Pixels, Size};
@@ -7,18 +8,47 @@ use cosmic::prelude::*;
 use cosmic::widget;
 use cosmic::widget::text_editor;
 
-use fleck_core::display_name;
+use fleck_core::{display_name, Note};
+use uuid::Uuid;
 
 use super::list::dialog_width;
 use super::style::{
-    icon_button_class, menu_item_button_class, note_paper_style, note_title_bar_style, rgb,
-    swatch_style, text_button_class, IconHoverRole,
+    card_button_class, icon_button_class, menu_item_button_class, note_paper_style,
+    note_title_bar_style, rgb, swatch_style, text_button_class, IconHoverRole,
 };
 use super::theme::AppTheme;
 use super::{images, DictationState, Fleck, Message, NoteDialog, DEFAULT_WINDOW_SIZE};
 use crate::palette::Colour;
 use crate::ruled::RuledLines;
 use crate::undo::EditKind;
+
+/// The width of a stub once the strip is awake: exactly the paper's own left
+/// padding, so a stub ends where the ruled lines begin.
+const STUB_WIDTH: f32 = NOTE_PADDING_X as f32;
+/// The width of a stub at rest, before the mouse has been near it: a bar of
+/// the note's colour and nothing else, so the strip reads as a row of tabs
+/// tucked under the paper rather than a panel over it.
+const STUB_REST_WIDTH: f32 = 6.0;
+/// A stub's height: tall enough for a name to be worth reading vertically.
+const STUB_HEIGHT: f32 = 120.0;
+/// The gap between the two lines of the panel a hovered stub opens into. The
+/// stubs themselves have no gap: they sit flush, divided by a line each paints
+/// along its own bottom edge (see `stub::Stub`).
+const STUB_PANEL_GAP: u16 = 4;
+/// How many stubs the strip shows at once. Any more and it scrolls - with no
+/// scrollbar of its own, since the strip is already a narrow thing lying over
+/// the note's own text.
+const STUBS_VISIBLE: usize = 5;
+/// The hovered stub slides out to this width, showing the note's whole name
+/// and the start of its text, written the usual way round.
+const STUB_PANEL_WIDTH: f32 = 240.0;
+/// Padding inside the panel a hovered stub opens into. A resting stub has
+/// none: its title is painted to fill the whole stub.
+const STUB_PADDING: u16 = 8;
+/// How much of the hovered note's text the panel shows.
+const STUB_PANEL_LINES: usize = 2;
+/// The size of a stub's vertical title.
+const STUB_TEXT_SIZE: f32 = 13.0;
 
 /// Size of the note body's text, in logical pixels.
 pub(super) const BODY_TEXT_SIZE: f32 = 14.0;
@@ -248,6 +278,12 @@ impl Fleck {
             .padding([NOTE_PADDING_Y, NOTE_PADDING_X])
             .width(Length::Fill)
             .height(Length::Fill);
+        // The strip goes over the paper *after* its padding, so the stubs sit
+        // flush against the window's left edge rather than inset with the text.
+        let body: Element<'_, Message> = match self.note_stubs(id) {
+            Some(stubs) => Stack::new().push(body).push(stubs).into(),
+            None => body.into(),
+        };
         // Clicking in the note closes its menu. Presses on the open menu never
         // reach here: the menu is an overlay and takes them first.
         let body = widget::mouse_area(body).on_press(Message::NoteMenuClose(id));
@@ -524,6 +560,148 @@ impl Fleck {
                 .class(super::list::SLIM_SCROLLBAR_CLASS)
                 .into()
         })
+    }
+
+    /// One stub in a note's left strip: a bar of its note's colour, the note's
+    /// name up the side of it once the strip is awake, and the panel it opens
+    /// into when the mouse is on this one. `first` and `last` mark the stubs at
+    /// the top and bottom of what is on screen, which is where the strip's
+    /// diagonal ends go.
+    fn note_stub(
+        &self,
+        id: window::Id,
+        note: &Note,
+        first: bool,
+        last: bool,
+    ) -> Element<'_, Message> {
+        let uuid = note.frontmatter.uuid;
+        let colour = Colour::from_name(&note.frontmatter.color);
+        let name = display_name(note).to_string();
+        let hovered = self.stub_hovered == Some((id, uuid));
+        let awake = self.strip_hovered == Some(id);
+        let label = |text: String, lines: usize| {
+            widget::text::body(text)
+                .class(colour.text().map_or(cosmic::theme::Text::Default, |text| {
+                    cosmic::theme::Text::Color(rgb(text))
+                }))
+                .ellipsize(Ellipsize::End(EllipsizeHeightLimit::Lines(lines)))
+        };
+        // Asleep, a stub is a bar of colour with no name on it; awake, the name
+        // is painted up it by a canvas, since iced can rotate a canvas's
+        // contents but not a text widget's. Hovered, the stub becomes a panel
+        // and the text reads the usual way round.
+        let (face, padding): (Element<'_, Message>, u16) = if hovered {
+            let preview = super::list::preview_lines(note, STUB_PANEL_LINES).join("\n");
+            (
+                widget::Column::with_capacity(2)
+                    .spacing(STUB_PANEL_GAP)
+                    .push(label(name, 1))
+                    .push(label(preview, STUB_PANEL_LINES))
+                    .into(),
+                STUB_PADDING,
+            )
+        } else {
+            let width = if awake { STUB_WIDTH } else { STUB_REST_WIDTH };
+            (
+                widget::canvas(crate::stub::Stub {
+                    text: if awake { name } else { String::new() },
+                    fill: colour.paper().map(rgb),
+                    text_color: colour.text().map(rgb),
+                    size: STUB_TEXT_SIZE,
+                    first,
+                    last,
+                })
+                .width(Length::Fixed(width))
+                .height(Length::Fixed(STUB_HEIGHT))
+                .into(),
+                0,
+            )
+        };
+        let stub = widget::button::custom(face)
+            .padding(padding)
+            .width(Length::Fixed(if hovered {
+                STUB_PANEL_WIDTH
+            } else if awake {
+                STUB_WIDTH
+            } else {
+                STUB_REST_WIDTH
+            }))
+            .height(Length::Fixed(STUB_HEIGHT))
+            .class(if hovered {
+                card_button_class(colour)
+            } else {
+                // The canvas has already painted the stub, chamfers and all; a
+                // button's own rectangle would square it off again.
+                cosmic::theme::Button::Transparent
+            })
+            .on_press(Message::NoteRoute(id, uuid));
+        widget::mouse_area(stub)
+            .on_enter(Message::NoteStubHover(id, Some(uuid)))
+            .on_exit(Message::NoteStubHover(id, None))
+            .into()
+    }
+
+    /// The strip of stubs down the left edge of a note: one per other note,
+    /// coloured like its card, carrying the start of its name.
+    ///
+    /// Hovering one slides it out into a panel with the whole name and the
+    /// first lines of the note; clicking it shows that note in this window
+    /// (`Message::NoteRoute`) rather than opening anything new. Notes that
+    /// already have a window of their own are left out, so a click can never
+    /// end with two windows editing the same note.
+    fn note_stubs(&self, id: window::Id) -> Option<Element<'_, Message>> {
+        // No strip for a window Fleck doesn't know about. The note this window
+        // shows needs no excluding of its own: it is in `windows` too, so the
+        // open set below covers it.
+        self.windows.get(&id)?;
+        let open: std::collections::HashSet<Uuid> =
+            self.windows.values().map(|window| window.uuid).collect();
+        let mut notes: Vec<&Note> = self
+            .notes
+            .values()
+            .filter(|note| !open.contains(&note.frontmatter.uuid))
+            .collect();
+        if notes.is_empty() {
+            return None;
+        }
+        notes.sort_by(|a, b| {
+            self.note_mtime(b.frontmatter.uuid)
+                .cmp(&self.note_mtime(a.frontmatter.uuid))
+        });
+
+        // The diagonal belongs to the stubs at the ends of what is on screen,
+        // which moves as the strip scrolls.
+        let offset = self.strip_offset.get(&id).copied().unwrap_or(0.0);
+        let topmost = (offset / STUB_HEIGHT).round().max(0.0) as usize;
+        let bottommost = (topmost + STUBS_VISIBLE - 1).min(notes.len() - 1);
+        let mut strip = widget::Column::with_capacity(notes.len());
+        for (position, note) in notes.into_iter().enumerate() {
+            strip =
+                strip.push(self.note_stub(id, note, position == topmost, position == bottommost));
+        }
+        // Five stubs' worth of strip; the rest is reached with the wheel.
+        let height = STUBS_VISIBLE as f32 * STUB_HEIGHT;
+        // The strip as a whole is what wakes the bars into named stubs; an
+        // individual stub is what opens a panel.
+        Some(
+            widget::mouse_area(
+                widget::container(
+                    widget::scrollable(strip)
+                        .direction(cosmic::iced::widget::scrollable::Direction::Vertical(
+                            cosmic::iced::widget::scrollable::Scrollbar::hidden(),
+                        ))
+                        .on_scroll(move |viewport| {
+                            Message::NoteStripScrolled(id, viewport.absolute_offset().y)
+                        })
+                        .height(Length::Fixed(height)),
+                )
+                .height(Length::Fill)
+                .align_y(cosmic::iced::alignment::Vertical::Center),
+            )
+            .on_enter(Message::NoteStripHover(id, true))
+            .on_exit(Message::NoteStripHover(id, false))
+            .into(),
+        )
     }
 
     /// The menu under a note's settings button: rename, delete, back to the

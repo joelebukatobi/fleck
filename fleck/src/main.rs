@@ -7,6 +7,7 @@ mod icons;
 mod notify;
 mod palette;
 mod ruled;
+mod stub;
 mod undo;
 mod voice;
 

@@ -194,6 +194,17 @@ pub enum Message {
     NoteScrollHover(window::Id, bool),
     /// The settings button at the top-left of a note window.
     NoteMenuToggle(window::Id),
+    /// A stub in a note's left strip was clicked: show that note in this
+    /// window, in place of the one it is showing.
+    NoteRoute(window::Id, Uuid),
+    /// The mouse moved onto (or off) a stub in a note's left strip, which is
+    /// what slides its panel out.
+    NoteStubHover(window::Id, Option<Uuid>),
+    /// The mouse moved onto (or off) the strip as a whole, which is what wakes
+    /// the bars into named stubs.
+    NoteStripHover(window::Id, bool),
+    /// A note's strip was scrolled: how far down it now sits.
+    NoteStripScrolled(window::Id, f32),
     /// A click outside an open note menu.
     NoteMenuClose(window::Id),
     /// "Edit name" in a note's menu: open the rename dialog.
@@ -489,6 +500,16 @@ pub struct Fleck {
     /// The note window waiting on the speech model to arrive. Dictation needs a
     /// 142 MB model, and the first press of a microphone fetches it.
     fetching_model: Option<window::Id>,
+    /// The stub the mouse is over in a note's left strip, if any: the window
+    /// the strip belongs to, and the note the stub is for.
+    stub_hovered: Option<(window::Id, Uuid)>,
+    /// The note window whose left strip the mouse is over. At rest the strip is
+    /// a row of coloured bars; this is what wakes it into titled stubs.
+    strip_hovered: Option<window::Id>,
+    /// How far each note window's strip has been scrolled, so the diagonal can
+    /// stay on the stubs at the top and bottom of what is actually on screen
+    /// rather than on the first and last note of all.
+    strip_offset: HashMap<window::Id, f32>,
     /// The last few seconds of the dictation in progress, in words.
     voice_preview: String,
     /// Whether a preview is already being worked out, so the ticks don't pile
@@ -634,6 +655,38 @@ impl Fleck {
             },
         );
         self.set_window_title(title, id)
+    }
+
+    /// Shows `uuid` in the window that is currently showing another note -
+    /// what a click on a stub in the left strip does.
+    ///
+    /// No window opens or closes: the window keeps its place on screen and
+    /// changes what it holds, so a note window doubles as a way through the
+    /// rest of the notes. The note being left is written out first, since its
+    /// editor buffer is about to be replaced, and the note arriving takes over
+    /// this window's visibility - which is why the strip never offers a note
+    /// that already has a window of its own (see `stub_notes`).
+    fn route_window(&mut self, id: window::Id, uuid: Uuid) -> Task<Message> {
+        let Some(leaving) = self.windows.get(&id).map(|window| window.uuid) else {
+            return Task::none();
+        };
+        if leaving == uuid || !self.notes.contains_key(&uuid) {
+            return Task::none();
+        }
+        self.note_menu = None;
+        self.stub_hovered = None;
+        let flush = if self.dirty.contains_key(&leaving) {
+            self.flush(&[leaving])
+        } else {
+            Task::none()
+        };
+        self.intent_visible.hide(leaving);
+        self.intent_visible.show(uuid);
+        // `register_window` replaces this window's entry wholesale: the note,
+        // a fresh editor buffer, and an undo history that starts here rather
+        // than carrying the previous note's edits into this one.
+        let registered = self.register_window(id, uuid);
+        Task::batch([flush, registered])
     }
 
     /// Opens a brand-new secondary window for `uuid`. The first note at
@@ -1312,6 +1365,9 @@ impl cosmic::Application for Fleck {
             recording: None,
             transcribing: None,
             fetching_model: None,
+            stub_hovered: None,
+            strip_hovered: None,
+            strip_offset: HashMap::new(),
             voice_preview: String::new(),
             previewing: false,
             window_state_dirty: false,
@@ -1938,6 +1994,27 @@ impl cosmic::Application for Fleck {
             Message::NoteWindowDrag(id) => window::drag(id),
             Message::NoteWindowMaximize(id) => window::toggle_maximize(id),
             Message::NoteWindowMinimize(id) => window::minimize(id, true),
+            Message::NoteStripScrolled(id, offset) => {
+                self.strip_offset.insert(id, offset);
+                Task::none()
+            }
+            Message::NoteStripHover(id, hovered) => {
+                if hovered {
+                    self.strip_hovered = Some(id);
+                } else if self.strip_hovered == Some(id) {
+                    self.strip_hovered = None;
+                    // Leaving the strip takes any open panel with it.
+                    if matches!(self.stub_hovered, Some((window, _)) if window == id) {
+                        self.stub_hovered = None;
+                    }
+                }
+                Task::none()
+            }
+            Message::NoteStubHover(id, uuid) => {
+                self.stub_hovered = uuid.map(|uuid| (id, uuid));
+                Task::none()
+            }
+            Message::NoteRoute(id, uuid) => self.route_window(id, uuid),
             Message::NoteScrollHover(id, hovered) => {
                 if hovered {
                     self.note_scroll_hovered = Some(id);
@@ -2119,6 +2196,9 @@ mod tests {
             recording: None,
             transcribing: None,
             fetching_model: None,
+            stub_hovered: None,
+            strip_hovered: None,
+            strip_offset: HashMap::new(),
             voice_preview: String::new(),
             previewing: false,
             window_state_dirty: false,
