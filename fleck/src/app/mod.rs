@@ -743,7 +743,9 @@ impl Fleck {
     /// D-Bus's `NewNote` can hand it back to the caller.
     fn create_note(&mut self) -> (Option<Uuid>, Task<Message>) {
         let now = crate::now_rfc3339();
-        match self.store.create(&now, Colour::Default.name()) {
+        // Yellow, the colour a sticky note is: Default follows the theme, which
+        // on a dark one makes a new note look like anything but a sticky note.
+        match self.store.create(&now, Colour::Yellow.name()) {
             Ok(note) => {
                 let uuid = note.frontmatter.uuid;
                 self.notes.insert(uuid, note);

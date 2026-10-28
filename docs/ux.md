@@ -55,8 +55,10 @@ Modelled on the Windows Sticky Notes list window.
 
 ## Note colours
 
-- **Default** (for new notes): the COSMIC theme's own look — its background, text
-  and line colours, following light and dark mode.
+- **Default**: the COSMIC theme's own look — its background, text and line
+  colours, following light and dark mode.
+- **New notes are yellow**, the colour a sticky note is. Default follows the
+  theme, which on a dark one makes a new note look like anything but a sticky note.
 - Classic sticky-note yellow, plus colours people know from Linux: Pop cyan, Ubuntu orange, Debian red, Fedora blue, openSUSE green,
   Arch blue, Manjaro teal-green and Mint green.
 - Any other colour fills a note's paper and its card in the notes list, exactly as it is,
