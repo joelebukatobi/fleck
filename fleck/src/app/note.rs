@@ -449,9 +449,16 @@ impl Fleck {
             // as a unit - if the editor scrolled *internally* instead, the
             // canvas would stay fixed while the text moved, breaking the
             // line alignment.
-            widget::scrollable(stack)
+            let body = widget::scrollable(stack)
+                .direction(cosmic::iced::widget::scrollable::Direction::Vertical(
+                    super::list::slim_scrollbar(self.note_scroll_hovered == Some(id)),
+                ))
                 .width(Length::Fill)
                 .height(Length::Fill)
+                .class(super::list::SLIM_SCROLLBAR_CLASS);
+            widget::mouse_area(body)
+                .on_enter(Message::NoteScrollHover(id, true))
+                .on_exit(Message::NoteScrollHover(id, false))
                 .into()
         })
         .width(Length::Fill)
@@ -503,11 +510,14 @@ impl Fleck {
             );
         }
         any.then(|| {
+            // The thumbnail row's bar matches the note's, and widens with it:
+            // the row sits directly under the body the mouse is already over.
             widget::scrollable(row)
                 .direction(cosmic::iced::widget::scrollable::Direction::Horizontal(
-                    cosmic::iced::widget::scrollable::Scrollbar::default(),
+                    super::list::slim_scrollbar(self.note_scroll_hovered == Some(id)),
                 ))
                 .width(Length::Fill)
+                .class(super::list::SLIM_SCROLLBAR_CLASS)
                 .into()
         })
     }

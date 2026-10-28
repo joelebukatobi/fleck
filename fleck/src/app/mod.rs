@@ -198,6 +198,10 @@ pub enum Message {
     /// (`SCROLLBAR_SCROLLER_WIDTH_HOVER`) without ever changing the
     /// reserved layout width the cards see (`SCROLLBAR_WIDTH`, constant).
     ListScrollHover(bool),
+    /// The mouse entered or left a note's scrollable area, for the same reason
+    /// as `ListScrollHover`. Carries the window so leaving one note cannot
+    /// clear the hover another has just taken.
+    NoteScrollHover(window::Id, bool),
     /// The settings button at the top-left of a note window.
     NoteMenuToggle(window::Id),
     /// A click outside an open note menu.
@@ -463,6 +467,9 @@ pub struct Fleck {
     /// Whether the mouse is currently over the notes list's scrollable
     /// area - see `Message::ListScrollHover`.
     list_scroll_hovered: bool,
+    /// The note window whose scrollable area the mouse is over, if any - see
+    /// `Message::NoteScrollHover`.
+    note_scroll_hovered: Option<window::Id>,
     /// Current width of the notes-list window, for sizing its dialogs.
     /// libcosmic's core does not track the main window's size.
     list_window_width: f32,
@@ -1335,6 +1342,7 @@ impl cosmic::Application for Fleck {
             _dbus_connection: Some(dbus_connection),
             dbus_rx: DbusRx(Arc::new(Mutex::new(Some(dbus_rx)))),
             list_scroll_hovered: false,
+            note_scroll_hovered: None,
             list_window_width: DEFAULT_WINDOW_SIZE.0 as f32,
             theme: AppTheme::load(<Fleck as cosmic::Application>::APP_ID),
             note_menu: None,
@@ -1950,6 +1958,14 @@ impl cosmic::Application for Fleck {
             Message::NoteWindowDrag(id) => window::drag(id),
             Message::NoteWindowMaximize(id) => window::toggle_maximize(id),
             Message::NoteWindowMinimize(id) => window::minimize(id, true),
+            Message::NoteScrollHover(id, hovered) => {
+                if hovered {
+                    self.note_scroll_hovered = Some(id);
+                } else if self.note_scroll_hovered == Some(id) {
+                    self.note_scroll_hovered = None;
+                }
+                Task::none()
+            }
             Message::ListScrollHover(hovered) => {
                 self.list_scroll_hovered = hovered;
                 Task::none()
@@ -2145,6 +2161,7 @@ mod tests {
             _dbus_connection: None,
             dbus_rx: DbusRx(Arc::new(Mutex::new(None))),
             list_scroll_hovered: false,
+            note_scroll_hovered: None,
             list_window_width: DEFAULT_WINDOW_SIZE.0 as f32,
             theme: AppTheme::System,
             note_menu: None,

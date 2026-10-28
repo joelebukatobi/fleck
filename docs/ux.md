@@ -208,12 +208,17 @@ Modelled on the Windows Sticky Notes list window.
     fills in solid in a deep red (#C01C28), the same in light and dark mode.
   - Hovering a card lightens it slightly; pressing darkens it slightly. The card
     itself is the clickable surface, so the effect lines up with its edges.
-  - The card list's scrollbar is slim until the mouse is over it, then widens,
-    like other COSMIC apps.
+  - Scrollbars are slim until the mouse is over them, then widen a little: 4 px
+    at rest, 6 px hovered, in a lane that never changes width so nothing shifts.
+    The same bar is used by the notes list, a note's text and a note's thumbnail
+    row, so a scrollbar looks the same wherever it turns up.
   - The scrollbar thumb runs the full height of the list, with no inset at the
     top or bottom.
   - At least 4 px between the cards and the scrollbar at its widest. With no
     scrollbar, cards run full width, lined up with the search bar.
+  - A note's text stops 8 px short of its scrollbar, so a long line never reads
+    as running into the bar. The ruled lines behind the text still span the
+    full width.
 
 ## Panel applet
 

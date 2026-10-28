@@ -139,16 +139,49 @@ pub(super) const SCROLLBAR_PADDING: f32 = 0.0;
 /// regardless of hover, so the cards never shift width when the scroller
 /// widens (see `SCROLLBAR_SCROLLER_WIDTH_HOVER`).
 pub(super) const SCROLLBAR_WIDTH: f32 = 8.0;
-/// The scroller's thickness at rest ("slim"): thinner than
-/// `SCROLLBAR_WIDTH`, centered within the (unchanging) rail lane.
+/// The scroller's thickness at rest ("slim"): thinner than `SCROLLBAR_WIDTH`,
+/// centered within the (unchanging) rail lane.
 pub(super) const SCROLLBAR_SCROLLER_WIDTH_REST: f32 = 4.0;
-/// The scroller's thickness while the list is hovered ("wide"): matches
-/// `SCROLLBAR_WIDTH`, filling the rail lane. Changing only `scroller_width`
+/// The scroller's thickness while the list is hovered ("wide"): 2 px short of
+/// filling the rail lane, which reads as a thinner bar than filling it did.
+/// Changing only `scroller_width`
 /// between the two states is what keeps this from ever moving the cards -
 /// `Scrollable::layout`'s reserved padding is computed from `width` and
 /// `margin`, not `scroller_width` (see `iced/widget/src/scrollable.rs`
 /// ~line 616 in the pinned iced fork).
-pub(super) const SCROLLBAR_SCROLLER_WIDTH_HOVER: f32 = 8.0;
+pub(super) const SCROLLBAR_SCROLLER_WIDTH_HOVER: f32 = 6.0;
+
+/// Slim until hovered, then wider, like other COSMIC apps - used by the notes
+/// list, a note's body and a note's thumbnail row, so a scrollbar looks the
+/// same wherever it turns up.
+///
+/// The reserved rail lane (`width`) never changes, so content never shifts when
+/// the scroller widens; only the scroller's thickness does, between
+/// `SCROLLBAR_SCROLLER_WIDTH_REST` and `SCROLLBAR_SCROLLER_WIDTH_HOVER`. Hover
+/// has to be tracked by the caller (a `mouse_area`) because neither thickness
+/// is reachable through libcosmic's `Scrollable` style catalog: its `Style` only
+/// ever carries colour and border, never a size.
+///
+/// `spacing` embeds the scrollbar, so content only loses that width when a
+/// scrollbar is actually shown (`Scrollable::layout`) and a short list still
+/// runs full width.
+pub(super) fn slim_scrollbar(hovered: bool) -> cosmic::iced::widget::scrollable::Scrollbar {
+    let scroller_width = if hovered {
+        SCROLLBAR_SCROLLER_WIDTH_HOVER
+    } else {
+        SCROLLBAR_SCROLLER_WIDTH_REST
+    };
+    cosmic::iced::widget::scrollable::Scrollbar::new()
+        .width(SCROLLBAR_WIDTH)
+        .scroller_width(scroller_width)
+        .spacing(SCROLLBAR_GAP)
+        .padding(SCROLLBAR_PADDING)
+}
+
+/// `Minimal` leaves the track transparent, so only the thumb shows; `Permanent`
+/// (libcosmic's default) paints the track at its full width.
+pub(super) const SLIM_SCROLLBAR_CLASS: cosmic::style::iced::Scrollable =
+    cosmic::style::iced::Scrollable::Minimal;
 
 /// A card's delete button, resting in `rest` when the card is coloured (see
 /// `tinted_icon_button_class`). While `hovered` it shows the filled trash, in
@@ -340,35 +373,13 @@ impl Fleck {
             cards = cards.push(self.view_card(note));
         }
 
-        // Slim until hovered, then wider, like other COSMIC apps: the
-        // reserved rail lane (the scrollbar's own `width`) never changes, so
-        // the cards never shift - only the scroller's thickness does, between
-        // `SCROLLBAR_SCROLLER_WIDTH_REST` and `SCROLLBAR_SCROLLER_WIDTH_HOVER`,
-        // tracked via `Message::ListScrollHover` since neither is reachable
-        // through libcosmic's `Scrollable` style catalog alone (its `Style`
-        // only ever carries colour/border, never a size). `spacing` embeds the
-        // scrollbar - the cards only lose that width when a scrollbar is
-        // actually shown (`Scrollable::layout`), so a short list still runs
-        // full width.
-        let scroller_width = if self.list_scroll_hovered {
-            SCROLLBAR_SCROLLER_WIDTH_HOVER
-        } else {
-            SCROLLBAR_SCROLLER_WIDTH_REST
-        };
-        let scrollbar = cosmic::iced::widget::scrollable::Scrollbar::new()
-            .width(SCROLLBAR_WIDTH)
-            .scroller_width(scroller_width)
-            .spacing(SCROLLBAR_GAP)
-            .padding(SCROLLBAR_PADDING);
         let list_scrollable = widget::scrollable(cards)
             .direction(cosmic::iced::widget::scrollable::Direction::Vertical(
-                scrollbar,
+                slim_scrollbar(self.list_scroll_hovered),
             ))
             .width(Length::Fill)
             .height(Length::Fill)
-            // `Minimal` leaves the track transparent, so only the thumb shows;
-            // `Permanent` (the default) paints the track at its full 8 px.
-            .class(cosmic::style::iced::Scrollable::Minimal);
+            .class(SLIM_SCROLLBAR_CLASS);
         let list_scrollable = widget::mouse_area(list_scrollable)
             .on_enter(Message::ListScrollHover(true))
             .on_exit(Message::ListScrollHover(false));
