@@ -2,6 +2,7 @@
 
 use std::time::{Duration, SystemTime};
 
+use cosmic::iced::advanced::text::{Ellipsize, EllipsizeHeightLimit};
 use cosmic::iced::{Alignment, Color, Length};
 use cosmic::prelude::*;
 use cosmic::widget;
@@ -16,7 +17,7 @@ use super::{Fleck, Message, DEFAULT_WINDOW_SIZE};
 use crate::palette::Colour;
 
 /// How many lines of body text a card previews.
-pub(super) const PREVIEW_LINES: usize = 2;
+pub(super) const PREVIEW_LINES: usize = 5;
 
 /// Whether a note matches the notes-list search bar's query: a
 /// case-insensitive substring match against either its display name or its
@@ -109,6 +110,15 @@ pub(super) const CARD_ACTION_PADDING: u16 = 8;
 pub(super) const CARD_HEADING_PADDING_RIGHT: u16 = 0;
 /// Gap between the preview lines and the timestamp in a card's content.
 pub(super) const CARD_CONTENT_SPACING: u16 = 4;
+/// Height of one line of a card's preview: libcosmic's `text::body` is 14 px
+/// on a 21 px line (see `widget/text.rs`), and the preview area is fixed at
+/// `PREVIEW_LINES` of them so every card is the same height whatever its note
+/// holds - a one-line note and a long one look alike in the list.
+pub(super) const CARD_PREVIEW_LINE_HEIGHT: f32 = 21.0;
+/// How much of a note's body the preview is built from. More than
+/// `PREVIEW_LINES`, so the text runs past the lines shown and is cut with an
+/// ellipsis rather than ending wherever the note happens to.
+const PREVIEW_SOURCE_LINES: usize = 12;
 /// Space above and below the line between a card's preview and its time.
 pub(super) const CARD_TIME_DIVIDER_MARGIN: f32 = 8.0;
 /// Opacity of that line, drawn in the card's text colour.
@@ -236,8 +246,11 @@ impl Fleck {
             })
         };
         let heading_text = colour.heading_text();
+        // One line, cut with an ellipsis: a note with no name of its own is
+        // titled by its first line, which can be a whole paragraph.
         let title = widget::text::heading(display_name(note).to_string())
             .class(text_class(heading_text))
+            .ellipsize(Ellipsize::End(EllipsizeHeightLimit::Lines(1)))
             .width(Length::Fill);
 
         let heading_row = widget::Row::with_capacity(2)
@@ -260,12 +273,19 @@ impl Fleck {
             ])
             .width(Length::Fill);
 
-        let mut content_col =
-            widget::Column::with_capacity(1 + PREVIEW_LINES).spacing(CARD_CONTENT_SPACING);
-        for line in preview_lines(note, PREVIEW_LINES) {
-            content_col =
-                content_col.push(widget::text::body(line).class(text_class(colour.text())));
-        }
+        // One block of text rather than a line each, so iced can cut it at
+        // `PREVIEW_LINES` with an ellipsis; the container keeps that height
+        // even for a note with nothing to preview.
+        let preview = widget::container(
+            widget::text::body(preview_lines(note, PREVIEW_SOURCE_LINES).join("\n"))
+                .class(text_class(colour.text()))
+                .ellipsize(Ellipsize::End(EllipsizeHeightLimit::Lines(PREVIEW_LINES))),
+        )
+        .height(Length::Fixed(
+            PREVIEW_LINES as f32 * CARD_PREVIEW_LINE_HEIGHT,
+        ))
+        .width(Length::Fill);
+        let content_col = widget::Column::with_capacity(1).push(preview);
         let elapsed = SystemTime::now()
             .duration_since(self.note_mtime(uuid))
             .unwrap_or(Duration::ZERO);

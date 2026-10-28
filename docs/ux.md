@@ -26,8 +26,10 @@ Modelled on the Windows Sticky Notes list window.
   The placeholder starts right at the bar's padding, in line with the card titles.
   The magnifier sits at the right edge; there is no clear button.
 - **Notes as cards**, most recently edited first, scrolling when there are more
-  than fit. Each card shows the note's name in bold, the first couple of lines
-  of its text, and when it was last edited.
+  than fit. Each card shows the note's name in bold, the first five lines of its
+  text, and when it was last edited.
+- **Every card is the same height**, whether its note is one line or a thousand.
+  The name takes one line and the text five; anything longer ends in an ellipsis.
 - **Plain cards for now** — theme defaults. Card colours come with the design pass.
 - Renaming a note is an action on its card.
 - Deleting a note is an action on its card: a trash icon in its heading strip.
