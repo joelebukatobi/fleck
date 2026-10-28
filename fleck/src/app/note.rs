@@ -384,13 +384,17 @@ impl Fleck {
                     }
                     text_editor::Binding::from_key_press(press)
                 })
-                // Top and bottom only: the text starts at the lined area's
-                // left edge, in line with the Settings label above it.
+                // No left padding: the text starts at the lined area's left
+                // edge, in line with the Settings label above it. On the right
+                // it stops short of the scrollbar, which only reserves
+                // `SCROLLBAR_GAP` of its own - too little to keep a long line
+                // from reading as though it runs into the bar. The ruled lines
+                // behind the text still span the full width.
                 .padding(cosmic::iced::Padding {
                     top: BODY_PADDING,
                     bottom: BODY_PADDING,
                     left: 0.0,
-                    right: 0.0,
+                    right: BODY_PADDING,
                 })
                 .size(BODY_TEXT_SIZE)
                 .line_height(LineHeight::Absolute(Pixels(BODY_LINE_HEIGHT)))
