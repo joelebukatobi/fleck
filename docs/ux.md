@@ -85,14 +85,15 @@ Modelled on the Windows Sticky Notes list window.
 - A note's name is its first line of text, until it is renamed from the note's
   menu or the notes list.
 - **The note menu:**
-  - **Rename** — a small "Rename note" dialog over the note, with Save and
+  - **Rename Note** — a small "Rename note" dialog over the note, with Save and
     Cancel. Enter saves.
-  - **Colour** — a "Note colour" dialog with a swatch for each colour, the
+  - **Change Colour** — a "Note colour" dialog with a swatch for each colour, the
     current one outlined in the accent colour. Clicking a swatch recolours the note
     and closes the dialog; Cancel leaves it as it was.
-  - **Delete** — the same "Delete note?" confirmation as the list. If no
+  - **Set Reminder** — a reminder about this note; see Reminders below.
+  - **Delete Note** — the same "Delete note?" confirmation as the list. If no
     other window is open, the notes list opens afterwards.
-  - **Notes** — opens the notes list, or brings it forward. The note stays open.
+  - **Main Menu** — opens the notes list, or brings it forward. The note stays open.
   - **Theme** — System, Light or Dark, for every Fleck window. System follows
     COSMIC. Remembered between runs.
   - Picking anything, pressing the settings button again, or clicking in the note closes it.
@@ -169,7 +170,7 @@ Modelled on the Windows Sticky Notes list window.
 - The description is a small multi-line box; the repeat choices sit in two columns.
 - **Events:** ticking *Is this an event?* adds a **Location**. Untick it and the location
   goes with it. The location and description show on the card and in the notification.
-- **Remind me** in a note's menu makes a reminder about that note, and opens the form
+- **Set Reminder** in a note's menu makes a reminder about that note, and opens the form
   with the note already linked.
 - A new reminder starts ten minutes ahead, rounded to the next five minutes, and the
   form says how far away the time is ("in 10 minutes"), so a default can't be misread.

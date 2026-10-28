@@ -35,10 +35,10 @@ cancel = Cancel
 
 # Note window menu (the Settings button at the top-left of a note).
 settings = Settings
-edit-name = Rename
-change-colour = Colour
-delete-note = Delete
-back-to-list = Notes
+edit-name = Rename Note
+change-colour = Change Colour
+delete-note = Delete Note
+back-to-list = Main Menu
 theme = Theme
 theme-system = System
 theme-light = Light
@@ -92,7 +92,7 @@ reminder-date = Date
 reminder-time = Time
 reminder-repeat = Repeat
 reminder-invalid = Enter a date as 2026-10-01 and a time as 09:30.
-remind-me = Remind me
+remind-me = Set Reminder
 
 # How far away a reminder's time is, shown in its form.
 in-minutes = { $count ->

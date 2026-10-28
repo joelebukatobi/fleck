@@ -35,10 +35,10 @@ cancel = Annuleren
 
 # Menu van de notitie (de knop Instellingen linksboven).
 settings = Instellingen
-edit-name = Naam wijzigen
-change-colour = Kleur
-delete-note = Verwijderen
-back-to-list = Notities
+edit-name = Notitie hernoemen
+change-colour = Kleur wijzigen
+delete-note = Notitie verwijderen
+back-to-list = Hoofdmenu
 theme = Thema
 theme-system = Systeem
 theme-light = Licht
@@ -92,7 +92,7 @@ reminder-date = Datum
 reminder-time = Tijd
 reminder-repeat = Herhalen
 reminder-invalid = Voer de datum in als 2026-10-01 en de tijd als 09:30.
-remind-me = Herinner mij
+remind-me = Herinnering maken
 
 # Hoe ver de tijd van een herinnering weg is, in het formulier.
 in-minutes = { $count ->

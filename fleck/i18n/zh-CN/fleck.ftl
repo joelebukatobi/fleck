@@ -23,10 +23,10 @@ cancel = 取消
 
 # 便签菜单（便签左上角的“设置”按钮）。
 settings = 设置
-edit-name = 重命名
-change-colour = 颜色
-delete-note = 删除
-back-to-list = 便签
+edit-name = 重命名便签
+change-colour = 更改颜色
+delete-note = 删除便签
+back-to-list = 主菜单
 theme = 主题
 theme-system = 跟随系统
 theme-light = 浅色
@@ -80,7 +80,7 @@ reminder-date = 日期
 reminder-time = 时间
 reminder-repeat = 重复
 reminder-invalid = 日期请填 2026-10-01，时间请填 09:30。
-remind-me = 提醒我
+remind-me = 设置提醒
 
 # 表单里显示提醒距现在还有多久。
 in-minutes = { $count } 分钟后

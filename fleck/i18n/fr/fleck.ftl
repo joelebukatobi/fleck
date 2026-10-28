@@ -35,10 +35,10 @@ cancel = Annuler
 
 # Menu de la note (le bouton Réglages en haut à gauche).
 settings = Réglages
-edit-name = Renommer
-change-colour = Couleur
-delete-note = Supprimer
-back-to-list = Notes
+edit-name = Renommer la note
+change-colour = Changer la couleur
+delete-note = Supprimer la note
+back-to-list = Menu principal
 theme = Thème
 theme-system = Système
 theme-light = Clair
@@ -92,7 +92,7 @@ reminder-date = Date
 reminder-time = Heure
 reminder-repeat = Répéter
 reminder-invalid = Saisissez la date comme 2026-10-01 et l'heure comme 09:30.
-remind-me = Me le rappeler
+remind-me = Créer un rappel
 
 # Dans combien de temps le rappel se déclenche, dans son formulaire.
 in-minutes = { $count ->

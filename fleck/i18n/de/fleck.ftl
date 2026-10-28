@@ -35,10 +35,10 @@ cancel = Abbrechen
 
 # Menü der Notiz (die Schaltfläche Einstellungen oben links).
 settings = Einstellungen
-edit-name = Umbenennen
-change-colour = Farbe
-delete-note = Löschen
-back-to-list = Notizen
+edit-name = Notiz umbenennen
+change-colour = Farbe ändern
+delete-note = Notiz löschen
+back-to-list = Hauptmenü
 theme = Erscheinungsbild
 theme-system = System
 theme-light = Hell
@@ -92,7 +92,7 @@ reminder-date = Datum
 reminder-time = Zeit
 reminder-repeat = Wiederholen
 reminder-invalid = Datum als 2026-10-01 und Zeit als 09:30 eingeben.
-remind-me = Erinnere mich
+remind-me = Erinnerung erstellen
 
 # Wie weit die Zeit einer Erinnerung entfernt ist, in ihrem Formular.
 in-minutes = { $count ->
