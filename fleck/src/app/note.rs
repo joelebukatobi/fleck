@@ -863,6 +863,13 @@ impl Fleck {
 
     /// The rename or delete dialog open over note window `id`, if any.
     fn note_dialog_view(&self, id: window::Id) -> Option<Element<'_, Message>> {
+        // A reminder set from this note's menu: the same form the list shows,
+        // over the note it is about.
+        if self.reminder_window == Some(id) {
+            if let Some(form) = &self.reminder_form {
+                return Some(self.view_reminder_form(form, &self.reminder_description));
+            }
+        }
         let (dialog_window, dialog) = self.note_dialog.as_ref()?;
         if *dialog_window != id {
             return None;

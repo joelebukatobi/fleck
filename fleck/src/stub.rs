@@ -133,7 +133,6 @@ impl<Message> canvas::Program<Message, Theme> for Stub {
 }
 
 #[cfg(test)]
-#[allow(clippy::float_cmp)] // exact pixel values are the point of these tests
 mod tests {
     use super::*;
 

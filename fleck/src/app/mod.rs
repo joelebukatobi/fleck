@@ -503,6 +503,11 @@ pub struct Fleck {
     /// The note window waiting on the speech model to arrive. Dictation needs a
     /// 142 MB model, and the first press of a microphone fetches it.
     fetching_model: Option<window::Id>,
+    /// The note window the reminder form belongs to, when it was opened from a
+    /// note's own menu. The form is then a popover on that note rather than a
+    /// dialog on the list: Wayland will not let Fleck raise the list over the
+    /// note the user is looking at, so the form goes to them.
+    reminder_window: Option<window::Id>,
     /// The stub the mouse is over in a note's left strip, if any: the window
     /// the strip belongs to, and the note the stub is for.
     stub_hovered: Option<(window::Id, Uuid)>,
@@ -880,6 +885,13 @@ impl Fleck {
     /// Opens the notes-list window, or raises it if one is already open.
     fn show_list(&mut self) -> Task<Message> {
         if let Some(id) = self.list_window {
+            // The list takes the main-window role whenever it is brought up,
+            // not only when it is opened: libcosmic draws `dialog()` on the
+            // main window alone, and the list is where every dialog belongs -
+            // the reminder form a note's menu opens, among them. Without this,
+            // a note window that had taken the role (the first note at startup
+            // attaches to it) kept it, and the form never appeared.
+            self.core.set_main_window_id(Some(id));
             return window::gain_focus(id);
         }
         let settings = note_window_settings(Size::new(
@@ -1368,6 +1380,7 @@ impl cosmic::Application for Fleck {
             recording: None,
             transcribing: None,
             fetching_model: None,
+            reminder_window: None,
             stub_hovered: None,
             strip_hovered: None,
             strip_offset: HashMap::new(),
@@ -1791,10 +1804,12 @@ impl cosmic::Application for Fleck {
                     self.reminders.insert(reminder);
                     self.save_reminders();
                 }
+                self.reminder_window = None;
                 Task::none()
             }
             Message::ReminderCancel => {
                 self.reminder_form = None;
+                self.reminder_window = None;
                 Task::none()
             }
             Message::ReminderClearDone => {
@@ -1848,11 +1863,13 @@ impl cosmic::Application for Fleck {
                 let Some(uuid) = self.windows.get(&id).map(|window| window.uuid) else {
                     return Task::none();
                 };
-                // The form is a dialog on the list window, so bring that up.
-                self.list_view = ListView::Reminders;
+                // The form opens on the note itself. It used to live on the
+                // list, which meant raising the list over this window - which
+                // Wayland refuses, leaving the form somewhere behind the note.
+                self.reminder_window = Some(id);
                 self.reminder_form = Some(ReminderForm::new(Some(uuid), String::new()));
                 self.reminder_description = text_editor::Content::new();
-                self.show_list()
+                Task::none()
             }
             Message::NotePasteImage(id) => Task::perform(
                 // Off the UI thread: reading the clipboard blocks.
@@ -2134,7 +2151,9 @@ impl cosmic::Application for Fleck {
     /// it replaces - Reopen opens every candidate and closes the list, No
     /// thanks just dismisses the dialog.
     fn dialog(&self) -> Option<Element<'_, Message>> {
-        if let Some(form) = &self.reminder_form {
+        // A form opened from a note's menu belongs to that note's window, not
+        // here - see `reminder_window`.
+        if let (Some(form), None) = (&self.reminder_form, self.reminder_window) {
             return Some(self.view_reminder_form(form, &self.reminder_description));
         }
         if self.restore_dialog_active() {
@@ -2220,6 +2239,7 @@ mod tests {
             recording: None,
             transcribing: None,
             fetching_model: None,
+            reminder_window: None,
             stub_hovered: None,
             strip_hovered: None,
             strip_offset: HashMap::new(),

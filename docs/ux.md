@@ -95,7 +95,7 @@ Modelled on the Windows Sticky Notes list window.
   - **Change Colour** — a "Note colour" dialog with a swatch for each colour, the
     current one outlined in the accent colour. Clicking a swatch recolours the note
     and closes the dialog; Cancel leaves it as it was.
-  - **Set Reminder** — a reminder about this note; see Reminders below.
+  - **Set Reminder** — the reminder form, over this note; see Reminders below.
   - **Delete Note** — the same "Delete note?" confirmation as the list. If no
     other window is open, the notes list opens afterwards.
   - **Main Menu** — opens the notes list, or brings it forward. The note stays open.
@@ -197,7 +197,9 @@ Modelled on the Windows Sticky Notes list window.
 - The description is a small multi-line box; the repeat choices sit in two columns.
 - **Events:** ticking *Is this an event?* adds a **Location**. Untick it and the location
   goes with it. The location and description show on the card and in the notification.
-- **Set Reminder** in a note's menu makes a reminder about that note, and opens the form
+- **Set Reminder** in a note's menu makes a reminder about that note. The form opens
+  on the note itself, not on the list: Wayland does not let Fleck raise the list over
+  the window you are looking at, so the form comes to you. It opens the form
   with the note already linked.
 - A new reminder starts ten minutes ahead, rounded to the next five minutes, and the
   form says how far away the time is ("in 10 minutes"), so a default can't be misread.
