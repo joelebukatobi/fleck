@@ -22,23 +22,29 @@ use crate::palette::Colour;
 use crate::ruled::RuledLines;
 use crate::undo::EditKind;
 
-/// The width of a stub once the strip is awake: exactly the paper's own left
-/// padding, so a stub ends where the ruled lines begin.
-const STUB_WIDTH: f32 = NOTE_PADDING_X as f32;
-/// The width of a stub at rest, before the mouse has been near it: a bar of
-/// the note's colour and nothing else, so the strip reads as a row of tabs
-/// tucked under the paper rather than a panel over it.
-const STUB_REST_WIDTH: f32 = 6.0;
-/// A stub's height: tall enough for a name to be worth reading vertically.
-const STUB_HEIGHT: f32 = 120.0;
+/// The strip's scrollable, named per window so the wheel can drive it: the
+/// mouse_area around the strip reports the wheel, and the app scrolls the
+/// strip to the offset it works out (see `Message::NoteStripWheel`).
+pub(super) fn strip_id(window: window::Id) -> cosmic::widget::Id {
+    cosmic::widget::Id::new(format!("fleck-strip-{window:?}"))
+}
+
+/// How wide a tab is in the strip across the top of a note: enough of a name
+/// to tell one from another, and four of them across a note's default width.
+const STUB_WIDTH: f32 = 110.0;
+/// How tall a tab is once the strip is awake.
+const STUB_HEIGHT_AWAKE: f32 = 28.0;
+/// How tall a tab is at rest, before the mouse has been near it: a bar of the
+/// note's colour and nothing else, so the strip reads as tabs tucked under the
+/// title bar rather than a panel over the note.
+const STUB_REST_HEIGHT: f32 = 6.0;
+/// How tall a tab's panel is when the mouse is on it: the name and the first
+/// lines of the note.
+const STUB_PANEL_HEIGHT: f32 = 76.0;
 /// The gap between the two lines of the panel a hovered stub opens into. The
 /// stubs themselves have no gap: they sit flush, divided by a line each paints
 /// along its own bottom edge (see `stub::Stub`).
 const STUB_PANEL_GAP: u16 = 4;
-/// How many stubs the strip shows at once. Any more and it scrolls - with no
-/// scrollbar of its own, since the strip is already a narrow thing lying over
-/// the note's own text.
-const STUBS_VISIBLE: usize = 5;
 /// The hovered stub slides out to this width, showing the note's whole name
 /// and the start of its text, written the usual way round.
 const STUB_PANEL_WIDTH: f32 = 240.0;
@@ -47,7 +53,16 @@ const STUB_PANEL_WIDTH: f32 = 240.0;
 const STUB_PADDING: u16 = 8;
 /// How much of the hovered note's text the panel shows.
 const STUB_PANEL_LINES: usize = 2;
-/// The size of a stub's vertical title.
+/// How tall the strip's reach is while it sleeps: a band along the top of the
+/// note, wider than the 6 px bars so the strip is easy to find, but nothing
+/// like the whole note - the mouse has to leave this band for the strip to go
+/// back to sleep.
+const STUB_BAND: f32 = 18.0;
+
+/// How far one notch of the wheel moves the strip.
+const STUB_WHEEL_LINE: f32 = 32.0;
+
+/// The size of a stub's title.
 const STUB_TEXT_SIZE: f32 = 13.0;
 
 /// Size of the note body's text, in logical pixels.
@@ -275,11 +290,18 @@ impl Fleck {
             );
         let body = widget::container(body)
             .class(cosmic::theme::Container::custom(note_paper_style(colour)))
-            .padding([NOTE_PADDING_Y, NOTE_PADDING_X])
+            // The strip lies over the paper, so the text starts below where
+            // the resting bars sit rather than under them.
+            .padding(cosmic::iced::Padding {
+                top: f32::from(NOTE_PADDING_Y) + STUB_REST_HEIGHT,
+                right: f32::from(NOTE_PADDING_X),
+                bottom: f32::from(NOTE_PADDING_Y),
+                left: f32::from(NOTE_PADDING_X),
+            })
             .width(Length::Fill)
             .height(Length::Fill);
-        // The strip goes over the paper *after* its padding, so the stubs sit
-        // flush against the window's left edge rather than inset with the text.
+        // The strip goes over the paper *after* its padding, so the tabs sit
+        // flush against the title bar rather than inset with the text.
         let body: Element<'_, Message> = match self.note_stubs(id) {
             Some(stubs) => Stack::new().push(body).push(stubs).into(),
             None => body.into(),
@@ -564,16 +586,9 @@ impl Fleck {
 
     /// One stub in a note's left strip: a bar of its note's colour, the note's
     /// name up the side of it once the strip is awake, and the panel it opens
-    /// into when the mouse is on this one. `first` and `last` mark the stubs at
-    /// the top and bottom of what is on screen, which is where the strip's
-    /// diagonal ends go.
-    fn note_stub(
-        &self,
-        id: window::Id,
-        note: &Note,
-        first: bool,
-        last: bool,
-    ) -> Element<'_, Message> {
+    /// into when the mouse is on this one. `last` is the final tab in the
+    /// strip, which draws no divider after itself.
+    fn note_stub(&self, id: window::Id, note: &Note, last: bool) -> Element<'_, Message> {
         let uuid = note.frontmatter.uuid;
         let colour = Colour::from_name(&note.frontmatter.color);
         let name = display_name(note).to_string();
@@ -601,18 +616,22 @@ impl Fleck {
                 STUB_PADDING,
             )
         } else {
-            let width = if awake { STUB_WIDTH } else { STUB_REST_WIDTH };
+            let height = if awake {
+                STUB_HEIGHT_AWAKE
+            } else {
+                STUB_REST_HEIGHT
+            };
             (
                 widget::canvas(crate::stub::Stub {
                     text: if awake { name } else { String::new() },
                     fill: colour.paper().map(rgb),
                     text_color: colour.text().map(rgb),
                     size: STUB_TEXT_SIZE,
-                    first,
                     last,
+                    across: true,
                 })
-                .width(Length::Fixed(width))
-                .height(Length::Fixed(STUB_HEIGHT))
+                .width(Length::Fixed(STUB_WIDTH))
+                .height(Length::Fixed(height))
                 .into(),
                 0,
             )
@@ -621,12 +640,16 @@ impl Fleck {
             .padding(padding)
             .width(Length::Fixed(if hovered {
                 STUB_PANEL_WIDTH
-            } else if awake {
-                STUB_WIDTH
             } else {
-                STUB_REST_WIDTH
+                STUB_WIDTH
             }))
-            .height(Length::Fixed(STUB_HEIGHT))
+            .height(Length::Fixed(if hovered {
+                STUB_PANEL_HEIGHT
+            } else if awake {
+                STUB_HEIGHT_AWAKE
+            } else {
+                STUB_REST_HEIGHT
+            }))
             .class(if hovered {
                 card_button_class(colour)
             } else {
@@ -669,37 +692,52 @@ impl Fleck {
                 .cmp(&self.note_mtime(a.frontmatter.uuid))
         });
 
-        // The diagonal belongs to the stubs at the ends of what is on screen,
-        // which moves as the strip scrolls.
-        let offset = self.strip_offset.get(&id).copied().unwrap_or(0.0);
-        let topmost = (offset / STUB_HEIGHT).round().max(0.0) as usize;
-        let bottommost = (topmost + STUBS_VISIBLE - 1).min(notes.len() - 1);
-        let mut strip = widget::Column::with_capacity(notes.len());
+        let final_tab = notes.len() - 1;
+        let mut strip = widget::Row::with_capacity(notes.len());
         for (position, note) in notes.into_iter().enumerate() {
-            strip =
-                strip.push(self.note_stub(id, note, position == topmost, position == bottommost));
+            strip = strip.push(self.note_stub(id, note, position == final_tab));
         }
-        // Five stubs' worth of strip; the rest is reached with the wheel.
-        let height = STUBS_VISIBLE as f32 * STUB_HEIGHT;
+
         // The strip as a whole is what wakes the bars into named stubs; an
         // individual stub is what opens a panel.
         Some(
             widget::mouse_area(
                 widget::container(
                     widget::scrollable(strip)
-                        .direction(cosmic::iced::widget::scrollable::Direction::Vertical(
+                        .id(strip_id(id))
+                        .direction(cosmic::iced::widget::scrollable::Direction::Horizontal(
                             cosmic::iced::widget::scrollable::Scrollbar::hidden(),
                         ))
                         .on_scroll(move |viewport| {
-                            Message::NoteStripScrolled(id, viewport.absolute_offset().y)
+                            Message::NoteStripScrolled(id, viewport.absolute_offset().x)
                         })
-                        .height(Length::Fixed(height)),
+                        .width(Length::Fill),
                 )
-                .height(Length::Fill)
-                .align_y(cosmic::iced::alignment::Vertical::Center),
+                .width(Length::Fill)
+                // Only as tall as the strip needs: a container filling the
+                // note would mean the mouse never left the strip, so it stayed
+                // awake while you typed.
+                .height(Length::Fixed(
+                    if self.stub_hovered.is_some_and(|(w, _)| w == id) {
+                        STUB_PANEL_HEIGHT
+                    } else if self.strip_hovered == Some(id) {
+                        STUB_HEIGHT_AWAKE
+                    } else {
+                        STUB_BAND
+                    },
+                ))
+                .align_x(cosmic::iced::alignment::Horizontal::Left)
+                .align_y(cosmic::iced::alignment::Vertical::Top),
             )
             .on_enter(Message::NoteStripHover(id, true))
             .on_exit(Message::NoteStripHover(id, false))
+            .on_scroll(move |delta| {
+                let movement = match delta {
+                    cosmic::iced::mouse::ScrollDelta::Lines { x, y } => (x + y) * STUB_WHEEL_LINE,
+                    cosmic::iced::mouse::ScrollDelta::Pixels { x, y } => x + y,
+                };
+                Message::NoteStripWheel(id, movement)
+            })
             .into(),
         )
     }

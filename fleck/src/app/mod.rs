@@ -203,8 +203,11 @@ pub enum Message {
     /// The mouse moved onto (or off) the strip as a whole, which is what wakes
     /// the bars into named stubs.
     NoteStripHover(window::Id, bool),
-    /// A note's strip was scrolled: how far down it now sits.
+    /// A note's strip was scrolled: how far along it now sits.
     NoteStripScrolled(window::Id, f32),
+    /// The wheel turned over a note's strip. The strip runs across the note, so
+    /// a plain wheel scrolls it sideways rather than doing nothing.
+    NoteStripWheel(window::Id, f32),
     /// A click outside an open note menu.
     NoteMenuClose(window::Id),
     /// "Edit name" in a note's menu: open the rename dialog.
@@ -1654,7 +1657,14 @@ impl cosmic::Application for Fleck {
                 };
                 Task::none()
             }
+            // A click in the note puts the strip away as well as the menu.
             Message::NoteMenuClose(id) => {
+                if self.strip_hovered == Some(id) {
+                    self.strip_hovered = None;
+                }
+                if matches!(self.stub_hovered, Some((window, _)) if window == id) {
+                    self.stub_hovered = None;
+                }
                 if self.note_menu == Some(id) {
                     self.note_menu = None;
                 }
@@ -1997,6 +2007,20 @@ impl cosmic::Application for Fleck {
             Message::NoteStripScrolled(id, offset) => {
                 self.strip_offset.insert(id, offset);
                 Task::none()
+            }
+            Message::NoteStripWheel(id, delta) => {
+                // iced only turns the wheel sideways when shift is held, and a
+                // strip of tabs is a thing people expect to scroll without it.
+                // The scrollable clamps the far end; zero is this end.
+                let offset = (self.strip_offset.get(&id).copied().unwrap_or(0.0) - delta).max(0.0);
+                self.strip_offset.insert(id, offset);
+                cosmic::iced::widget::scrollable::scroll_to(
+                    note::strip_id(id),
+                    cosmic::iced::widget::scrollable::AbsoluteOffset {
+                        x: Some(offset),
+                        y: Some(0.0),
+                    },
+                )
             }
             Message::NoteStripHover(id, hovered) => {
                 if hovered {

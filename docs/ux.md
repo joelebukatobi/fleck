@@ -109,6 +109,28 @@ Modelled on the Windows Sticky Notes list window.
 - Resizing the window fills the new space with lines.
 - Text must sit on the lines, and the lines scroll with the text.
 
+## The strip of other notes
+
+- Across the top of a note, under its title bar, sits a **tab per other note**,
+  coloured like that note's card.
+- **At rest** the tabs are 6 px bars of colour and nothing else, so the strip
+  reads as something tucked under the title bar rather than a panel over the
+  note. The note's first line of text starts below them.
+- **With the mouse over the strip** the tabs grow to 28 px and show as much of
+  each note's name as fits, cut with an ellipsis.
+- **With the mouse on one tab**, it opens into a panel with the note's whole
+  name and the first lines of its text.
+- **Clicking a tab shows that note in this window.** No window opens or closes:
+  the window keeps its place and changes what it holds. The note being left is
+  saved first.
+- Notes that already have a window of their own are left out, so no two windows
+  can ever hold the same note.
+- The strip runs the full width of the note and scrolls sideways when there are
+  more tabs than fit. It has no scrollbar: an ordinary wheel over the strip
+  scrolls it, as does a sideways swipe.
+- Clicking in the note puts the strip back to sleep, as does moving the mouse
+  off the band along the top.
+
 ## Images in a note
 
 - **Putting one in:** paste it (Ctrl+V), or drag image files onto the note. Either way
