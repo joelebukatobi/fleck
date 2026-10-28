@@ -42,7 +42,8 @@ Modelled on the Windows Sticky Notes list window.
 - Fleck is sticky notes, not a notes app. Each note is its own window; the list
   never turns into a note.
 
-- A note opens in its own window.
+- A note opens in its own window, and **the list stays where it is** - opening a
+  note, or making a new one, never closes the list you were reading.
 - Closing a note does not delete it. It goes back to the list.
 - Deleting a note is its own separate action.
 - An empty note — no name, no text — is thrown away when you close it.

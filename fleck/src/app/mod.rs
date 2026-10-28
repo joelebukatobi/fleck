@@ -112,16 +112,6 @@ fn next_all_visible(visible: &[bool]) -> bool {
     !visible.iter().any(|v| *v)
 }
 
-/// Whether `Message::PickNote` should close the list after acting on a
-/// pick: only when the picked note actually existed. Closing the list
-/// unconditionally quits the whole app when nothing else is visible (see
-/// `Message::NoteClosed`'s list branch) - so a pick on a note deleted
-/// between the list rendering and the click, which leaves `show_note` a
-/// no-op, must not also close the list right along with it.
-fn pick_note_closes_list(existed: bool) -> bool {
-    existed
-}
-
 /// Whether each note is *meant* to be visible, held as explicit intent
 /// rather than derived from `self.windows` (which only updates once the
 /// compositor's asynchronous `Closed` event actually arrives). Updated
@@ -1406,26 +1396,14 @@ impl cosmic::Application for Fleck {
     #[allow(clippy::too_many_lines)] // one arm per message
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::NewNote => {
-                let (_, task) = self.create_note();
-                Task::batch([task, self.close_list()])
-            }
-            Message::PickNote(uuid) => {
-                // Only close the list when the pick actually opened (or
-                // would have opened, had it not already been visible) a
-                // note. `show_note` no-ops silently for a uuid the list is
-                // still showing a stale button for - the note was deleted
-                // between the list rendering and the click - and with
-                // nothing else visible, closing the list unconditionally
-                // used to exit the whole app right along with it.
-                let existed = self.notes.contains_key(&uuid);
-                let show = self.show_note(uuid);
-                if pick_note_closes_list(existed) {
-                    Task::batch([show, self.close_list()])
-                } else {
-                    show
-                }
-            }
+            // Like picking one, creating a note leaves the list open.
+            Message::NewNote => self.create_note().1,
+            // Picking a note leaves the list where it is: the two windows sit
+            // side by side, so a note can be opened without losing the list
+            // you were reading. Nothing here can quit the app either, which
+            // closing the list used to risk when the picked note had been
+            // deleted between the list rendering and the click.
+            Message::PickNote(uuid) => self.show_note(uuid),
             Message::ReopenSession => {
                 let candidates = std::mem::take(&mut self.restore_candidates);
                 let shows: Vec<Task<Message>> = candidates
@@ -2463,8 +2441,9 @@ mod tests {
             "the new note must be intent-visible as soon as it's created"
         );
 
-        // Simulate the compositor actually finishing the close that
-        // `Message::NewNote`'s `close_list()` requested.
+        // `NewNote` no longer closes the list, but the list can still be
+        // closed by hand straight after creating a note - which is the case
+        // this guards: the app must not exit while that note is visible.
         let _ = app.update(Message::NoteClosed(list_id));
 
         assert!(
@@ -2623,42 +2602,8 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    /// Finding 4: `PickNote` on a note deleted between the list rendering
-    /// and the click must leave the list open, not quit the app.
-    ///
-    /// This is the pure decision `update`'s `PickNote` arm defers to
-    /// (`pick_note_closes_list`), extracted specifically because the
-    /// runtime effect it gates - whether `close_list()`'s `window::close`
-    /// task actually gets included in the returned `Task` batch - has no
-    /// way to be observed from a unit test: `cosmic::app::Task` requires a
-    /// real executor to run, and `NoteClosed` only ever arrives once the
-    /// compositor confirms a close it was actually asked to make. Firing
-    /// `NoteClosed(list_id)` by hand here wouldn't test the fix; it would
-    /// only test `NoteClosed`'s (already covered) exit-on-empty-intent
-    /// branch regardless of whether `PickNote` ever asked for the close. So
-    /// this is exactly the boundary this task's brief says to name rather
-    /// than paper over with a test that asserts nothing meaningful: full
-    /// end-to-end confirmation that a vanished note's pick truly leaves the
-    /// list open needs a live app.
-    #[test]
-    fn pick_note_closes_list_only_when_the_note_existed() {
-        assert!(
-            pick_note_closes_list(true),
-            "an existing note's pick must still close the list"
-        );
-        assert!(
-            !pick_note_closes_list(false),
-            "a vanished note must not close the list"
-        );
-    }
-
-    /// `update`'s `PickNote` arm must consult exactly this predicate (not
-    /// some other condition) to decide whether to close the list - checked
-    /// by exercising the arm on a note that was never created, where
-    /// `show_note` no-ops exactly like it would for one just deleted.
-    /// `app.list_window` and `app.notes` are the state this arm actually
-    /// reads; a `pick_note_closes_list(false)` outcome must correspond to
-    /// `show_note` itself being a no-op, which is what's checked here.
+    /// A pick on a note that was deleted between the list rendering and the
+    /// click does nothing at all: `show_note` no-ops, and the list stays.
     #[test]
     fn pick_note_on_a_missing_note_leaves_it_unshown() {
         let tmp = std::env::temp_dir().join(format!("fleck-test-pick-missing-{}", Uuid::new_v4()));
